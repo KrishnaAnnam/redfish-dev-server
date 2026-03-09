@@ -19,8 +19,10 @@ import logging
 import threading
 from http.server import HTTPServer
 
-# Add src directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
+# Add project root to path so src/ and scripts/ are importable
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _project_root)
+sys.path.insert(1, os.path.join(_project_root, 'scripts'))
 
 from src.config.settings import parse_arguments, ServerConfig
 from src.handlers.main_handler import RedfishMockupHandler

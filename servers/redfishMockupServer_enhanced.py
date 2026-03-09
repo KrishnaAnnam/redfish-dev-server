@@ -16,12 +16,15 @@ import signal
 import logging
 from argparse import ArgumentParser
 
-# Add src directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# Add project root to path so src/, scripts/, and servers/ are importable
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _project_root)
+sys.path.insert(1, os.path.join(_project_root, 'scripts'))
+sys.path.insert(2, os.path.join(_project_root, 'servers'))
 
 # Import base server components
 from redfishMockupServer_modular import main as base_main, parse_arguments as base_parse_arguments
-from src.config.server_config import ServerConfig
+from src.config.settings import ServerConfig
 
 # Import enhanced services
 from src.services.message_service import init_message_service

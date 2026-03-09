@@ -17,7 +17,6 @@ import secrets
 from http.server import BaseHTTPRequestHandler
 from ..utils.file_utils import construct_path, get_cached_link, send_header_file
 from ..services.event_service import EventServiceHandler
-from ..services.oem_actions_service import OEMActionsService
 from ..services.update_service import UpdateServiceHandler
 
 # Plugin system - RAS and Telemetry are now plugins, not core services
@@ -138,7 +137,6 @@ class BaseRedfishHandler(BaseHTTPRequestHandler):
 
     def __init__(self, request, client_address, server):
         self.event_service = EventServiceHandler(server.config)
-        self.oem_actions_service = OEMActionsService(server.config)
         self.update_service = UpdateServiceHandler(server.config)
         
         # Initialize plugin loader and load configured plugins

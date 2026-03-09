@@ -1,0 +1,14 @@
+# Web UI Dependencies for BMC Redfish Simulator
+
+# Core Web Framework
+Flask>=2.3.0
+flask-cors>=4.0.0
+
+# System Monitoring
+psutil>=5.9.0
+
+# HTTP Client (for Redfish client)
+requests>=2.31.0
+
+# JSON Schema Validation (optional)
+jsonschema>=4.17.0

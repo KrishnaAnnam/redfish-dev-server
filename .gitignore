@@ -1,0 +1,410 @@
+# BMC Redfish Simulator - Git Ignore File
+
+# ============================================================================
+# Python
+# ============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+docs/_static/
+docs/_templates/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# ============================================================================
+# IDEs and Editors
+# ============================================================================
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.*.sw[a-z]
+*.un~
+Session.vim
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Eclipse
+.project
+.pydevproject
+.settings/
+
+# NetBeans
+nbproject/
+build/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+
+# ============================================================================
+# Operating Systems
+# ============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+.directory
+.Trash-*
+.nfs*
+
+# ============================================================================
+# Project Specific
+# ============================================================================
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*~
+demo_report.json
+
+# Log files
+*.log
+logs/
+*.log.*
+
+# Local configuration files
+config.local.json
+config.local.yaml
+config.local.yml
+.env.local
+.env.*.local
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# SSL certificates (if any local test certificates)
+*.pem
+*.key
+*.crt
+*.csr
+*.der
+ssl/
+certs/
+
+# Database files (if any)
+*.db
+*.sqlite
+*.sqlite3
+
+# Testing output
+test-results/
+test-output/
+.test-results/
+
+# Performance/profiling data
+*.prof
+*.lprof
+profile.txt
+.benchmarks/
+
+# Documentation builds
+docs/_build/
+docs/build/
+_build/
+sphinx-build/
+
+# User-specific mockup directories (keep example/public ones)
+# Uncomment if you want to ignore custom mockup directories
+# /mockups/*
+# !/mockups/public-rackmount1/
+
+# Virtual environment directories
+.virtualenv/
+.virtualenvs/
+
+# Docker volumes and data
+docker-compose.override.yml
+.docker/
+docker-data/
+
+# Kubernetes configs
+*.kubeconfig
+.kube/
+
+# Node modules (if any JavaScript tools are added)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# ============================================================================
+# Sensitive Information (NEVER COMMIT)
+# ============================================================================
+
+# API keys and secrets
+secrets.json
+secrets.yaml
+secrets.yml
+.secrets
+*.secret
+credentials.json
+auth.json
+
+# Private keys
+*.pem
+*_rsa
+*_rsa.pub
+id_dsa
+id_dsa.pub
+*.ppk
+
+# Environment files with secrets
+.env
+.env.production
+.env.development
+.env.test
+
+# Personal notes and todos (if you want to keep them private)
+NOTES.md
+TODO.md
+PERSONAL_TODO.md
+
+# Analysis and improvement documentation (not for public repo)
+CLAUDE_45_ANALYSIS_AND_IMPROVEMENTS.md
+QUICK_IMPLEMENTATION_GUIDE.md
+
+# Reference implementations (external code for study/integration)
+# These contain third-party code that should not be committed
+references/
+
+# ============================================================================
+# Optional: Temporary/Working Files
+# ============================================================================
+
+# These might be generated during development but not needed in repo
+FINAL_STATUS.txt
+demo_report.json
+
+# ============================================================================
+# Keep These Files (Examples - Explicitly NOT Ignored)
+# ============================================================================
+
+# These are commented out to show what SHOULD be committed
+# Uncomment lines starting with ! to explicitly include files
+
+# !requirements.txt
+# !requirements_modular.txt
+# !Dockerfile
+# !docker-compose.yml
+# !.github/workflows/*.yml
+# !mockups/public-rackmount1/
+# !examples/
+# !src/
+# !*.py
+# !*.md
+# !LICENSE
+# !README.md
+
+# Archive directory for working documents
+archive/
+
+# Generated Office documents
+*.docx
+*.pptx
+*.xlsx
+
+# RAS Plugin demo output
+ras_demo_output/
+
+# Runtime EventService subscriptions
+mockups/*/redfish/v1/EventService/Subscriptions/EventSubscription*/
+
+# Simple server test files
+simple_ras_server*.py
+
+# Temporary demo scripts
+examples/run_ras_parity_demo.sh
+
+# libcper - fetched on demand by build_libcper.sh
+src/plugins/ras/libcper/

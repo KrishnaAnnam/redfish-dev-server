@@ -1,0 +1,64 @@
+{
+    "platform_id": "example_server", 
+    "platform_type": "generic",
+    "display_name": "Example Rackmount Server",
+    "version": "1.0.0",
+    "description": "Example rackmount server configuration for BMC simulator",
+    
+    "extensions": [
+        "telemetry"
+    ],
+    
+    "enabled_services": [
+        "EventService",
+        "TelemetryService", 
+        "UpdateService",
+        "TaskService",
+        "SessionService",
+        "AccountService",
+        "CertificateService",
+        "BiosConfig",
+        "StorageService",
+        "PowerThermal"
+    ],
+    
+    "system_info": {
+        "Manufacturer": "Example Corp.",
+        "Model": "Rackmount Server S100",
+        "SerialNumber": "ABC1234",
+        "PartNumber": "SRV-100", 
+        "SystemType": "Physical",
+        "BiosVersion": "2.15.0"
+    },
+    
+    "manager_info": {
+        "ManagerType": "BMC",
+        "FirmwareVersion": "1.0.0",
+        "Model": "BMC Controller",
+        "Manufacturer": "Example Corp."
+    },
+    
+    "chassis_info": {
+        "ChassisType": "RackMount",
+        "Manufacturer": "Example Corp.", 
+        "Model": "Rackmount Server S100",
+        "SerialNumber": "ABC1234",
+        "PartNumber": "SRV-100"
+    },
+    
+    "service_settings": {
+        "EventService": {
+            "max_subscriptions": 10,
+            "delivery_retry_attempts": 3,
+            "delivery_retry_interval_seconds": 60,
+            "supported_protocols": ["Redfish"]
+        },
+        "TelemetryService": {
+            "max_reports": 100,
+            "retention_period_days": 7
+        },
+        "SessionService": {
+            "session_timeout_minutes": 30
+        }
+    }
+}

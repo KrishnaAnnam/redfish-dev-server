@@ -1,0 +1,9 @@
+requests
+grequests
+requests-toolbelt
+
+# Web UI Dependencies (optional - for webui/ features)
+# Install separately with: pip install -r webui/requirements_webui.txt
+# Flask>=2.3.0
+# flask-cors>=4.0.0
+# psutil>=5.9.0

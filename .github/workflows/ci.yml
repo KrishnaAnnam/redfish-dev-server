@@ -37,12 +37,12 @@ jobs:
     - name: Run Basic Demo Tests
       run: |
         echo "Running basic functionality tests..."
-        python3 test_basic_ci.py
+        python3 tests/test_basic_ci.py
     
     - name: Test Schema Validation
       run: |
         echo "Testing schema validation..."
-        PYTHONPATH=src python3 test_patch_validation.py || {
+        PYTHONPATH=src python3 tests/test_patch_validation.py || {
           echo "Schema validation test failed, but continuing..."
           exit 0
         }
@@ -50,7 +50,7 @@ jobs:
     - name: Test Redfish Message Generation  
       run: |
         echo "Testing Redfish message generation..."
-        python3 test_redfish_messages.py || {
+        python3 tests/test_redfish_messages.py || {
           echo "Redfish message test failed, but continuing..."
           exit 0
         }
@@ -58,7 +58,7 @@ jobs:
     - name: Test Modular Server
       run: |
         echo "Testing modular server functionality..."
-        python3 test_modular_server.py || {
+        python3 tests/test_modular_server.py || {
           echo "Modular server test failed, but continuing..."
           exit 0
         }
@@ -83,13 +83,8 @@ jobs:
     
     - name: Test Server Startup
       run: |
-        # Create the redfish directory structure
-        mkdir -p public-rackmount1/redfish/v1
-        cp public-rackmount1/index.json public-rackmount1/redfish/v1/
-        cp -r public-rackmount1/Systems public-rackmount1/redfish/v1/ 2>/dev/null || true
-        
-        # Start server in background
-        timeout 30s python3 redfishMockupServer_modular.py -D public-rackmount1 -p 8001 &
+        # Start server in background using the mockup bundled in the repo
+        timeout 30s python3 servers/redfishMockupServer_modular.py -D mockups/public-rackmount1 -p 8001 &
         SERVER_PID=$!
         
         # Wait for startup

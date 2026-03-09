@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BMC Redfish Simulator - Server Control Panel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #667eea;
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .card h2 {
+            color: #667eea;
+            font-size: 20px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-running { background: #10b981; }
+        .status-stopped { background: #ef4444; }
+        .status-warning { background: #f59e0b; }
+
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background: #5568d3;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-warning {
+            background: #f59e0b;
+        }
+
+        .btn-warning:hover {
+            background: #d97706;
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .log-container {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-radius: 3px;
+        }
+
+        .log-info { color: #4fc3f7; }
+        .log-success { color: #10b981; }
+        .log-warning { color: #f59e0b; }
+        .log-error { color: #ef4444; }
+
+        .stat-box {
+            background: #f3f4f6;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .control-panel {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .info-label {
+            color: #666;
+            font-weight: 600;
+        }
+
+        .info-value {
+            color: #333;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-success { background: #d1fae5; color: #065f46; }
+        .badge-danger { background: #fee2e2; color: #991b1b; }
+        .badge-info { background: #dbeafe; color: #1e40af; }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+            border-left: 4px solid #10b981;
+        }
+
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border-left: 4px solid #ef4444;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading {
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🖥️ BMC Redfish Simulator - Server Control Panel</h1>
+            <p class="subtitle">Configure, monitor, and control your Redfish simulator server</p>
+        </header>
+
+        <div id="alert" class="alert"></div>
+
+        <div class="grid">
+            <!-- Server Status -->
+            <div class="card">
+                <h2>
+                    <span id="statusIndicator" class="status-indicator status-stopped"></span>
+                    Server Status
+                </h2>
+                <div class="stat-box">
+                    <div class="stat-label">Current State</div>
+                    <div class="stat-value" id="serverState">Stopped</div>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">PID</span>
+                    <span class="info-value" id="serverPid">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Uptime</span>
+                    <span class="info-value" id="serverUptime">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Started At</span>
+                    <span class="info-value" id="serverStartTime">-</span>
+                </div>
+                <div class="control-panel">
+                    <button class="btn" id="btnStart" onclick="startServer()">▶ Start Server</button>
+                    <button class="btn btn-danger" id="btnStop" onclick="stopServer()" disabled>⏹ Stop Server</button>
+                    <button class="btn btn-warning" id="btnRestart" onclick="restartServer()" disabled>🔄 Restart</button>
+                </div>
+            </div>
+
+            <!-- Server Statistics -->
+            <div class="card">
+                <h2>📊 Statistics</h2>
+                <div class="stat-box">
+                    <div class="stat-label">Total Requests</div>
+                    <div class="stat-value" id="statsTotal">0</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Successful Requests</div>
+                    <div class="stat-value" style="color: #10b981;" id="statsSuccess">0</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Failed Requests</div>
+                    <div class="stat-value" style="color: #ef4444;" id="statsError">0</div>
+                </div>
+            </div>
+
+            <!-- Server Configuration -->
+            <div class="card">
+                <h2>⚙️ Configuration</h2>
+                <div class="form-group">
+                    <label for="configHost">Host</label>
+                    <input type="text" id="configHost" value="0.0.0.0" placeholder="0.0.0.0">
+                </div>
+                <div class="form-group">
+                    <label for="configPort">Port</label>
+                    <input type="number" id="configPort" value="8000" placeholder="8000">
+                </div>
+                <div class="form-group">
+                    <label for="configMockup">Mockup Directory</label>
+                    <select id="configMockup">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="configPlatform">Platform Type</label>
+                    <select id="configPlatform">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="configSSL">
+                    <label for="configSSL">Enable SSL/TLS</label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs -->
+        <div class="card">
+            <h2>📋 Server Logs</h2>
+            <div class="control-panel">
+                <button class="btn" onclick="refreshLogs()">🔄 Refresh</button>
+                <button class="btn btn-danger" onclick="clearLogs()">🗑️ Clear Logs</button>
+                <label style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
+                    Filter:
+                    <select id="logFilter" onchange="refreshLogs()">
+                        <option value="">All</option>
+                        <option value="info">Info</option>
+                        <option value="success">Success</option>
+                        <option value="warning">Warning</option>
+                        <option value="error">Error</option>
+                    </select>
+                </label>
+            </div>
+            <div class="log-container" id="logContainer">
+                <div class="log-entry log-info">Waiting for server to start...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let refreshInterval = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadMockups();
+            loadPlatforms();
+            updateStatus();
+            startAutoRefresh();
+        });
+
+        function startAutoRefresh() {
+            refreshInterval = setInterval(() => {
+                updateStatus();
+                refreshLogs();
+            }, 2000);
+        }
+
+        function stopAutoRefresh() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+        }
+
+        async function updateStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const status = await response.json();
+                
+                // Update UI
+                const isRunning = status.running;
+                document.getElementById('serverState').textContent = isRunning ? 'Running' : 'Stopped';
+                document.getElementById('statusIndicator').className = 
+                    `status-indicator ${isRunning ? 'status-running' : 'status-stopped'}`;
+                
+                document.getElementById('serverPid').textContent = status.pid || '-';
+                document.getElementById('serverUptime').textContent = 
+                    status.uptime ? formatUptime(status.uptime) : '-';
+                document.getElementById('serverStartTime').textContent = 
+                    status.start_time ? new Date(status.start_time).toLocaleString() : '-';
+                
+                // Update stats
+                if (status.stats) {
+                    document.getElementById('statsTotal').textContent = status.stats.requests_total || 0;
+                    document.getElementById('statsSuccess').textContent = status.stats.requests_success || 0;
+                    document.getElementById('statsError').textContent = status.stats.requests_error || 0;
+                }
+                
+                // Update buttons
+                document.getElementById('btnStart').disabled = isRunning;
+                document.getElementById('btnStop').disabled = !isRunning;
+                document.getElementById('btnRestart').disabled = !isRunning;
+                
+            } catch (error) {
+                console.error('Failed to update status:', error);
+            }
+        }
+
+        async function startServer() {
+            const config = {
+                host: document.getElementById('configHost').value,
+                port: parseInt(document.getElementById('configPort').value),
+                mockup_dir: document.getElementById('configMockup').value,
+                platform_type: document.getElementById('configPlatform').value,
+                ssl: document.getElementById('configSSL').checked
+            };
+            
+            try {
+                const response = await fetch('/api/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(config)
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert('Server started successfully!', 'success');
+                    updateStatus();
+                } else {
+                    showAlert('Failed to start server: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Error starting server: ' + error.message, 'error');
+            }
+        }
+
+        async function stopServer() {
+            try {
+                const response = await fetch('/api/stop', {method: 'POST'});
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert('Server stopped successfully!', 'success');
+                    updateStatus();
+                } else {
+                    showAlert('Failed to stop server: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Error stopping server: ' + error.message, 'error');
+            }
+        }
+
+        async function restartServer() {
+            try {
+                const response = await fetch('/api/restart', {method: 'POST'});
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert('Server restarted successfully!', 'success');
+                    updateStatus();
+                } else {
+                    showAlert('Failed to restart server: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Error restarting server: ' + error.message, 'error');
+            }
+        }
+
+        async function refreshLogs() {
+            const filter = document.getElementById('logFilter').value;
+            try {
+                const url = '/api/logs?limit=100' + (filter ? `&level=${filter}` : '');
+                const response = await fetch(url);
+                const logs = await response.json();
+                
+                const container = document.getElementById('logContainer');
+                container.innerHTML = '';
+                
+                if (logs.length === 0) {
+                    container.innerHTML = '<div class="log-entry log-info">No logs available</div>';
+                } else {
+                    logs.forEach(log => {
+                        const entry = document.createElement('div');
+                        entry.className = `log-entry log-${log.level}`;
+                        entry.textContent = `[${new Date(log.timestamp).toLocaleTimeString()}] ${log.message}`;
+                        container.appendChild(entry);
+                    });
+                    container.scrollTop = container.scrollHeight;
+                }
+            } catch (error) {
+                console.error('Failed to refresh logs:', error);
+            }
+        }
+
+        async function clearLogs() {
+            if (!confirm('Are you sure you want to clear all logs?')) return;
+            
+            try {
+                await fetch('/api/logs/clear', {method: 'POST'});
+                refreshLogs();
+                showAlert('Logs cleared', 'success');
+            } catch (error) {
+                showAlert('Failed to clear logs', 'error');
+            }
+        }
+
+        async function loadMockups() {
+            try {
+                const response = await fetch('/api/mockups');
+                const mockups = await response.json();
+                
+                const select = document.getElementById('configMockup');
+                select.innerHTML = '<option value="">Select mockup directory...</option>';
+                
+                mockups.forEach(mockup => {
+                    const option = document.createElement('option');
+                    option.value = mockup.path;
+                    option.textContent = `${mockup.name} (${formatBytes(mockup.size)})`;
+                    select.appendChild(option);
+                });
+                
+                if (mockups.length > 0) {
+                    select.value = mockups[0].path;
+                }
+            } catch (error) {
+                console.error('Failed to load mockups:', error);
+            }
+        }
+
+        async function loadPlatforms() {
+            try {
+                const response = await fetch('/api/platforms');
+                const platforms = await response.json();
+                
+                const select = document.getElementById('configPlatform');
+                select.innerHTML = '';
+                
+                platforms.forEach(platform => {
+                    const option = document.createElement('option');
+                    option.value = platform.id;
+                    option.textContent = platform.name;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Failed to load platforms:', error);
+            }
+        }
+
+        function showAlert(message, type) {
+            const alert = document.getElementById('alert');
+            alert.textContent = message;
+            alert.className = `alert alert-${type}`;
+            alert.style.display = 'block';
+            
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 5000);
+        }
+
+        function formatUptime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${hours}h ${minutes}m ${secs}s`;
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+    </script>
+</body>
+</html>

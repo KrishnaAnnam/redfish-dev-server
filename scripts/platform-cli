@@ -1,0 +1,499 @@
+#!/usr/bin/env python3
+"""
+Platform Development CLI Tool
+
+Command-line interface for creating, testing, and managing standalone platform implementations.
+This tool allows developers to work independently on platform-specific BMC simulators.
+"""
+
+import os
+import sys
+import json
+import argparse
+import logging
+import subprocess
+import time
+import requests
+from typing import Dict, Any, List, Optional
+from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
+try:
+    from standalone.platform_simulator import (
+        PlatformDevelopmentKit,
+        StandalonePlatformInterface,
+        StandalonePlatformServer,
+        TestFramework
+    )
+except ImportError as e:
+    print(f"❌ Error: Could not import platform simulator modules: {e}")
+    print("   Make sure you're running from the Redfish-Mockup-Server directory")
+    print("   and that src/standalone/platform_simulator.py exists")
+    sys.exit(1)
+
+
+class PlatformCLI:
+    """Command-line interface for platform development"""
+    
+    def __init__(self):
+        self.logger = logging.getLogger("PlatformCLI")
+        self.current_dir = os.getcwd()
+    
+    def create_platform(self, platform_id: str, platform_name: str, output_dir: str):
+        """Create a new platform implementation"""
+        print(f"🏗️  Creating {platform_name} platform...")
+        
+        # Create development kit
+        dev_kit = PlatformDevelopmentKit(platform_id, platform_name)
+        
+        # Generate platform structure
+        platform_dir = dev_kit.generate_platform_structure(output_dir)
+        
+        print(f"✅ Platform created successfully!")
+        print(f"📁 Platform directory: {platform_dir}")
+        print(f"\n📋 Next steps:")
+        print(f"  1. cd {platform_dir}")
+        print(f"  2. python platform.py --test  # Run tests")
+        print(f"  3. python platform.py         # Start server")
+        print(f"  4. Edit platform.py to customize behavior")
+        
+        return platform_dir
+    
+    def list_platforms(self, search_dir: str = "."):
+        """List available platform implementations"""
+        platforms = []
+        
+        # Search for platform directories
+        platforms_dir = os.path.join(search_dir, "platforms")
+        if os.path.exists(platforms_dir):
+            for item in os.listdir(platforms_dir):
+                platform_path = os.path.join(platforms_dir, item)
+                if os.path.isdir(platform_path):
+                    platform_file = os.path.join(platform_path, "platform.py")
+                    if os.path.exists(platform_file):
+                        platforms.append({
+                            "id": item,
+                            "path": platform_path,
+                            "file": platform_file
+                        })
+        
+        if not platforms:
+            print("No platforms found.")
+            print(f"Search directory: {os.path.abspath(search_dir)}")
+            print("Use 'platform-cli create <platform_id>' to create a new platform.")
+            return
+        
+        print(f"📋 Available Platforms ({len(platforms)} found):")
+        print()
+        
+        for platform in platforms:
+            print(f"  🔧 {platform['id']}")
+            print(f"     Path: {platform['path']}")
+            
+            # Try to get platform info
+            try:
+                info = self._get_platform_info(platform['file'])
+                if info:
+                    print(f"     Name: {info.get('name', 'Unknown')}")
+                    print(f"     Endpoints: {len(info.get('endpoints', []))} supported")
+            except Exception as e:
+                print(f"     Status: Error loading info ({e})")
+            
+            print()
+    
+    def test_platform(self, platform_path: str, verbose: bool = False):
+        """Run tests for a platform"""
+        platform_file = os.path.join(platform_path, "platform.py")
+        
+        if not os.path.exists(platform_file):
+            print(f"❌ Platform file not found: {platform_file}")
+            return False
+        
+        print(f"🧪 Running tests for platform: {platform_path}")
+        
+        # Run platform tests
+        cmd = [sys.executable, "platform.py", "--test"]
+        
+        try:
+            if verbose:
+                result = subprocess.run(cmd, cwd=platform_path, check=False)
+            else:
+                result = subprocess.run(cmd, cwd=platform_path, 
+                                      capture_output=True, text=True, check=False)
+                
+                # Parse and display results
+                if result.stdout:
+                    print(result.stdout)
+                if result.stderr:
+                    print("Errors:", result.stderr)
+            
+            if result.returncode == 0:
+                print("✅ All tests passed!")
+                return True
+            else:
+                print("❌ Some tests failed!")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error running tests: {e}")
+            return False
+    
+    def run_platform(self, platform_path: str, host: str = "127.0.0.1", 
+                    port: int = 8000, background: bool = False):
+        """Run a platform server"""
+        platform_file = os.path.join(platform_path, "platform.py")
+        
+        if not os.path.exists(platform_file):
+            print(f"❌ Platform file not found: {platform_file}")
+            return False
+        
+        print(f"🚀 Starting platform server: {platform_path}")
+        print(f"   Host: {host}")
+        print(f"   Port: {port}")
+        print(f"   URL: http://{host}:{port}/redfish/v1/")
+        
+        cmd = [sys.executable, "platform.py", "--host", host, "--port", str(port)]
+        
+        try:
+            if background:
+                # Start in background
+                process = subprocess.Popen(cmd, cwd=platform_path)
+                print(f"🔄 Server started in background (PID: {process.pid})")
+                print("   Use 'platform-cli stop' to stop the server")
+                
+                # Wait a bit and test if server is responsive
+                time.sleep(2)
+                try:
+                    response = requests.get(f"http://{host}:{port}/redfish/v1/", timeout=5)
+                    if response.status_code == 200:
+                        print("✅ Server is responding!")
+                    else:
+                        print(f"⚠️  Server responded with status {response.status_code}")
+                except Exception as e:
+                    print(f"⚠️  Could not verify server status: {e}")
+                
+                return True
+            else:
+                # Run in foreground
+                print("   Press Ctrl+C to stop the server")
+                result = subprocess.run(cmd, cwd=platform_path)
+                return result.returncode == 0
+                
+        except KeyboardInterrupt:
+            print("\n🛑 Server stopped by user")
+            return True
+        except Exception as e:
+            print(f"❌ Error running server: {e}")
+            return False
+    
+    def validate_platform(self, platform_path: str):
+        """Validate a platform implementation"""
+        platform_file = os.path.join(platform_path, "platform.py")
+        
+        print(f"🔍 Validating platform: {platform_path}")
+        
+        # Check file structure
+        required_files = ["platform.py", "README.md"]
+        optional_files = ["test_platform.py"]
+        
+        missing_files = []
+        for filename in required_files:
+            filepath = os.path.join(platform_path, filename)
+            if os.path.exists(filepath):
+                print(f"✅ {filename} - Found")
+            else:
+                print(f"❌ {filename} - Missing")
+                missing_files.append(filename)
+        
+        for filename in optional_files:
+            filepath = os.path.join(platform_path, filename)
+            if os.path.exists(filepath):
+                print(f"✅ {filename} - Found (optional)")
+            else:
+                print(f"ℹ️  {filename} - Not found (optional)")
+        
+        # Check platform info
+        try:
+            info = self._get_platform_info(platform_file)
+            if info:
+                print(f"✅ Platform info loaded successfully")
+                print(f"   Name: {info.get('name', 'Unknown')}")
+                print(f"   ID: {info.get('id', 'Unknown')}")
+                print(f"   Endpoints: {len(info.get('endpoints', []))}")
+            else:
+                print(f"❌ Could not load platform info")
+                missing_files.append("platform info")
+        except Exception as e:
+            print(f"❌ Error loading platform: {e}")
+            missing_files.append("valid platform")
+        
+        # Run basic tests
+        print(f"\n🧪 Running validation tests...")
+        test_passed = self.test_platform(platform_path, verbose=False)
+        
+        if missing_files:
+            print(f"\n❌ Validation failed. Missing: {', '.join(missing_files)}")
+            return False
+        elif not test_passed:
+            print(f"\n❌ Validation failed. Tests did not pass.")
+            return False
+        else:
+            print(f"\n✅ Platform validation passed!")
+            return True
+    
+    def benchmark_platform(self, platform_path: str, host: str = "127.0.0.1", 
+                          port: int = 8000, requests_count: int = 100):
+        """Benchmark a platform implementation"""
+        print(f"📊 Benchmarking platform: {platform_path}")
+        print(f"   Requests: {requests_count}")
+        
+        # Start server in background
+        platform_file = os.path.join(platform_path, "platform.py")
+        cmd = [sys.executable, platform_file, "--host", host, "--port", str(port)]
+        
+        server_process = None
+        try:
+            # Start server
+            server_process = subprocess.Popen(cmd, cwd=platform_path,
+                                            stdout=subprocess.PIPE, 
+                                            stderr=subprocess.PIPE)
+            
+            # Wait for server to start
+            time.sleep(3)
+            
+            # Test endpoints
+            base_url = f"http://{host}:{port}"
+            endpoints = [
+                "/redfish/v1/",
+                "/redfish/v1/Systems/", 
+                "/redfish/v1/Systems/1/",
+                "/redfish/v1/Managers/",
+                "/redfish/v1/Chassis/"
+            ]
+            
+            results = {}
+            
+            for endpoint in endpoints:
+                print(f"   Testing {endpoint}...")
+                
+                times = []
+                success_count = 0
+                
+                for i in range(requests_count):
+                    try:
+                        start_time = time.time()
+                        response = requests.get(f"{base_url}{endpoint}", timeout=5)
+                        end_time = time.time()
+                        
+                        if response.status_code == 200:
+                            success_count += 1
+                            times.append((end_time - start_time) * 1000)  # Convert to ms
+                    
+                    except Exception:
+                        pass  # Count as failure
+                
+                if times:
+                    avg_time = sum(times) / len(times)
+                    min_time = min(times)
+                    max_time = max(times)
+                    success_rate = success_count / requests_count
+                    
+                    results[endpoint] = {
+                        "avg_time_ms": avg_time,
+                        "min_time_ms": min_time,
+                        "max_time_ms": max_time,
+                        "success_rate": success_rate,
+                        "total_requests": requests_count
+                    }
+                else:
+                    results[endpoint] = {
+                        "error": "No successful requests"
+                    }
+            
+            # Print results
+            print(f"\n📈 Benchmark Results:")
+            print(f"{'Endpoint':<30} {'Avg (ms)':<10} {'Min (ms)':<10} {'Max (ms)':<10} {'Success':<10}")
+            print("-" * 80)
+            
+            for endpoint, result in results.items():
+                if "error" in result:
+                    print(f"{endpoint:<30} {'ERROR':<40}")
+                else:
+                    avg = f"{result['avg_time_ms']:.2f}"
+                    min_t = f"{result['min_time_ms']:.2f}"
+                    max_t = f"{result['max_time_ms']:.2f}"
+                    success = f"{result['success_rate']:.1%}"
+                    print(f"{endpoint:<30} {avg:<10} {min_t:<10} {max_t:<10} {success:<10}")
+            
+            return results
+            
+        except Exception as e:
+            print(f"❌ Benchmark failed: {e}")
+            return None
+        
+        finally:
+            # Stop server
+            if server_process:
+                server_process.terminate()
+                server_process.wait()
+    
+    def _get_platform_info(self, platform_file: str) -> Optional[Dict[str, Any]]:
+        """Get platform information by importing the module"""
+        try:
+            # This is a simplified approach - in production you'd want
+            # more sophisticated module loading
+            import importlib.util
+            
+            spec = importlib.util.spec_from_file_location("platform_module", platform_file)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            # Find platform class
+            platform_class = None
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                if (isinstance(attr, type) and 
+                    hasattr(attr, 'get_platform_id') and 
+                    attr_name.endswith('Platform')):
+                    platform_class = attr
+                    break
+            
+            if platform_class:
+                # Create instance and get info
+                platform = platform_class()
+                return {
+                    "id": platform.get_platform_id(),
+                    "name": platform.get_platform_name(),
+                    "endpoints": platform.get_supported_endpoints()
+                }
+            
+        except Exception as e:
+            self.logger.debug(f"Error loading platform info: {e}")
+        
+        return None
+
+
+def main():
+    """Main CLI entry point"""
+    parser = argparse.ArgumentParser(
+        description="Platform Development CLI Tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Create new platform
+  platform-cli create myvendor --name "MyVendor BMC"
+  
+  # List available platforms
+  platform-cli list
+  
+  # Test a platform
+  platform-cli test platforms/myvendor/
+  
+  # Run a platform server
+  platform-cli run platforms/myvendor/ --port 8001
+  
+  # Validate platform implementation
+  platform-cli validate platforms/myvendor/
+  
+  # Benchmark platform performance
+  platform-cli benchmark platforms/myvendor/ --requests 50
+"""
+    )
+    
+    # Global options
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
+    parser.add_argument("--log-level", default="INFO", 
+                       choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                       help="Set logging level")
+    
+    # Subcommands
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    
+    # Create command
+    create_parser = subparsers.add_parser("create", help="Create new platform")
+    create_parser.add_argument("platform_id", help="Platform identifier (e.g., 'myvendor')")
+    create_parser.add_argument("--name", help="Platform display name")
+    create_parser.add_argument("--output", default=".", help="Output directory")
+    
+    # List command
+    list_parser = subparsers.add_parser("list", help="List available platforms")
+    list_parser.add_argument("--dir", default=".", help="Search directory")
+    
+    # Test command
+    test_parser = subparsers.add_parser("test", help="Test platform implementation")
+    test_parser.add_argument("platform_path", help="Path to platform directory")
+    test_parser.add_argument("--verbose", action="store_true", help="Verbose test output")
+    
+    # Run command
+    run_parser = subparsers.add_parser("run", help="Run platform server")
+    run_parser.add_argument("platform_path", help="Path to platform directory")
+    run_parser.add_argument("--host", default="127.0.0.1", help="Server host")
+    run_parser.add_argument("--port", type=int, default=8000, help="Server port")
+    run_parser.add_argument("--background", action="store_true", help="Run in background")
+    
+    # Validate command
+    validate_parser = subparsers.add_parser("validate", help="Validate platform implementation")
+    validate_parser.add_argument("platform_path", help="Path to platform directory")
+    
+    # Benchmark command
+    benchmark_parser = subparsers.add_parser("benchmark", help="Benchmark platform performance")
+    benchmark_parser.add_argument("platform_path", help="Path to platform directory")
+    benchmark_parser.add_argument("--host", default="127.0.0.1", help="Server host")
+    benchmark_parser.add_argument("--port", type=int, default=8000, help="Server port")
+    benchmark_parser.add_argument("--requests", type=int, default=100, help="Number of requests")
+    
+    args = parser.parse_args()
+    
+    # Setup logging
+    log_level = getattr(logging, args.log_level.upper())
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Create CLI instance
+    cli = PlatformCLI()
+    
+    # Execute command
+    try:
+        if args.command == "create":
+            platform_name = args.name or f"{args.platform_id.title()} Platform"
+            cli.create_platform(args.platform_id, platform_name, args.output)
+        
+        elif args.command == "list":
+            cli.list_platforms(args.dir)
+        
+        elif args.command == "test":
+            success = cli.test_platform(args.platform_path, args.verbose)
+            sys.exit(0 if success else 1)
+        
+        elif args.command == "run":
+            success = cli.run_platform(args.platform_path, args.host, args.port, args.background)
+            sys.exit(0 if success else 1)
+        
+        elif args.command == "validate":
+            success = cli.validate_platform(args.platform_path)
+            sys.exit(0 if success else 1)
+        
+        elif args.command == "benchmark":
+            results = cli.benchmark_platform(args.platform_path, args.host, args.port, args.requests)
+            sys.exit(0 if results else 1)
+        
+        else:
+            parser.print_help()
+    
+    except KeyboardInterrupt:
+        print("\n🛑 Operation cancelled by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

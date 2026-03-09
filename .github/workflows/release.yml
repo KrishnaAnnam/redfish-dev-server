@@ -1,0 +1,131 @@
+name: Release and Publish
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 2.0.0)'
+        required: true
+      changes_1:
+        description: 'Change entry'
+        required: true
+      changes_2:
+        description: 'Change entry'
+        required: false
+      changes_3:
+        description: 'Change entry'
+        required: false
+      changes_4:
+        description: 'Change entry'
+        required: false
+      changes_5:
+        description: 'Change entry'
+        required: false
+      changes_6:
+        description: 'Change entry'
+        required: false
+      changes_7:
+        description: 'Change entry'
+        required: false
+      changes_8:
+        description: 'Change entry'
+        required: false
+jobs:
+  release_build:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        token: ${{secrets.GITHUB_TOKEN}}
+    - name: Build the changelog text
+      run: |
+        echo 'CHANGES<<EOF' >> $GITHUB_ENV
+        echo "## [${{github.event.inputs.version}}] - $(date +'%Y-%m-%d')" >> $GITHUB_ENV
+        echo "- ${{github.event.inputs.changes_1}}" >> $GITHUB_ENV
+        if [[ -n "${{github.event.inputs.changes_2}}" ]]; then echo "- ${{github.event.inputs.changes_2}}" >> $GITHUB_ENV; fi
+        if [[ -n "${{github.event.inputs.changes_3}}" ]]; then echo "- ${{github.event.inputs.changes_3}}" >> $GITHUB_ENV; fi
+        if [[ -n "${{github.event.inputs.changes_4}}" ]]; then echo "- ${{github.event.inputs.changes_4}}" >> $GITHUB_ENV; fi
+        if [[ -n "${{github.event.inputs.changes_5}}" ]]; then echo "- ${{github.event.inputs.changes_5}}" >> $GITHUB_ENV; fi
+        if [[ -n "${{github.event.inputs.changes_6}}" ]]; then echo "- ${{github.event.inputs.changes_6}}" >> $GITHUB_ENV; fi
+        if [[ -n "${{github.event.inputs.changes_7}}" ]]; then echo "- ${{github.event.inputs.changes_7}}" >> $GITHUB_ENV; fi
+        if [[ -n "${{github.event.inputs.changes_8}}" ]]; then echo "- ${{github.event.inputs.changes_8}}" >> $GITHUB_ENV; fi
+        echo "" >> $GITHUB_ENV
+        echo 'EOF' >> $GITHUB_ENV
+    - name: Update version numbers
+      run: |
+        # Update version in settings.py
+        if [ -f "src/config/settings.py" ]; then
+          sed -i -E 's/tool_version: str = .+/tool_version: str = "'${{github.event.inputs.version}}'"/' src/config/settings.py
+          echo "Updated tool_version in src/config/settings.py"
+        else
+          echo "Warning: src/config/settings.py not found"
+        fi
+        
+        # Update version in src/__init__.py
+        if [ -f "src/__init__.py" ]; then
+          sed -i -E 's/__version__ = .+/__version__ = "'${{github.event.inputs.version}}'"/' src/__init__.py
+          echo "Updated __version__ in src/__init__.py"
+        else
+          echo "Warning: src/__init__.py not found"
+        fi
+        
+        # Update version in redfish_client/__init__.py
+        if [ -f "redfish_client/__init__.py" ]; then
+          sed -i -E 's/__version__ = .+/__version__ = "'${{github.event.inputs.version}}'"/' redfish_client/__init__.py
+          echo "Updated __version__ in redfish_client/__init__.py"
+        else
+          echo "Warning: redfish_client/__init__.py not found"
+        fi
+    - name: Update the changelog
+      run: |
+        ex CHANGELOG.md <<eof
+        3 insert
+        $CHANGES
+        .
+        xit
+        eof
+    - name: Commit and push the updates
+      run: |
+        git config user.name "GitHub Release Workflow"
+        git config user.email "<>"
+        
+        # Add files that exist
+        files_to_add=""
+        if [ -f "CHANGELOG.md" ]; then files_to_add="$files_to_add CHANGELOG.md"; fi
+        if [ -f "src/config/settings.py" ]; then files_to_add="$files_to_add src/config/settings.py"; fi
+        if [ -f "src/__init__.py" ]; then files_to_add="$files_to_add src/__init__.py"; fi  
+        if [ -f "redfish_client/__init__.py" ]; then files_to_add="$files_to_add redfish_client/__init__.py"; fi
+        
+        if [ -n "$files_to_add" ]; then
+          git add $files_to_add
+          git commit -s -m "${{github.event.inputs.version}} versioning" || echo "No changes to commit"
+          git push origin main
+        else
+          echo "No files to update found"
+        fi
+    - name: Create GitHub release
+      env:
+        GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+      run: |
+        gh release create ${{github.event.inputs.version}} -t ${{github.event.inputs.version}} -n "Changes since last release:"$'\n\n'"$CHANGES"
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v2
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{secrets.DOCKER_USERNAME}}
+        password: ${{secrets.DOCKER_PASSWORD}}
+      if: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != '' }}
+    - name: Build and push Docker image
+      id: docker_build
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != '' }}
+        tags: ${{secrets.DOCKER_USERNAME}}/bmc-redfish-simulator:${{github.event.inputs.version}},${{secrets.DOCKER_USERNAME}}/bmc-redfish-simulator:latest
+      if: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != '' }}
+    - name: Image digest
+      run: echo ${{steps.docker_build.outputs.digest}}
+      if: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != '' }}

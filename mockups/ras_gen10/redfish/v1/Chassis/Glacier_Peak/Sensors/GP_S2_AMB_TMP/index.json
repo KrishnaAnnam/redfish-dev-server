@@ -1,0 +1,16 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/Glacier_Peak/Sensors/GP_S2_AMB_TMP",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "GP_S2_AMB_TMP Sensor",
+  "Id": "GP_S2_AMB_TMP",
+  "Name": "GP S2 AMB TMP",
+  "Reading": 59.875,
+  "ReadingRangeMax": 127.0,
+  "ReadingRangeMin": -128.0,
+  "ReadingType": "Temperature",
+  "ReadingUnits": "Cel",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

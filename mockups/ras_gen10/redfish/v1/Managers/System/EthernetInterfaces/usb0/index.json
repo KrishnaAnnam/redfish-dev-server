@@ -1,0 +1,63 @@
+{
+  "@odata.id": "/redfish/v1/Managers/System/EthernetInterfaces/usb0",
+  "@odata.type": "#EthernetInterface.v1_4_1.EthernetInterface",
+  "DHCPv4": {
+    "DHCPEnabled": false,
+    "UseDNSServers": true,
+    "UseDomainName": true,
+    "UseNTPServers": true
+  },
+  "DHCPv6": {
+    "OperatingMode": "Disabled",
+    "UseDNSServers": true,
+    "UseDomainName": true,
+    "UseNTPServers": true
+  },
+  "Description": "Management Network Interface",
+  "FQDN": "m1120-c219b",
+  "HostName": "m1120-c219b",
+  "IPv4Addresses": [
+    {
+      "Address": "10.235.100.0",
+      "AddressOrigin": "Static",
+      "Gateway": "0.0.0.0",
+      "SubnetMask": "255.255.255.254"
+    }
+  ],
+  "IPv4StaticAddresses": [
+    {
+      "Address": "10.235.100.0",
+      "AddressOrigin": "Static",
+      "Gateway": "0.0.0.0",
+      "SubnetMask": "255.255.255.254"
+    }
+  ],
+  "IPv6AddressPolicyTable": [],
+  "IPv6Addresses": [
+    {
+      "Address": "fe80::82f:52ff:fe8e:fc70",
+      "AddressOrigin": "LinkLocal",
+      "AddressState": null,
+      "PrefixLength": 64
+    }
+  ],
+  "IPv6DefaultGateway": "0:0:0:0:0:0:0:0",
+  "IPv6StaticAddresses": [],
+  "Id": "usb0",
+  "InterfaceEnabled": false,
+  "LinkStatus": "LinkUp",
+  "MACAddress": "0a:2f:52:8e:fc:70",
+  "MTUSize": 1500,
+  "Name": "Manager Ethernet Interface",
+  "NameServers": [],
+  "SpeedMbps": 0,
+  "StaticNameServers": [],
+  "Status": {
+    "Health": "OK",
+    "HealthRollup": "OK",
+    "State": "Disabled"
+  },
+  "VLANs": {
+    "@odata.id": "/redfish/v1/Managers/System/EthernetInterfaces/usb0/VLANs"
+  }
+}

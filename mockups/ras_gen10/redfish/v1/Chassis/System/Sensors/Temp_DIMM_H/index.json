@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_H",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Temp_DIMM_H Sensor",
+  "Id": "Temp_DIMM_H",
+  "Name": "Temp DIMM H",
+  "Reading": 32.0,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": -127.0,
+  "ReadingType": "Temperature",
+  "ReadingUnits": "Cel",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": null
+    },
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 83.0
+    },
+    "UpperCritical": {
+      "Reading": 85.0
+    },
+    "UpperFatal": {
+      "Reading": 94.0
+    }
+  }
+}

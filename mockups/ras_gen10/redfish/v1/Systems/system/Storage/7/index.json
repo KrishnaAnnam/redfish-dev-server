@@ -1,0 +1,13 @@
+{
+  "@odata.id": "/redfish/v1/Systems/system/Storage/7",
+  "@odata.type": "#Storage.v1_7_1.Storage",
+  "Id": "7",
+  "Name": "OnBoard SSD",
+  "Status": {
+    "Health": "OK",
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "SupportedControllerProtocols": "PCIe",
+  "SupportedDeviceProtocols": "PCIe"
+}

@@ -1,0 +1,27 @@
+{
+  "@odata.id": "/redfish/v1/Managers/System/LogServices",
+  "@odata.type": "#LogServiceCollection.LogServiceCollection",
+  "Description": "Collection of LogServices for this Manager",
+  "Members": [
+    {
+      "@odata.id": "/redfish/v1/Managers/System/LogServices/Journal"
+    },
+    {
+      "@odata.id": "/redfish/v1/Managers/System/LogServices/EventLog"
+    },
+    {
+      "@odata.id": "/redfish/v1/Managers/System/LogServices/Dump"
+    },
+    {
+      "@odata.id": "/redfish/v1/Managers/System/LogServices/FaultLog"
+    },
+    {
+      "@odata.id": "/redfish/v1/Managers/System/LogServices/PostCode0"
+    },
+    {
+      "@odata.id": "/redfish/v1/Managers/System/LogServices/RAS"
+    }
+  ],
+  "Members@odata.count": 6,
+  "Name": "Open BMC Log Services Collection"
+}

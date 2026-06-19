@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_SUS_CUR",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "VR_SUS_CUR Sensor",
+  "Id": "VR_SUS_CUR",
+  "Name": "VR SUS CUR",
+  "Reading": 10.687,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Current",
+  "ReadingUnits": "A",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": null
+    },
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 175.0
+    },
+    "UpperCritical": {
+      "Reading": 180.0
+    },
+    "UpperFatal": {
+      "Reading": 185.0
+    }
+  }
+}

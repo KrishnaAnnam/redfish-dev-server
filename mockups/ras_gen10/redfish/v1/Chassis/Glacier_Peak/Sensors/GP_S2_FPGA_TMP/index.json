@@ -1,0 +1,30 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/Glacier_Peak/Sensors/GP_S2_FPGA_TMP",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "GP_S2_FPGA_TMP Sensor",
+  "Id": "GP_S2_FPGA_TMP",
+  "Name": "GP S2 FPGA TMP",
+  "Reading": 74.063,
+  "ReadingRangeMax": 127.0,
+  "ReadingRangeMin": -128.0,
+  "ReadingType": "Temperature",
+  "ReadingUnits": "Cel",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCritical": {
+      "Reading": 91.0
+    },
+    "UpperFatal": {
+      "Reading": 100.0
+    }
+  }
+}

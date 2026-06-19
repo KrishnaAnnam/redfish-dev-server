@@ -1,0 +1,11 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/BIOS_SMI_Timeout",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "BIOS_SMI_Timeout Sensor",
+  "Id": "BIOS_SMI_Timeout",
+  "Name": "BIOS SMI Timeout",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "@odata.id": "/redfish/v1/Managers/System/NetworkProtocol/HTTPS/Certificates/1",
+  "@odata.type": "#Certificate.v1_0_0.Certificate",
+  "CertificateString": "-----BEGIN CERTIFICATE-----\nMIICQDCCAcegAwIBAgIEZcAdszAKBggqhkjOPQQDAjA1MQswCQYDVQQGEwJVUzEQ\nMA4GA1UECgwHT3BlbkJNQzEUMBIGA1UEAwwLbTExMjAtYzIxOWIwHhcNMjUwOTI1\nMTczODE0WhcNMzUwOTIzMTczODE0WjA1MQswCQYDVQQGEwJVUzEQMA4GA1UECgwH\nT3BlbkJNQzEUMBIGA1UEAwwLbTExMjAtYzIxOWIwdjAQBgcqhkjOPQIBBgUrgQQA\nIgNiAASJg7QUIUfF+IH0Fd2PeFQi8e5LJfvMoFD73EX0iWU0qY2LHN18tIrcBALo\nP4Q/Cg+2UU75/ud2TjfR5HnRfFR0K0OMdmZmtVJr0ZH2tpfmxiAHH2mRS0939dTi\nWFRFcrWjgacwgaQwDwYDVR0TAQH/BAUwAwEB/zAWBgNVHREEDzANggttMTEyMC1j\nMjE5YjAdBgNVHQ4EFgQUXdb7uyHJoNdYIWNHfVF5/CHI1H4wCQYDVR0jBAIwADAL\nBgNVHQ8EBAMCBaAwEwYDVR0lBAwwCgYIKwYBBQUHAwEwLQYJYIZIAYb4QgENBCAW\nHkdlbmVyYXRlZCBmcm9tIE9wZW5CTUMgc2VydmljZTAKBggqhkjOPQQDAgNnADBk\nAjBr3/1RI1y5Q+5MXRpgofkjA6PX70FxJ4kiu49nTypZ8BxW+Ne3XcVL9L2BnOQM\n+NkCMCHT+WuupEhwRlxGYPXScjEqxj0ouqQb7hUBWxwWjln9WHb0OY71ieBduHM8\npMJI9Q==\n-----END CERTIFICATE-----\n",
+  "Description": "HTTPS Certificate",
+  "Id": "1",
+  "Issuer": {
+    "CommonName": "m1120-c219b",
+    "Country": "US",
+    "Organization": "OpenBMC"
+  },
+  "KeyUsage": [
+    "KeyEncipherment",
+    "ServerAuthentication"
+  ],
+  "Name": "HTTPS Certificate",
+  "Subject": {
+    "CommonName": "m1120-c219b",
+    "Country": "US",
+    "Organization": "OpenBMC"
+  },
+  "ValidNotAfter": "2035-09-23T17:38:14+00:00",
+  "ValidNotBefore": "2025-09-25T17:38:14+00:00"
+}

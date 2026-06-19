@@ -1,0 +1,53 @@
+{
+    "header": {
+        "revision": {
+            "major": 1,
+            "minor": 0
+        },
+        "sectionCount": 1,
+        "urgency": false,
+        "confidence": 100,
+        "recordLength": 284,
+        "timestamp": "2026-01-21T14:59:32+00:00",
+        "timestampIsPrecise": true,
+        "platformID": "990f8820-bd4d-5064-58cc-961a053dea79",
+        "partitionID": "22222222-3333-4444-5555-666666666666",
+        "creatorID": "11111111-2222-3333-4444-555555555555",
+        "notificationType": {
+            "guid": "2dce8bb1-bdd7-450e-b9ad-9cf4ebd4f890",
+            "type": "Corrected Machine Check (CMC)"
+        },
+        "recordID": 123456790,
+        "flags": 0
+    },
+    "sectionDescriptors": [
+        {
+            "sectionOffset": 202,
+            "sectionLength": 96,
+            "revision": {
+                "major": 1,
+                "minor": 0
+            },
+            "flags": 0,
+            "sectionType": {
+                "data": "12345678-abcd-ef00-1234-567890abcdef",
+                "type": "Unknown"
+            },
+            "fruID": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+            "urgency": false,
+            "confidence": 100,
+            "fruText": "DIMM A1",
+            "actionID": {
+                "code": "0x0006",
+                "name": "Inject Error"
+            }
+        }
+    ],
+    "sections": [
+        {
+            "Unknown": {
+                "data": "//////////8VAAQAAAAAAHuP4VSUdUJpNl2CkAm+c3oAAAAAAAAAAAAAAADSBAAANwIAAAAAAAADAAAAAAIAAAAAAAAAAAAALCiuzGjI5zcAAAAAAAAAAAAAAAAAAAAA"
+            }
+        }
+    ]
+}

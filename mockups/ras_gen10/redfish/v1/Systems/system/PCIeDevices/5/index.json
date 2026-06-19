@@ -1,0 +1,9 @@
+{
+  "@odata.id": "/redfish/v1/Systems/system/PCIeDevices/5",
+  "@odata.type": "#PCIeDevice.v1_4_0.PCIeDevice",
+  "Id": "5",
+  "Name": "PCIe Device",
+  "PCIeFunctions": {
+    "@odata.id": "/redfish/v1/Systems/system/PCIeDevices/5/PCIeFunctions"
+  }
+}

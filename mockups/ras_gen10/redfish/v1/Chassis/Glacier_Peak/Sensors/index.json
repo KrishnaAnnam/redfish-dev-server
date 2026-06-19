@@ -1,0 +1,24 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/Glacier_Peak/Sensors",
+  "@odata.type": "#SensorCollection.SensorCollection",
+  "Description": "Collection of Sensors for this Chassis",
+  "Members": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/Glacier_Peak/Sensors/GP_S2_POWER"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/Glacier_Peak/Sensors/GP_S2_AMB_TMP"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/Glacier_Peak/Sensors/GP_S2_FPGA_TMP"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/Glacier_Peak/Sensors/GP_S2_HSC_TMP"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/Glacier_Peak/Sensors/GP_S2_SOC_TMP"
+    }
+  ],
+  "Members@odata.count": 5,
+  "Name": "Sensors"
+}

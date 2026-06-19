@@ -1,0 +1,22 @@
+{
+  "@odata.context": "/redfish/v1/$metadata#SerialInterface.SerialInterface",
+  "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces/ttyS5",
+  "@odata.type": "#SerialInterface.v1_1_5.SerialInterface",
+  "BitRate": "115200",
+  "DataBits": "8",
+  "Description": "Serial device @ /dev/ttyS5",
+  "FlowControl": "None",
+  "Id": "ttyS5",
+  "InterfaceEnabled": true,
+  "Name": "ttyS5",
+  "Oem": {
+    "ConsoleLog": {
+      "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces/GP/ConsoleLog",
+      "LastUpdated": "2025-10-08T19:42:11+00:00",
+      "Name": "GP",
+      "OutputSize": 10378
+    }
+  },
+  "Parity": "None",
+  "StopBits": "1"
+}

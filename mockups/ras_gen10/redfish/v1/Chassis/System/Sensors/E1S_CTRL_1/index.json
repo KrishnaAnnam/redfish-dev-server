@@ -1,0 +1,14 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_CTRL_1",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "E1S_CTRL_1 Sensor",
+  "Id": "E1S_CTRL_1",
+  "Name": "E1S CTRL 1",
+  "Reading": 248.0,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/P3V_BAT",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "P3V_BAT Sensor",
+  "Id": "P3V_BAT",
+  "Name": "P3V BAT",
+  "Reading": 3.1788,
+  "ReadingRangeMax": 5.454545237801301,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Voltage",
+  "ReadingUnits": "V",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 2.204
+    },
+    "LowerCritical": {
+      "Reading": 2.117
+    },
+    "LowerFatal": {
+      "Reading": 2.001
+    },
+    "UpperCaution": {
+      "Reading": 3.915
+    },
+    "UpperCritical": {
+      "Reading": 3.944
+    },
+    "UpperFatal": {
+      "Reading": 4.002
+    }
+  }
+}

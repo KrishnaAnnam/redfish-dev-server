@@ -1,0 +1,17 @@
+{
+  "platform_name": "RAS GEN10 Platform",
+  "platform_type": "enterprise_server",
+  "plugins": [
+    {
+      "name": "ras",
+      "enabled": true,
+      "config": {
+        "log_service_enabled": true,
+        "event_service_enabled": true,
+        "queue_enabled": true,
+        "analytics_enabled": true,
+        "remediation_enabled": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_4B",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Fan_4B Sensor",
+  "Id": "Fan_4B",
+  "Name": "Fan 4B",
+  "Reading": 7695.0,
+  "ReadingRangeMax": 25000.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Rotational",
+  "ReadingUnits": "RPM",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 1000.0
+    },
+    "LowerCritical": {
+      "Reading": 600.0
+    },
+    "UpperCaution": {
+      "Reading": null
+    },
+    "UpperCritical": {
+      "Reading": null
+    }
+  }
+}

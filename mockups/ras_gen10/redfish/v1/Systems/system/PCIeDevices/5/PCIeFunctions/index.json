@@ -1,0 +1,7 @@
+{
+  "@odata.id": "/redfish/v1/Systems/system/PCIeDevices/5/PCIeFunctions",
+  "@odata.type": "#PCIeFunctionCollection.PCIeFunctionCollection",
+  "Description": "Collection of PCIe Functions for PCIe Device 5",
+  "Members": [],
+  "Name": "PCIe Function Collection"
+}

@@ -1,0 +1,19 @@
+{
+  "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/BMC",
+  "@odata.type": "#SoftwareInventory.v1_1_0.SoftwareInventory",
+  "Description": "BMC image",
+  "Id": "BMC",
+  "Name": "Software Inventory",
+  "RelatedItem": [
+    {
+      "@odata.id": "/redfish/v1/Managers/System"
+    }
+  ],
+  "RelatedItem@odata.count": 1,
+  "Status": {
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "Updateable": true,
+  "Version": "25.7.25"
+}

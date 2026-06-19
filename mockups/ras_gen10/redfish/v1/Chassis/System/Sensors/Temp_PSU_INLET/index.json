@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_PSU_INLET",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Temp_PSU_INLET Sensor",
+  "Id": "Temp_PSU_INLET",
+  "Name": "Temp PSU INLET",
+  "Reading": 26.0,
+  "ReadingRangeMax": 127.0,
+  "ReadingRangeMin": -128.0,
+  "ReadingType": "Temperature",
+  "ReadingUnits": "Cel",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": null
+    },
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 55.0
+    },
+    "UpperCritical": {
+      "Reading": 56.0
+    },
+    "UpperFatal": {
+      "Reading": 71.0
+    }
+  }
+}

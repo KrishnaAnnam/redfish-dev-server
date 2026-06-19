@@ -1,0 +1,30 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/P1V8_AUX_HPM",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "P1V8_AUX_HPM Sensor",
+  "Id": "P1V8_AUX_HPM",
+  "Name": "P1V8 AUX HPM",
+  "Reading": 1.859,
+  "ReadingRangeMax": 1.8,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Voltage",
+  "ReadingUnits": "V",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 1.69
+    },
+    "LowerCritical": {
+      "Reading": 1.62
+    },
+    "UpperCaution": {
+      "Reading": 1.91
+    },
+    "UpperCritical": {
+      "Reading": 2.001
+    }
+  }
+}

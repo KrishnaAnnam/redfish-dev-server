@@ -1,0 +1,13 @@
+{
+  "@odata.context": "/redfish/v1/$metadata#EthernetInterfaceCollection.EthernetInterface",
+  "@odata.id": "/redfish/v1/Systems/system/EnthernetInterfaces/0",
+  "@odata.type": "#EthernetInterface.v1_5_1.EthernetInterface",
+  "Description": "NIC0 Information from Bios",
+  "Id": "0",
+  "MACAddress": "04:27:28:1e:08:d9",
+  "Name": "NIC 0",
+  "Status": {
+    "Health": "OK",
+    "state": "Enabled"
+  }
+}

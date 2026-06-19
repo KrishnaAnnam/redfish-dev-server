@@ -1,0 +1,34 @@
+{
+    "@odata.type": "#LogService.v1_4_0.LogService",
+    "@odata.id": "/redfish/v1/Managers/System/LogServices/RAS",
+    "Id": "RAS",
+    "Name": "RAS Log Service",
+    "Description": "Log service for Reliability, Availability, and Serviceability (RAS) error records in CPER format",
+    "ServiceEnabled": true,
+    "MaxNumberOfRecords": 1000,
+    "OverWritePolicy": "WrapsWhenFull",
+    "DateTime": "2026-01-22T00:00:00Z",
+    "DateTimeLocalOffset": "+00:00",
+    "Status": {
+        "State": "Enabled",
+        "Health": "OK"
+    },
+    "Entries": {
+        "@odata.id": "/redfish/v1/Managers/System/LogServices/RAS/Entries"
+    },
+    "Actions": {
+        "#LogService.ClearLog": {
+            "target": "/redfish/v1/Managers/System/LogServices/RAS/Actions/LogService.ClearLog"
+        }
+    },
+    "Oem": {
+        "RasProto": {
+            "@odata.type": "#RasProto.v1_0_0.LogServiceExtension",
+            "RecordFormat": "CPER",
+            "SupportedSeverities": ["Informational", "Corrected", "Uncorrected", "Fatal"],
+            "RelatedRASService": {
+                "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService"
+            }
+        }
+    }
+}

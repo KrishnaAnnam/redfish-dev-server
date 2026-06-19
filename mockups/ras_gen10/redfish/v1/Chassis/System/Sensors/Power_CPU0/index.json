@@ -1,0 +1,16 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_CPU0",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Power_CPU0 Sensor",
+  "Id": "Power_CPU0",
+  "Name": "Power CPU0",
+  "Reading": 83.547,
+  "ReadingRangeMax": 400.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Power",
+  "ReadingUnits": "W",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

@@ -1,0 +1,51 @@
+{
+    "header": {
+        "revision": {
+            "major": 1,
+            "minor": 0
+        },
+        "sectionCount": 1,
+        "urgency": 0,
+        "confidence": 100,
+        "recordLength": 296,
+        "timestamp": "2026-01-23T12:00:00+00:00",
+        "timestampIsPrecise": true,
+        "platformID": "990f8820-bd4d-5064-58cc-961a053dea79",
+        "partitionID": "22222222-3333-4444-5555-666666666666",
+        "creatorID": "11111111-2222-3333-4444-555555555555",
+        "notificationType": {
+            "guid": "2dce8bb1-bdd7-450e-b9ad-9cf4ebd4f890",
+            "type": "CMC"
+        },
+        "recordID": 123456791,
+        "flags": 4
+    },
+    "sectionDescriptors": [
+        {
+            "sectionOffset": 200,
+            "sectionLength": 96,
+            "revision": {
+                "major": 1,
+                "minor": 0
+            },
+            "flags": 0,
+            "sectionType": {
+                "data": "61ec04fc-48e6-d813-25c9-8daa44750b12",
+                "type": "Platform Memory 2"
+            },
+            "fruID": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+            "fruText": "DIMM A1",
+            "actionID": {
+                "code": "0x8001",
+                "name": "Soft Post Package Repair"
+            }
+        }
+    ],
+    "sections": [
+        {
+            "Unknown": {
+                "data": "//////////8VAAQAAAAAAHuP4VSUdUJpNl2CkAm+c3oAAAAAAAAAAAAAAADSBAAANwIAAAAAAAADAAAAAAIAAAAAAAAAAAAALCiuzGjI5zcAAAAAAAAAAAAAAAAAAAAA"
+            }
+        }
+    ]
+}

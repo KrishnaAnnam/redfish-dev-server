@@ -104,7 +104,8 @@ class EventServiceHandler:
         # Reformat OriginOfCondition if present
         if 'OriginOfCondition' in data_received:
             origin_of_cond = data_received['OriginOfCondition']
-            data_received['OriginOfCondition'] = {'@odata.id': origin_of_cond}
+            if isinstance(origin_of_cond, str):
+                data_received['OriginOfCondition'] = {'@odata.id': origin_of_cond}
         
         # Build event payload
         event_payload = {
@@ -119,6 +120,13 @@ class EventServiceHandler:
             'Message': data_received.get('Message'),
             'EventType': 'Event'
         }
+        
+        # Forward optional fields from data_received into event_record
+        for optional_field in ('EventId', 'EventTimestamp', 'Severity',
+                               'MessageArgs', 'OriginOfCondition',
+                               'AdditionalDataURI'):
+            if optional_field in data_received:
+                event_record[optional_field] = data_received[optional_field]
         
         # Handle CPER data if present
         if "CPERError" in data_received.get('MessageId', ''):

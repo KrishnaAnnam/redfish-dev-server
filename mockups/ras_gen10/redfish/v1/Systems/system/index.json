@@ -1,0 +1,150 @@
+{
+  "@odata.id": "/redfish/v1/Systems/system",
+  "@odata.type": "#ComputerSystem.v1_16_0.ComputerSystem",
+  "Actions": {
+    "#ComputerSystem.Reset": {
+      "@Redfish.ActionInfo": "/redfish/v1/Systems/system/ResetActionInfo",
+      "target": "/redfish/v1/Systems/system/Actions/ComputerSystem.Reset"
+    }
+  },
+  "Bios": {
+    "@odata.id": "/redfish/v1/Systems/system/Bios"
+  },
+  "Boot": {
+    "AutomaticRetryAttempts": 3,
+    "AutomaticRetryConfig": "RetryAttempts",
+    "AutomaticRetryConfig@Redfish.AllowableValues": [
+      "Disabled",
+      "RetryAttempts"
+    ],
+    "BootSourceOverrideEnabled": "Disabled",
+    "BootSourceOverrideMode": "UEFI",
+    "BootSourceOverrideMode@Redfish.AllowableValues": [
+      "Legacy",
+      "UEFI"
+    ],
+    "BootSourceOverrideTarget": "Usb",
+    "BootSourceOverrideTarget@Redfish.AllowableValues": [
+      "None",
+      "Pxe",
+      "Hdd",
+      "Cd",
+      "Diags",
+      "BiosSetup",
+      "Usb"
+    ],
+    "TrustedModuleRequiredToBoot": "Disabled"
+  },
+  "Description": "Computer System",
+  "EthernetInterfaces": {
+    "@odata.id": "/redfish/v1/Systems/system/EthernetInterfaces"
+  },
+  "GraphicalConsole": {
+    "ConnectTypesSupported": [
+      "KVMIP"
+    ],
+    "MaxConcurrentSessions": 4,
+    "ServiceEnabled": true
+  },
+  "HostWatchdogTimer": {
+    "FunctionEnabled": false,
+    "Status": {
+      "State": "Enabled"
+    },
+    "TimeoutAction": "None"
+  },
+  "Id": "system",
+  "IndicatorLED": "Off",
+  "LastResetTime": "2025-10-08T22:26:30+00:00",
+  "Links": {
+    "Chassis": [
+      {
+        "@odata.id": "/redfish/v1/Chassis/DC_SCM"
+      }
+    ],
+    "ManagedBy": [
+      {
+        "@odata.id": "/redfish/v1/Managers/System"
+      }
+    ]
+  },
+  "LocationIndicatorActive": false,
+  "LogServices": {
+    "@odata.id": "/redfish/v1/Systems/system/LogServices"
+  },
+  "Memory": {
+    "@odata.id": "/redfish/v1/Systems/system/Memory"
+  },
+  "MemorySummary": {
+    "Status": {
+      "Health": "OK",
+      "HealthRollup": "OK",
+      "State": "Enabled"
+    },
+    "TotalSystemMemoryGiB": 1536
+  },
+  "Name": "system",
+  "PCIeDevices": [
+    {
+      "@odata.id": "/redfish/v1/Systems/system/PCIeDevices/15"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/PCIeDevices/16"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/PCIeDevices/17"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/PCIeDevices/18"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/PCIeDevices/19"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/PCIeDevices/20"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/PCIeDevices/25"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/PCIeDevices/26"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/PCIeDevices/5"
+    }
+  ],
+  "PCIeDevices@odata.count": 9,
+  "PowerRestorePolicy": "AlwaysOn",
+  "PowerState": "On",
+  "ProcessorSummary": {
+    "Count": 1,
+    "Status": {
+      "Health": "OK",
+      "HealthRollup": "OK",
+      "State": "Enabled"
+    }
+  },
+  "Processors": {
+    "@odata.id": "/redfish/v1/Systems/system/Processors"
+  },
+  "SerialConsole": {
+    "IPMI": {
+      "ServiceEnabled": true
+    },
+    "MaxConcurrentSessions": 15,
+    "SSH": {
+      "HotKeySequenceDisplay": "Press ~. to exit console",
+      "Port": 2200,
+      "ServiceEnabled": true
+    }
+  },
+  "Status": {
+    "Health": "OK",
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "Storage": {
+    "@odata.id": "/redfish/v1/Systems/system/Storage"
+  },
+  "SystemType": "Physical"
+}

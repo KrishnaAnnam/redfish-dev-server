@@ -1,0 +1,30 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/P3V3",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "P3V3 Sensor",
+  "Id": "P3V3",
+  "Name": "P3V3",
+  "Reading": 3.3528,
+  "ReadingRangeMax": 4.379561901524429,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Voltage",
+  "ReadingUnits": "V",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 3.1
+    },
+    "LowerCritical": {
+      "Reading": 2.97
+    },
+    "UpperCaution": {
+      "Reading": 3.5
+    },
+    "UpperCritical": {
+      "Reading": 3.63
+    }
+  }
+}

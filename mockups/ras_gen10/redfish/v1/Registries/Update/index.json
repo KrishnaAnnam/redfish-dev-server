@@ -1,0 +1,19 @@
+{
+  "@odata.id": "/redfish/v1/Registries/Update",
+  "@odata.type": "#MessageRegistryFile.v1_1_0.MessageRegistryFile",
+  "Description": "Update Message Registry File Location",
+  "Id": "Update",
+  "Languages": [
+    "en"
+  ],
+  "Languages@odata.count": 1,
+  "Location": [
+    {
+      "Language": "en",
+      "Uri": "/redfish/v1/Registries/Update/Update"
+    }
+  ],
+  "Location@odata.count": 1,
+  "Name": "Update Message Registry File",
+  "Registry": "Update.1.1.0"
+}

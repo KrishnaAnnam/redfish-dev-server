@@ -1,0 +1,11 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/BMC_Health",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "BMC_Health Sensor",
+  "Id": "BMC_Health",
+  "Name": "BMC Health",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

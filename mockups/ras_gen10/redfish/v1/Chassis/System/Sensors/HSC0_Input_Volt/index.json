@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/HSC0_Input_Volt",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "HSC0_Input_Volt Sensor",
+  "Id": "HSC0_Input_Volt",
+  "Name": "HSC0 Input Volt",
+  "Reading": 12.22,
+  "ReadingRangeMax": 300.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Voltage",
+  "ReadingUnits": "V",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 11.0
+    },
+    "LowerCritical": {
+      "Reading": 10.5
+    },
+    "LowerFatal": {
+      "Reading": 10.0
+    },
+    "UpperCaution": {
+      "Reading": 13.0
+    },
+    "UpperCritical": {
+      "Reading": 13.5
+    },
+    "UpperFatal": {
+      "Reading": 14.5
+    }
+  }
+}

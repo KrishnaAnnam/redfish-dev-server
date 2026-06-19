@@ -1,0 +1,30 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/Glacier_Peak/Sensors/GP_S2_SOC_TMP",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "GP_S2_SOC_TMP Sensor",
+  "Id": "GP_S2_SOC_TMP",
+  "Name": "GP S2 SOC TMP",
+  "Reading": 85.813,
+  "ReadingRangeMax": 127.0,
+  "ReadingRangeMin": -128.0,
+  "ReadingType": "Temperature",
+  "ReadingUnits": "Cel",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCritical": {
+      "Reading": 99.0
+    },
+    "UpperFatal": {
+      "Reading": 102.0
+    }
+  }
+}

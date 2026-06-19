@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/SCM_INLET_TMP",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "SCM_INLET_TMP Sensor",
+  "Id": "SCM_INLET_TMP",
+  "Name": "SCM INLET TMP",
+  "Reading": 26.396,
+  "ReadingRangeMax": 127.0,
+  "ReadingRangeMin": -128.0,
+  "ReadingType": "Temperature",
+  "ReadingUnits": "Cel",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": null
+    },
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 37.0
+    },
+    "UpperCritical": {
+      "Reading": 40.0
+    },
+    "UpperFatal": {
+      "Reading": 45.0
+    }
+  }
+}

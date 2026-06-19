@@ -1,0 +1,14 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/PSUFeed",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "PSUFeed Sensor",
+  "Id": "PSUFeed",
+  "Name": "PSUFeed",
+  "Reading": 187.0,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

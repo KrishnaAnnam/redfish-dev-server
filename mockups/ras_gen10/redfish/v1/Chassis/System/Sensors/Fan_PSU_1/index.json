@@ -1,0 +1,16 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_PSU_1",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Fan_PSU_1 Sensor",
+  "Id": "Fan_PSU_1",
+  "Name": "Fan PSU 1",
+  "Reading": 11200.0,
+  "ReadingRangeMax": 30000.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Rotational",
+  "ReadingUnits": "RPM",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

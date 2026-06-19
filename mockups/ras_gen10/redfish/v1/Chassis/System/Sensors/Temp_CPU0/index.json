@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_CPU0",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Temp_CPU0 Sensor",
+  "Id": "Temp_CPU0",
+  "Name": "Temp CPU0",
+  "Reading": 49.125,
+  "ReadingRangeMax": 127.0,
+  "ReadingRangeMin": -128.0,
+  "ReadingType": "Temperature",
+  "ReadingUnits": "Cel",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": null
+    },
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 96.0
+    },
+    "UpperCritical": {
+      "Reading": 97.0
+    },
+    "UpperFatal": {
+      "Reading": 113.0
+    }
+  }
+}

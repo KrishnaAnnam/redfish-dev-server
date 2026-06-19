@@ -1,0 +1,26 @@
+{
+  "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces",
+  "@odata.type": "#SerialInterfaceCollection.SerialInterfaceCollection",
+  "Members": [
+    {
+      "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces/ttyS5"
+    },
+    {
+      "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces/ttyS4"
+    },
+    {
+      "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces/ttyS3"
+    },
+    {
+      "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces/ttyS2"
+    },
+    {
+      "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces/ttyS1"
+    },
+    {
+      "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces/ttyS0"
+    }
+  ],
+  "Members@odata.count": 6,
+  "Name": "Serial Interface Collection"
+}

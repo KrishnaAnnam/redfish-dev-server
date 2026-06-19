@@ -1,0 +1,32 @@
+{
+  "@odata.id": "/redfish/v1/Systems/system/Storage",
+  "@odata.type": "#StorageCollection.StorageCollection",
+  "Members": [
+    {
+      "@odata.id": "/redfish/v1/Systems/system/Storage/1"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/Storage/2"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/Storage/3"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/Storage/4"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/Storage/5"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/Storage/6"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/Storage/7"
+    },
+    {
+      "@odata.id": "/redfish/v1/Systems/system/Storage/8"
+    }
+  ],
+  "Members@odata.count": 8,
+  "Name": "Storage Collection"
+}

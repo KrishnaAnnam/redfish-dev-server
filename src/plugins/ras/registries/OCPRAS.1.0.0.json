@@ -1,0 +1,410 @@
+{
+  "@odata.type": "#MessageRegistry.v1_6_2.MessageRegistry",
+  "Id": "OCPRAS.1.0.0",
+  "Name": "OCP RAS Message Registry",
+  "Language": "en",
+  "Description": "This registry defines messages for RAS (Reliability, Availability, Serviceability) operations including CPER/CPAD workflows, error queue management, repair operations, and policy enforcement.",
+  "RegistryPrefix": "OCPRAS",
+  "RegistryVersion": "1.0.0",
+  "OwningEntity": "OCP",
+  "Messages": {
+    "CorrectedMemoryError": {
+      "Description": "A corrected (ECC) memory error was detected and handled by hardware.",
+      "Message": "Corrected memory error on %1 at address %2.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": [
+        "Memory device identifier",
+        "Physical address"
+      ],
+      "ArgLongDescriptions": [
+        "The identifier of the memory device where the error occurred.",
+        "The physical memory address where the error was detected."
+      ],
+      "Resolution": "Monitor error frequency. Consider PPR if threshold exceeded."
+    },
+    "CorrectedPCIeError": {
+      "Description": "A corrected PCIe error was detected.",
+      "Message": "Corrected PCIe error on device %1.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["PCIe device identifier"],
+      "ArgLongDescriptions": ["The identifier of the PCIe device where the error occurred."],
+      "Resolution": "Monitor error frequency. Check device and slot."
+    },
+    "DeferredError": {
+      "Description": "An error was recorded for deferred handling. The system continues operation but the error requires attention.",
+      "Message": "Deferred error recorded for %1. Reason: %2.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Component identifier", "Reason or error type"],
+      "ArgLongDescriptions": [
+        "The identifier of the component with the deferred error.",
+        "The reason or type of deferred error."
+      ],
+      "Resolution": "Schedule maintenance window to address the error."
+    },
+    "FatalError": {
+      "Description": "A fatal error requiring immediate attention. System operation may be compromised.",
+      "Message": "Fatal error on %1. Immediate action required.",
+      "Severity": "Critical",
+      "MessageSeverity": "Critical",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["Component identifier"],
+      "ArgLongDescriptions": ["The identifier of the component with the fatal error."],
+      "Resolution": "Check diagnostic data. Component replacement may be required."
+    },
+    "CPERRecordCreated": {
+      "Description": "A new CPER record was generated and stored.",
+      "Message": "CPER record %1 created in %2 queue.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Record identifier", "Queue name"],
+      "ArgLongDescriptions": [
+        "The identifier of the CPER record that was created.",
+        "The name of the queue where the record was stored."
+      ],
+      "Resolution": "None."
+    },
+    "CPERRecordAvailable": {
+      "Description": "A CPER record is ready for retrieval by an initiator.",
+      "Message": "CPER record %1 available for retrieval.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["Record identifier"],
+      "ArgLongDescriptions": ["The identifier of the CPER record that is available."],
+      "Resolution": "None."
+    },
+    "CPERRecordRetrieved": {
+      "Description": "A CPER record was downloaded by an initiator.",
+      "Message": "CPER record %1 retrieved by initiator %2.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Record identifier", "Initiator identifier"],
+      "ArgLongDescriptions": [
+        "The identifier of the CPER record that was retrieved.",
+        "The identifier of the initiator that retrieved the record."
+      ],
+      "Resolution": "None."
+    },
+    "CPERRecordDeleted": {
+      "Description": "A CPER record was removed from the queue.",
+      "Message": "CPER record %1 deleted from %2 queue.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Record identifier", "Queue name"],
+      "ArgLongDescriptions": [
+        "The identifier of the CPER record that was deleted.",
+        "The name of the queue from which the record was deleted."
+      ],
+      "Resolution": "None."
+    },
+    "CPERQueueFull": {
+      "Description": "An error queue has reached capacity. New records may be dropped or older records overwritten.",
+      "Message": "Error queue %1 is full. Capacity: %2 records.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "number"],
+      "ArgDescriptions": ["Queue name", "Queue capacity"],
+      "ArgLongDescriptions": [
+        "The name of the queue that is full.",
+        "The maximum number of records the queue can hold."
+      ],
+      "Resolution": "Retrieve pending CPER records to free queue space."
+    },
+    "CPADReceived": {
+      "Description": "A CPAD action request was received by the service.",
+      "Message": "CPAD received from creator %1. Action: %2.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Creator identifier", "Action type"],
+      "ArgLongDescriptions": [
+        "The identifier of the entity that submitted the CPAD.",
+        "The type of action requested in the CPAD."
+      ],
+      "Resolution": "None."
+    },
+    "CPADValidated": {
+      "Description": "A CPAD passed structural and format validation.",
+      "Message": "CPAD %1 passed validation.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["CPAD identifier"],
+      "ArgLongDescriptions": ["The identifier of the CPAD that passed validation."],
+      "Resolution": "None."
+    },
+    "CPADValidationFailed": {
+      "Description": "A CPAD failed structural or format validation.",
+      "Message": "CPAD validation failed. Reason: %1.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["Failure reason"],
+      "ArgLongDescriptions": ["The reason the CPAD failed validation."],
+      "Resolution": "Check CPAD structure against specification."
+    },
+    "CPADActionStarted": {
+      "Description": "The action requested in a CPAD has started execution.",
+      "Message": "CPAD action %1 started on endpoint %2.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Action type", "Target endpoint"],
+      "ArgLongDescriptions": [
+        "The type of action that started.",
+        "The endpoint where the action is being executed."
+      ],
+      "Resolution": "None."
+    },
+    "CPADActionCompleted": {
+      "Description": "The action requested in a CPAD completed successfully.",
+      "Message": "CPAD action %1 completed successfully.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["Action type"],
+      "ArgLongDescriptions": ["The type of action that completed."],
+      "Resolution": "None."
+    },
+    "CPADActionFailed": {
+      "Description": "The action requested in a CPAD could not be completed.",
+      "Message": "CPAD action %1 failed. Reason: %2.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Action type", "Failure reason"],
+      "ArgLongDescriptions": [
+        "The type of action that failed.",
+        "The reason the action failed."
+      ],
+      "Resolution": "Check diagnostic data for failure details."
+    },
+    "PPRInitiated": {
+      "Description": "A Post Package Repair operation was initiated.",
+      "Message": "PPR initiated for memory device %1.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["Memory device identifier"],
+      "ArgLongDescriptions": ["The identifier of the memory device being repaired."],
+      "Resolution": "None. PPR will complete on next boot."
+    },
+    "PPRCompleted": {
+      "Description": "A Post Package Repair operation completed successfully.",
+      "Message": "PPR completed for memory device %1. Rows repaired: %2.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "number"],
+      "ArgDescriptions": ["Memory device identifier", "Number of rows repaired"],
+      "ArgLongDescriptions": [
+        "The identifier of the memory device that was repaired.",
+        "The number of memory rows that were repaired."
+      ],
+      "Resolution": "None."
+    },
+    "SPPRInitiated": {
+      "Description": "A Soft Post Package Repair operation was initiated. Unlike hard PPR, this does not require a reboot.",
+      "Message": "Soft PPR initiated for memory device %1.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["Memory device identifier"],
+      "ArgLongDescriptions": ["The identifier of the memory device being repaired."],
+      "Resolution": "None."
+    },
+    "SPPRCompleted": {
+      "Description": "A Soft Post Package Repair operation completed.",
+      "Message": "Soft PPR completed for memory device %1.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["Memory device identifier"],
+      "ArgLongDescriptions": ["The identifier of the memory device that was repaired."],
+      "Resolution": "None."
+    },
+    "MemorySpared": {
+      "Description": "Memory sparing was activated to replace a failing memory region.",
+      "Message": "Memory sparing activated. Device %1 spared by %2.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Failed memory device", "Spare memory device"],
+      "ArgLongDescriptions": [
+        "The identifier of the failed memory device.",
+        "The identifier of the spare memory device replacing it."
+      ],
+      "Resolution": "Schedule replacement of failed device."
+    },
+    "ComponentIsolated": {
+      "Description": "A faulty component was isolated from use to prevent further errors.",
+      "Message": "Component %1 isolated from use. Reason: %2.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Component identifier", "Reason for isolation"],
+      "ArgLongDescriptions": [
+        "The identifier of the component that was isolated.",
+        "The reason the component was isolated."
+      ],
+      "Resolution": "Schedule component replacement."
+    },
+    "PolicyCheckPassed": {
+      "Description": "A CPAD action was approved by the policy engine.",
+      "Message": "Policy check passed for action %1 from creator %2.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Action type", "Creator identifier"],
+      "ArgLongDescriptions": [
+        "The type of action that was approved.",
+        "The identifier of the entity that requested the action."
+      ],
+      "Resolution": "None."
+    },
+    "PolicyCheckFailed": {
+      "Description": "A CPAD action was denied by the policy engine.",
+      "Message": "Policy check failed for action %1. Reason: %2.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Action type", "Denial reason"],
+      "ArgLongDescriptions": [
+        "The type of action that was denied.",
+        "The reason the action was denied."
+      ],
+      "Resolution": "Verify creator authorization and action permissions."
+    },
+    "UntrustedCreator": {
+      "Description": "A CPAD was received from a creator not in the trusted registry.",
+      "Message": "CPAD received from untrusted creator %1.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["Creator identifier"],
+      "ArgLongDescriptions": ["The identifier of the untrusted creator."],
+      "Resolution": "Add creator to trusted registry if appropriate."
+    },
+    "UnauthorizedPlatform": {
+      "Description": "The target platform is not authorized for the requested action.",
+      "Message": "Platform %1 not authorized for action %2.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Platform identifier", "Action type"],
+      "ArgLongDescriptions": [
+        "The identifier of the unauthorized platform.",
+        "The type of action that was requested."
+      ],
+      "Resolution": "Verify platform authorization for the requested action."
+    },
+    "PolicyOverride": {
+      "Description": "A manual override was applied to bypass policy restrictions.",
+      "Message": "Policy override applied by %1 for action %2.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Override authority", "Action type"],
+      "ArgLongDescriptions": [
+        "The identifier of the authority that applied the override.",
+        "The type of action for which the override was applied."
+      ],
+      "Resolution": "Document override justification per security policy."
+    },
+    "EndpointRegistered": {
+      "Description": "A new RAS endpoint was registered with the service.",
+      "Message": "RAS endpoint %1 registered. Type: %2.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Endpoint identifier", "Endpoint type"],
+      "ArgLongDescriptions": [
+        "The identifier of the endpoint that was registered.",
+        "The type of endpoint that was registered."
+      ],
+      "Resolution": "None."
+    },
+    "EndpointRemoved": {
+      "Description": "A RAS endpoint was removed from the service.",
+      "Message": "RAS endpoint %1 removed.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["Endpoint identifier"],
+      "ArgLongDescriptions": ["The identifier of the endpoint that was removed."],
+      "Resolution": "None."
+    },
+    "EndpointUnresponsive": {
+      "Description": "A RAS endpoint is not responding to requests.",
+      "Message": "RAS endpoint %1 is unresponsive.",
+      "Severity": "Warning",
+      "MessageSeverity": "Warning",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["Endpoint identifier"],
+      "ArgLongDescriptions": ["The identifier of the unresponsive endpoint."],
+      "Resolution": "Check endpoint connectivity and health."
+    },
+    "InitiatorConnected": {
+      "Description": "A RAS initiator established a session with the service.",
+      "Message": "Initiator %1 connected. Type: %2.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 2,
+      "ParamTypes": ["string", "string"],
+      "ArgDescriptions": ["Initiator identifier", "Initiator type"],
+      "ArgLongDescriptions": [
+        "The identifier of the initiator that connected.",
+        "The type of initiator that connected."
+      ],
+      "Resolution": "None."
+    },
+    "InitiatorDisconnected": {
+      "Description": "A RAS initiator session ended.",
+      "Message": "Initiator %1 disconnected.",
+      "Severity": "OK",
+      "MessageSeverity": "OK",
+      "NumberOfArgs": 1,
+      "ParamTypes": ["string"],
+      "ArgDescriptions": ["Initiator identifier"],
+      "ArgLongDescriptions": ["The identifier of the initiator that disconnected."],
+      "Resolution": "None."
+    }
+  }
+}

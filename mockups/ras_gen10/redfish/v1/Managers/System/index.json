@@ -1,0 +1,131 @@
+{
+  "@odata.id": "/redfish/v1/Managers/System",
+  "@odata.type": "#Manager.v1_11_0.Manager",
+  "Actions": {
+    "#Manager.Reset": {
+      "@Redfish.ActionInfo": "/redfish/v1/Managers/System/ResetActionInfo",
+      "target": "/redfish/v1/Managers/System/Actions/Manager.Reset"
+    },
+    "#Manager.ResetToDefaults": {
+      "ResetType@Redfish.AllowableValues": [
+        "ResetAll"
+      ],
+      "target": "/redfish/v1/Managers/System/Actions/Manager.ResetToDefaults"
+    },
+    "Oem": {
+      "#OcsBmc.v1_0_0#Manager.IPMICmd": {
+        "target": "/redfish/v1/Managers/System/Actions/Manager.IPMICmd"
+      },
+      "#OcsBmc.v1_0_0#Manager.MasterPhaseWriteRead": {
+        "target": "/redfish/v1/Managers/System/Actions/Manager.MasterPhaseWriteRead"
+      },
+      "#OcsBmc.v1_0_0#Manager.MasterWriteRead": {
+        "target": "/redfish/v1/Managers/System/Actions/Manager.MasterWriteRead"
+      },
+      "#OcsBmc.v1_0_0#Manager.MultiMasterWriteRead": {
+        "target": "/redfish/v1/Managers/System/Actions/Manager.MultiMasterWriteRead"
+      },
+      "#OcsBmc.v1_0_0#Microsoft.VirtualReseat": {
+        "@Redfish.ActionInfo": "/redfish/v1/Managers/System/Actions/Oem/Microsoft.VirtualReseatActionInfo",
+        "target": "/redfish/v1/Managers/System/Actions/Oem/Microsoft.VirtualReseat"
+      }
+    }
+  },
+  "DateTime": "2025-10-11T00:46:43+00:00",
+  "DateTimeLocalOffset": "+00:00",
+  "Description": "Baseboard Management Controller",
+  "EthernetInterfaces": {
+    "@odata.id": "/redfish/v1/Managers/System/EthernetInterfaces"
+  },
+  "FirmwareVersion": "25.7.25",
+  "GraphicalConsole": {
+    "ConnectTypesSupported": [
+      "KVMIP"
+    ],
+    "MaxConcurrentSessions": 4,
+    "ServiceEnabled": true
+  },
+  "Id": "bmc",
+  "LastResetTime": "2025-09-25T17:37:01+00:00",
+  "Links": {
+    "ActiveSoftwareImage": {
+      "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/BMC"
+    },
+    "ManagedBy": [
+      {
+        "@odata.id": "/redfish/v1/Managers/R-SCM"
+      }
+    ],
+    "ManagedBy@odata.count": 1,
+    "ManagerForChassis": [
+      {
+        "@odata.id": "/redfish/v1/Chassis/DC_SCM"
+      }
+    ],
+    "ManagerForChassis@odata.count": 1,
+    "ManagerForServers": [
+      {
+        "@odata.id": "/redfish/v1/Systems/system"
+      }
+    ],
+    "ManagerForServers@odata.count": 1,
+    "ManagerInChassis": {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM"
+    },
+    "SoftwareImages": [
+      {
+        "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/BMC"
+      }
+    ],
+    "SoftwareImages@odata.count": 1
+  },
+  "LogServices": {
+    "@odata.id": "/redfish/v1/Managers/System/LogServices"
+  },
+  "ManagerType": "BMC",
+  "Model": "OpenBmc",
+  "Name": "OpenBmc Manager",
+  "NetworkProtocol": {
+    "@odata.id": "/redfish/v1/Managers/System/NetworkProtocol"
+  },
+  "Oem": {
+    "@odata.id": "/redfish/v1/Managers/System#/Oem",
+    "@odata.type": "#OemManager.Oem",
+    "OpenBmc": {
+      "@odata.id": "/redfish/v1/Managers/System#/Oem/OpenBmc",
+      "@odata.type": "#OemManager.OpenBmc",
+      "Certificates": {
+        "@odata.id": "/redfish/v1/Managers/System/Truststore/Certificates"
+      },
+      "InventoryConfig": {
+        "@odata.id": "/redfish/v1/Managers/System/Oem/InventoryConfig",
+        "@odata.type": "#OemManager.InventoryConfig"
+      }
+    },
+    "RasProto": {
+      "@odata.type": "#RasProto.v1_0_0.ManagerExtension",
+      "RASService": {
+        "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService"
+      }
+    }
+  },
+  "PowerState": "On",
+  "SerialConsole": {
+    "ConnectTypesSupported": [
+      "IPMI",
+      "SSH"
+    ],
+    "MaxConcurrentSessions": 15,
+    "ServiceEnabled": true
+  },
+  "SerialInterfaces": {
+    "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces"
+  },
+  "ServiceEntryPointUUID": "fd236dc9-c398-4fc0-934c-4cd043261057",
+  "Status": {
+    "Health": "OK",
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "UUID": "76851c0e-95da-40e8-bb4a-86236b2f1aae"
+}

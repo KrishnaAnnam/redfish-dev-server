@@ -1,0 +1,45 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors",
+  "@odata.type": "#SensorCollection.SensorCollection",
+  "Description": "Collection of Sensors for this Chassis",
+  "Members": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/BMC_Health"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/SEL"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/System_Reconfig"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/SCM_INLET_HUM"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/SCM_CPLD_Link_Status_Fault"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/SCM_CPLD_SGPIO0_Error_Count"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/SCM_CPLD_SGPIO1_Error_Count"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/SCM_INLET_TMP"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/P12V_AUX_SCM"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/P3V3_AUX_SCM"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/P3V_BAT"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/P5V_AUX_SCM"
+    }
+  ],
+  "Members@odata.count": 12,
+  "Name": "Sensors"
+}

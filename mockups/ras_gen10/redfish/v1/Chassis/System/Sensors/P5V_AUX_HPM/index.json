@@ -1,0 +1,30 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/P5V_AUX_HPM",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "P5V_AUX_HPM Sensor",
+  "Id": "P5V_AUX_HPM",
+  "Name": "P5V AUX HPM",
+  "Reading": 4.9559,
+  "ReadingRangeMax": 6.617646699184797,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Voltage",
+  "ReadingUnits": "V",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 4.7
+    },
+    "LowerCritical": {
+      "Reading": 4.5
+    },
+    "UpperCaution": {
+      "Reading": 5.3
+    },
+    "UpperCritical": {
+      "Reading": 5.5
+    }
+  }
+}

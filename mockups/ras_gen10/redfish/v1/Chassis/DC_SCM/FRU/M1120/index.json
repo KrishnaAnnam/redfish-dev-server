@@ -1,0 +1,18 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM/FRU/M1120",
+  "@odata.type": "#FRUInfo.v1_0_0.FRUInfo",
+  "ADDRESS": 82,
+  "BOARD_FRU_VERSION_ID": "FRU v0.18",
+  "BOARD_INFO_AM1": "A   ",
+  "BOARD_INFO_AM2": "37",
+  "BOARD_LANGUAGE_CODE": "25",
+  "BOARD_MANUFACTURER": "03B",
+  "BOARD_MANUFACTURE_DATE": "2023-11-09 - 23:26:00",
+  "BOARD_PART_NUMBER": "M1281347-902",
+  "BOARD_PRODUCT_NAME": "M1120",
+  "BOARD_SERIAL_NUMBER": "M1281347902B3452019603B",
+  "BUS": 15,
+  "Common_Format_Version": "1",
+  "Description": "FRU Info of M1120",
+  "Name": "FRU M1120"
+}

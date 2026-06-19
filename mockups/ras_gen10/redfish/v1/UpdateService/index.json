@@ -1,0 +1,21 @@
+{
+  "@odata.id": "/redfish/v1/UpdateService",
+  "@odata.type": "#UpdateService.v1_11_0.UpdateService",
+  "Actions": {
+    "#UpdateService.SimpleUpdate": {
+      "TransferProtocol@Redfish.AllowableValues": [
+        "OEM"
+      ],
+      "target": "/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
+    }
+  },
+  "Description": "Service for Software Update",
+  "FirmwareInventory": {
+    "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory"
+  },
+  "Id": "UpdateService",
+  "MaxImageSizeBytes": 67108864,
+  "MultipartHttpPushUri": "/redfish/v1/UpdateService/update",
+  "Name": "Update Service",
+  "ServiceEnabled": true
+}

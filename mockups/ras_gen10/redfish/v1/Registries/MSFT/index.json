@@ -1,0 +1,19 @@
+{
+  "@odata.id": "/redfish/v1/Registries/MSFT",
+  "@odata.type": "#MessageRegistryFile.v1_1_0.MessageRegistryFile",
+  "Description": "MSFT Message Registry File Location",
+  "Id": "MSFT",
+  "Languages": [
+    "en"
+  ],
+  "Languages@odata.count": 1,
+  "Location": [
+    {
+      "Language": "en",
+      "Uri": "/redfish/v1/Registries/MSFT/MSFT"
+    }
+  ],
+  "Location@odata.count": 1,
+  "Name": "MSFT Message Registry File",
+  "Registry": "MSFT.1.0.0"
+}

@@ -1,0 +1,14 @@
+{
+  "@odata.context": "/redfish/v1/$metadata#SerialInterface.SerialInterface",
+  "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces/ttyS3",
+  "@odata.type": "#SerialInterface.v1_1_5.SerialInterface",
+  "BitRate": "9600",
+  "DataBits": "8",
+  "Description": "Serial device @ /dev/ttyS3",
+  "FlowControl": "Software",
+  "Id": "ttyS3",
+  "InterfaceEnabled": false,
+  "Name": "ttyS3",
+  "Parity": "None",
+  "StopBits": "1"
+}

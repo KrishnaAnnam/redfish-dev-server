@@ -1,0 +1,11 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/ACPI_STATE",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "ACPI_STATE Sensor",
+  "Id": "ACPI_STATE",
+  "Name": "ACPI STATE",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

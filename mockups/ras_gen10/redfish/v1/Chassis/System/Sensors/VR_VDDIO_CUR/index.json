@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_VDDIO_CUR",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "VR_VDDIO_CUR Sensor",
+  "Id": "VR_VDDIO_CUR",
+  "Name": "VR VDDIO CUR",
+  "Reading": 15.062,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Current",
+  "ReadingUnits": "A",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": null
+    },
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 180.0
+    },
+    "UpperCritical": {
+      "Reading": 185.0
+    },
+    "UpperFatal": {
+      "Reading": 190.0
+    }
+  }
+}

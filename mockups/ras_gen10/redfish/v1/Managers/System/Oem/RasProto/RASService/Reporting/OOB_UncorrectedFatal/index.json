@@ -1,0 +1,25 @@
+{
+    "@odata.type": "#ErrorQueue.v1_0_0.ErrorQueue",
+    "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService/ErrorQueues/OOB/UncorrectedFatal",
+    "Id": "OOB_UncorrectedFatal",
+    "Name": "Out-of-Band Uncorrected Fatal Error Queue",
+    "QueueType": "UncorrectedFatal",
+    "AccessPath": "Out-of-Band",
+    "QueueDepth": 128,
+    "InterruptPolicy": {
+        "Enabled": true,
+        "Thresholds": [
+            "FirstError",
+            "HalfFull",
+            "NinetyPercentFull"
+        ]
+    },
+    "OverwritePolicy": "PreserveOnWarmReset",
+    "ErrorRecords@odata.count": 0,
+    "Actions": {
+        "#ErrorQueue.ClearQueue": {
+            "target": "/redfish/v1/Managers/System/Oem/RasProto/RASService/ErrorQueues/OOB/UncorrectedFatal/Actions/ClearQueue",
+            "title": "Clear all error records"
+        }
+    }
+}

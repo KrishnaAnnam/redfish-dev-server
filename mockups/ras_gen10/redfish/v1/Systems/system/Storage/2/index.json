@@ -1,0 +1,13 @@
+{
+  "@odata.id": "/redfish/v1/Systems/system/Storage/2",
+  "@odata.type": "#Storage.v1_7_1.Storage",
+  "Id": "2",
+  "Name": "E1.S NVME SSD",
+  "Status": {
+    "Health": "OK",
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "SupportedControllerProtocols": "PCIe",
+  "SupportedDeviceProtocols": "PCIe"
+}

@@ -1,0 +1,12 @@
+{
+  "@odata.id": "/redfish/v1/chassis/Glacier_Peak/FRU",
+  "@odata.type": "#FRUCollection.FRUCollection",
+  "Description": "Collection of FRU's for this Chassis",
+  "Members": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/Glacier_Peak/FRU/A2051__"
+    }
+  ],
+  "Members@odata.count": 1,
+  "Name": "FRU Collection"
+}

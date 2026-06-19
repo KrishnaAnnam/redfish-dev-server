@@ -1,0 +1,32 @@
+{
+    "@odata.type": "#EndpointCollection.EndpointCollection",
+    "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService/Endpoints",
+    "Id": "Endpoints",
+    "Name": "Endpoint Collection",
+    "Description": "Collection of RAS API-compliant Endpoints",
+    "Members@odata.count": 2,
+    "Members": [
+        {
+            "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService/Endpoints/Endpoint-1"
+        },
+        {
+            "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService/Endpoints/Endpoint-2"
+        }
+    ],
+    "@Redfish.CollectionCapabilities": {
+        "@odata.type": "#CollectionCapabilities.v1_1_0.CollectionCapabilities",
+        "Capabilities": [
+            {
+                "UseCase": "EndpointCreation",
+                "TargetCollection": {
+                    "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService/Endpoints"
+                },
+                "RelatedItem": [
+                    {
+                        "@odata.id": "/redfish/v1/Systems/System-1"
+                    }
+                ]
+            }
+        ]
+    }
+}

@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/P0_CORE_1_RUN",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "P0_CORE_1_RUN Sensor",
+  "Id": "P0_CORE_1_RUN",
+  "Name": "P0 CORE 1 RUN",
+  "Reading": 0.832,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Voltage",
+  "ReadingUnits": "V",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 0.35
+    },
+    "LowerCritical": {
+      "Reading": 0.3
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 2.2
+    },
+    "UpperCritical": {
+      "Reading": 2.3
+    },
+    "UpperFatal": {
+      "Reading": 2.5
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "@odata.id": "/redfish/v1/Managers/System/LogServices/FaultLog/Entries",
+  "@odata.type": "#LogEntryCollection.LogEntryCollection",
+  "Description": "Collection of FaultLog Dump Entries",
+  "Members": [],
+  "Name": "FaultLog Dump Entries"
+}

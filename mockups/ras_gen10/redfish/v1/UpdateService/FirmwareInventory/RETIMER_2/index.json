@@ -1,0 +1,13 @@
+{
+  "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/RETIMER_2",
+  "@odata.type": "#SoftwareInventory.v1_1_0.SoftwareInventory",
+  "Description": "RETIMER image",
+  "Id": "RETIMER_2",
+  "Name": "Software Inventory",
+  "Status": {
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "Updateable": true,
+  "Version": "01.31.00"
+}

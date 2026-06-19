@@ -1,0 +1,11 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_Action",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Power_Action Sensor",
+  "Id": "Power_Action",
+  "Name": "Power Action",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

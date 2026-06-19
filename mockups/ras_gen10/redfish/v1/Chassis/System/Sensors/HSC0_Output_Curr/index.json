@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/HSC0_Output_Curr",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "HSC0_Output_Curr Sensor",
+  "Id": "HSC0_Output_Curr",
+  "Name": "HSC0 Output Curr",
+  "Reading": 18.684,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Current",
+  "ReadingUnits": "A",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": null
+    },
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 110.0
+    },
+    "UpperCritical": {
+      "Reading": 113.0
+    },
+    "UpperFatal": {
+      "Reading": 115.0
+    }
+  }
+}

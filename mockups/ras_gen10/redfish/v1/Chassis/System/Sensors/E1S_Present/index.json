@@ -1,0 +1,14 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_Present",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "E1S_Present Sensor",
+  "Id": "E1S_Present",
+  "Name": "E1S Present",
+  "Reading": 1984.0,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

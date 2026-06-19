@@ -1,0 +1,16 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/Glacier_Peak/Sensors/GP_S2_POWER",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "GP_S2_POWER Sensor",
+  "Id": "GP_S2_POWER",
+  "Name": "GP S2 POWER",
+  "Reading": 67.985102,
+  "ReadingRangeMax": 3000.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Power",
+  "ReadingUnits": "W",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

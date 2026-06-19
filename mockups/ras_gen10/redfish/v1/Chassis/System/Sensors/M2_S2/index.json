@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/M2_S2",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "M2_S2 Sensor",
+  "Id": "M2_S2",
+  "Name": "M2 S2",
+  "Reading": 30.0,
+  "ReadingRangeMax": 127.0,
+  "ReadingRangeMin": -127.0,
+  "ReadingType": "Temperature",
+  "ReadingUnits": "Cel",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": null
+    },
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 77.0
+    },
+    "UpperCritical": {
+      "Reading": 80.0
+    },
+    "UpperFatal": {
+      "Reading": 84.0
+    }
+  }
+}

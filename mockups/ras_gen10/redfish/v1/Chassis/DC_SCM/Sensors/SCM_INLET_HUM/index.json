@@ -1,0 +1,16 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/SCM_INLET_HUM",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "SCM_INLET_HUM Sensor",
+  "Id": "SCM_INLET_HUM",
+  "Name": "SCM INLET HUM",
+  "Reading": 60.875,
+  "ReadingRangeMax": 100.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Humidity",
+  "ReadingUnits": "%",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

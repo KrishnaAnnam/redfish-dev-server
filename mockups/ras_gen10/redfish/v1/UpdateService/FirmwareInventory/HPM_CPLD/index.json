@@ -1,0 +1,13 @@
+{
+  "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/HPM_CPLD",
+  "@odata.type": "#SoftwareInventory.v1_1_0.SoftwareInventory",
+  "Description": "HPM_CPLD image",
+  "Id": "HPM_CPLD",
+  "Name": "Software Inventory",
+  "Status": {
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "Updateable": true,
+  "Version": "01.03.00"
+}

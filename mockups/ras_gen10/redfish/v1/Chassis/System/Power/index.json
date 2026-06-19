@@ -1,0 +1,273 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Power",
+  "@odata.type": "#Power.v1_5_2.Power",
+  "Id": "Power",
+  "Name": "Power",
+  "PowerControl": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/PowerControl/0",
+      "@odata.type": "#Power.v1_0_0.PowerControl",
+      "MemberId": "0",
+      "Name": "Chassis Power Control",
+      "PowerLimit": {
+        "LimitException": "NoAction",
+        "LimitInWatts": null
+      }
+    }
+  ],
+  "Redundancy": [],
+  "Voltages": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/Voltages/0",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 10.5,
+      "LowerThresholdNonCritical": 11.0,
+      "MaxReadingRange": 300.0,
+      "MemberId": "HSC0_Input_Volt",
+      "MinReadingRange": 0.0,
+      "Name": "HSC0 Input Volt",
+      "ReadingVolts": 12.22,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "Thresholds": {
+        "LowerFatal": {
+          "Reading": 10.0
+        },
+        "UpperFatal": {
+          "Reading": 14.5
+        }
+      },
+      "UpperThresholdCritical": 13.5,
+      "UpperThresholdNonCritical": 13.0
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/Voltages/1",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 1.0,
+      "LowerThresholdNonCritical": 1.05,
+      "MaxReadingRange": 255.0,
+      "MemberId": "P0_11_SUS",
+      "MinReadingRange": 0.0,
+      "Name": "P0 11 SUS",
+      "ReadingVolts": 1.101,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "Thresholds": {
+        "LowerFatal": {
+          "Reading": null
+        },
+        "UpperFatal": {
+          "Reading": 1.3
+        }
+      },
+      "UpperThresholdCritical": 1.2,
+      "UpperThresholdNonCritical": 1.115
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/Voltages/2",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 0.3,
+      "LowerThresholdNonCritical": 0.35,
+      "MaxReadingRange": 255.0,
+      "MemberId": "P0_CORE_0_RUN",
+      "MinReadingRange": 0.0,
+      "Name": "P0 CORE 0 RUN",
+      "ReadingVolts": 0.855,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "Thresholds": {
+        "LowerFatal": {
+          "Reading": null
+        },
+        "UpperFatal": {
+          "Reading": 2.5
+        }
+      },
+      "UpperThresholdCritical": 2.3,
+      "UpperThresholdNonCritical": 2.2
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/Voltages/3",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 0.3,
+      "LowerThresholdNonCritical": 0.35,
+      "MaxReadingRange": 255.0,
+      "MemberId": "P0_CORE_1_RUN",
+      "MinReadingRange": 0.0,
+      "Name": "P0 CORE 1 RUN",
+      "ReadingVolts": 0.832,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "Thresholds": {
+        "LowerFatal": {
+          "Reading": null
+        },
+        "UpperFatal": {
+          "Reading": 2.5
+        }
+      },
+      "UpperThresholdCritical": 2.3,
+      "UpperThresholdNonCritical": 2.2
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/Voltages/4",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 0.5,
+      "LowerThresholdNonCritical": 0.6,
+      "MaxReadingRange": 255.0,
+      "MemberId": "P0_SOC_RUN",
+      "MinReadingRange": 0.0,
+      "Name": "P0 SOC RUN",
+      "ReadingVolts": 0.925,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "Thresholds": {
+        "LowerFatal": {
+          "Reading": null
+        },
+        "UpperFatal": {
+          "Reading": 1.55
+        }
+      },
+      "UpperThresholdCritical": 1.45,
+      "UpperThresholdNonCritical": 1.35
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/Voltages/5",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 0.7,
+      "LowerThresholdNonCritical": 0.8,
+      "MaxReadingRange": 255.0,
+      "MemberId": "P0_VDDIO_RUN",
+      "MinReadingRange": 0.0,
+      "Name": "P0 VDDIO RUN",
+      "ReadingVolts": 1.097,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "Thresholds": {
+        "LowerFatal": {
+          "Reading": null
+        },
+        "UpperFatal": {
+          "Reading": 1.5
+        }
+      },
+      "UpperThresholdCritical": 1.4,
+      "UpperThresholdNonCritical": 1.3
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/Voltages/6",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 10.5,
+      "LowerThresholdNonCritical": 11.0,
+      "MaxReadingRange": 16.071428075356767,
+      "MemberId": "P12V",
+      "MinReadingRange": 0.0,
+      "Name": "P12V",
+      "ReadingVolts": 12.2589,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "UpperThresholdCritical": 14.34,
+      "UpperThresholdNonCritical": 13.2
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/Voltages/7",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 10.5,
+      "LowerThresholdNonCritical": 11.0,
+      "MaxReadingRange": 16.071428075356767,
+      "MemberId": "P12V_AUX_HPM",
+      "MinReadingRange": 0.0,
+      "Name": "P12V AUX HPM",
+      "ReadingVolts": 12.3482,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "UpperThresholdCritical": 14.34,
+      "UpperThresholdNonCritical": 13.2
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/Voltages/8",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 1.62,
+      "LowerThresholdNonCritical": 1.69,
+      "MaxReadingRange": 1.8,
+      "MemberId": "P1V8_AUX_HPM",
+      "MinReadingRange": 0.0,
+      "Name": "P1V8 AUX HPM",
+      "ReadingVolts": 1.858,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "UpperThresholdCritical": 2.001,
+      "UpperThresholdNonCritical": 1.91
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/Voltages/9",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 2.97,
+      "LowerThresholdNonCritical": 3.1,
+      "MaxReadingRange": 4.379561901524429,
+      "MemberId": "P3V3",
+      "MinReadingRange": 0.0,
+      "Name": "P3V3",
+      "ReadingVolts": 3.3406,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "UpperThresholdCritical": 3.63,
+      "UpperThresholdNonCritical": 3.5
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/Voltages/10",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 2.97,
+      "LowerThresholdNonCritical": 3.1,
+      "MaxReadingRange": 4.379561901524429,
+      "MemberId": "P3V3_AUX_HPM",
+      "MinReadingRange": 0.0,
+      "Name": "P3V3 AUX HPM",
+      "ReadingVolts": 3.3139,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "UpperThresholdCritical": 3.63,
+      "UpperThresholdNonCritical": 3.5
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Power#/Voltages/11",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 4.5,
+      "LowerThresholdNonCritical": 4.7,
+      "MaxReadingRange": 6.617646699184797,
+      "MemberId": "P5V_AUX_HPM",
+      "MinReadingRange": 0.0,
+      "Name": "P5V AUX HPM",
+      "ReadingVolts": 4.9596,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "UpperThresholdCritical": 5.5,
+      "UpperThresholdNonCritical": 5.3
+    }
+  ]
+}

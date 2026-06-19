@@ -1,0 +1,78 @@
+{
+    "header": {
+        "revision": {
+            "major": 1,
+            "minor": 0
+        },
+        "sectionCount": 1,
+        "severity": {
+            "code": 4,
+            "name": "Action Event"
+        },
+        "recordLength": 264,
+        "timestamp": "2025-06-27T12:00:00+00:00",
+        "timestampIsPrecise": true,
+        "platformID": "00000000-0000-0000-0000-000000000000",
+        "partitionID": "00000000-0000-0000-0000-000000000000",
+        "creatorID": "00000000-0000-0000-0000-000000000000",
+        "notificationType": {
+            "guid": "2dce8bb1-bdd7-450e-b9ad-9cf4ebd4f890",
+            "type": "CMC"
+        },
+        "recordID": 0,
+        "flags": {
+            "value": 4,
+            "name": "HW_ERROR_FLAGS_SIMULATED"
+        },
+        "persistenceInfo": 0
+    },
+    "sectionDescriptors": [
+        {
+            "sectionOffset": 200,
+            "sectionLength": 64,
+            "revision": {
+                "major": 1,
+                "minor": 0
+            },
+            "flags": {
+                "primary": true,
+                "containmentWarning": false,
+                "reset": false,
+                "errorThresholdExceeded": false,
+                "resourceNotAccessible": false,
+                "latentError": false,
+                "propagated": false,
+                "overflow": false
+            },
+            "sectionType": {
+                "data": "c7d26a20-0c54-11f1-b370-00155d25b627",
+                "type": "Platform Action Event"
+            },
+            "fruID": "00000000-0000-0000-0000-000000000000",
+            "fruText": "",
+            "severity": {
+                "code": 4,
+                "name": "Action Event"
+            }
+        }
+    ],
+    "sections": [
+        {
+            "PlatformActionEvent": {
+                "recordIdValid": true,
+                "sectionIndexValid": true,
+                "actionIdValid": true,
+                "actionReturnCodeValid": true,
+                "additionalContextValid": true,
+                "actionReturnCode": "0x00",
+                "cpadPlatformID": "00000000-0000-0000-0000-000000000000",
+                "cpadPartitionID": "00000000-0000-0000-0000-000000000000",
+                "cpadCreatorID": "00000000-0000-0000-0000-000000000000",
+                "cpadRecordId": "0x0000000000000000",
+                "cpadActionId": "0x0000",
+                "cpadSectionIndex": 0,
+                "additionalContext": ""
+            }
+        }
+    ]
+}

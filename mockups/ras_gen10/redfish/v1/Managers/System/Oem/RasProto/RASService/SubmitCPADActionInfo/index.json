@@ -1,0 +1,16 @@
+{
+    "@odata.type": "#ActionInfo.v1_2_0.ActionInfo",
+    "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService/SubmitCPADActionInfo",
+    "Id": "SubmitCPADActionInfo",
+    "Name": "SubmitCPAD Action Info",
+    "Description": "Action information for submitting CPAD (Common Platform Error Data) to the RAS service",
+    "Parameters": [
+        {
+            "Name": "CPADData",
+            "Required": true,
+            "DataType": "Object",
+            "ObjectDataType": "#RasProto.v1_0_0.SubmitCPAD",
+            "AllowableValues": []
+        }
+    ]
+}

@@ -1,0 +1,19 @@
+{
+  "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/BIOS",
+  "@odata.type": "#SoftwareInventory.v1_1_0.SoftwareInventory",
+  "Description": "BIOS image",
+  "Id": "BIOS",
+  "Name": "Software Inventory",
+  "RelatedItem": [
+    {
+      "@odata.id": "/redfish/v1/Systems/system/Bios"
+    }
+  ],
+  "RelatedItem@odata.count": 1,
+  "Status": {
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "Updateable": true,
+  "Version": "C219B.0.BS.3A08.GN.3"
+}

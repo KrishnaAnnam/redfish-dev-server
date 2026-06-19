@@ -1,0 +1,16 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_L",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Power_DIMM_L Sensor",
+  "Id": "Power_DIMM_L",
+  "Name": "Power DIMM L",
+  "Reading": 0.25,
+  "ReadingRangeMax": 64.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Power",
+  "ReadingUnits": "W",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

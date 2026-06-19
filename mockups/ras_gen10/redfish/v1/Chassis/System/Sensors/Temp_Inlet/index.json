@@ -1,0 +1,16 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_Inlet",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Temp_Inlet Sensor",
+  "Id": "Temp_Inlet",
+  "Name": "Temp Inlet",
+  "Reading": 26.875,
+  "ReadingRangeMax": 127.0,
+  "ReadingRangeMin": -128.0,
+  "ReadingType": "Temperature",
+  "ReadingUnits": "Cel",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

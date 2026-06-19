@@ -1,0 +1,8 @@
+{
+  "@odata.id": "/redfish/v1/Managers/System/LogServices/Dump/Entries",
+  "@odata.type": "#LogEntryCollection.LogEntryCollection",
+  "Description": "Collection of GenericCrashDump Dump Entries",
+  "Members": [],
+  "Members@odata.count": 0,
+  "Name": "GenericCrashDump Dump Entries"
+}

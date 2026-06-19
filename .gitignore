@@ -408,3 +408,10 @@ examples/run_ras_parity_demo.sh
 
 # libcper - fetched on demand by build_libcper.sh
 src/plugins/ras/libcper/
+
+RasApiEnv/
+redfish_client_sdk/
+examples/ras_api_demo/ras_demo_output/
+examples/ras_api_demo/__pycache__/
+src/plugins/ras/libcper/
+src/plugins/ras/__pycache__/

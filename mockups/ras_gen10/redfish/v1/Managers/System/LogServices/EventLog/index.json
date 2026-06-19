@@ -1,0 +1,23 @@
+{
+  "@odata.id": "/redfish/v1/Managers/System/LogServices/EventLog",
+  "@odata.type": "#LogService.v1_1_0.LogService",
+  "Actions": {
+    "#LogService.ClearLog": {
+      "target": "/redfish/v1/Managers/System/LogServices/EventLog/Actions/LogService.ClearLog"
+    },
+    "Oem": {
+      "#Microsoft.AddIPMISELEntryEventLog": {
+        "target": "/redfish/v1/Managers/System/LogServices/Actions/Oem/Microsoft.AddIPMISELEntryEventLog"
+      }
+    }
+  },
+  "DateTime": "2025-10-11T00:46:50+00:00",
+  "DateTimeLocalOffset": "+00:00",
+  "Description": "System Event Log Service",
+  "Entries": {
+    "@odata.id": "/redfish/v1/Managers/System/LogServices/EventLog/Entries"
+  },
+  "Id": "EventLog",
+  "Name": "Event Log Service",
+  "OverWritePolicy": "WrapsWhenFull"
+}

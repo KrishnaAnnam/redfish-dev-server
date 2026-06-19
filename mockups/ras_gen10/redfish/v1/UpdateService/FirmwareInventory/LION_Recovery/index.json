@@ -1,0 +1,13 @@
+{
+  "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/LION_Recovery",
+  "@odata.type": "#SoftwareInventory.v1_1_0.SoftwareInventory",
+  "Description": "LION_Recovery image",
+  "Id": "LION_Recovery",
+  "Name": "Software Inventory",
+  "Status": {
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "Updateable": true,
+  "Version": "UNKNOWN"
+}

@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_M2_High",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Temp_M2_High Sensor",
+  "Id": "Temp_M2_High",
+  "Name": "Temp M2 High",
+  "Reading": 30.0,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Temperature",
+  "ReadingUnits": "Cel",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": null
+    },
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 77.0
+    },
+    "UpperCritical": {
+      "Reading": 80.0
+    },
+    "UpperFatal": {
+      "Reading": 84.0
+    }
+  }
+}

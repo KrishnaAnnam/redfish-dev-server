@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/P0_VDDIO_RUN",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "P0_VDDIO_RUN Sensor",
+  "Id": "P0_VDDIO_RUN",
+  "Name": "P0 VDDIO RUN",
+  "Reading": 1.097,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Voltage",
+  "ReadingUnits": "V",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 0.8
+    },
+    "LowerCritical": {
+      "Reading": 0.7
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 1.3
+    },
+    "UpperCritical": {
+      "Reading": 1.4
+    },
+    "UpperFatal": {
+      "Reading": 1.5
+    }
+  }
+}

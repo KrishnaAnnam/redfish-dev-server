@@ -1,0 +1,143 @@
+{
+  "$schema": "http://redfish.dmtf.org/schemas/v1/redfish-schema-v1.json",
+  "copyright": "Copyright 2014-2026 DMTF. For the full DMTF copyright policy, see http://www.dmtf.org/about/policies/copyright",
+  "definitions": {
+    "RASService": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "@odata.context": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/odata-v4.json#/definitions/context"
+        },
+        "@odata.id": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/odata-v4.json#/definitions/id"
+        },
+        "@odata.type": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/odata-v4.json#/definitions/type"
+        },
+        "Id": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/Resource.json#/definitions/Id"
+        },
+        "Name": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/Resource.json#/definitions/Name"
+        },
+        "Description": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/Resource.json#/definitions/Description"
+        },
+        "ServiceEnabled": {
+          "type": ["boolean", "null"],
+          "readonly": false,
+          "description": "Indicates whether this service is enabled."
+        },
+        "Status": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/Resource.json#/definitions/Status"
+        },
+        "Governance": {
+          "$ref": "#/definitions/Governance"
+        },
+        "Actions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "#RasProto.SubmitCPAD": {
+              "$ref": "#/definitions/SubmitCPAD"
+            }
+          }
+        },
+        "LogService": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/odata-v4.json#/definitions/idRef"
+        },
+        "Endpoints": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/odata-v4.json#/definitions/idRef"
+        },
+        "Initiators": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/odata-v4.json#/definitions/idRef"
+        }
+      },
+      "required": ["@odata.id", "@odata.type", "Id", "Name"],
+      "description": "RAS Service for error coordination and management."
+    },
+    "Governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "@odata.type": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/odata-v4.json#/definitions/type"
+        },
+        "OwningWorkstream": {
+          "type": "string",
+          "readonly": true,
+          "description": "The workstream responsible for this specification."
+        },
+        "GoverningSpecification": {
+          "type": "string",
+          "readonly": true,
+          "description": "The specification that governs this implementation."
+        },
+        "SpecificationVersion": {
+          "type": "string",
+          "readonly": true,
+          "description": "Version of the governing specification."
+        },
+        "SpecificationURI": {
+          "type": "string",
+          "format": "uri-reference",
+          "readonly": true,
+          "description": "URI to the governing specification."
+        },
+        "StandardizationIntent": {
+          "type": "string",
+          "readonly": true,
+          "description": "Intended standardization body (e.g., DMTF Redfish)."
+        },
+        "TargetNamespace": {
+          "type": "string",
+          "readonly": true,
+          "description": "Expected namespace after standardization."
+        },
+        "ImplementationStatus": {
+          "type": "string",
+          "enum": ["Prototype", "Development", "Production", "Deprecated"],
+          "readonly": true
+        },
+        "ContractStability": {
+          "type": "string",
+          "enum": ["Experimental", "Stable", "Frozen", "Deprecated"],
+          "readonly": true
+        }
+      },
+      "description": "Governance metadata for pre-standard features."
+    },
+    "SubmitCPAD": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string",
+          "format": "uri-reference",
+          "readonly": true
+        },
+        "@Redfish.ActionInfo": {
+          "type": "string",
+          "format": "uri-reference",
+          "readonly": true
+        }
+      },
+      "description": "Submit a Common Platform Error Record - Abstracted Data."
+    },
+    "ManagerExtension": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "@odata.type": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/odata-v4.json#/definitions/type"
+        },
+        "RASService": {
+          "$ref": "http://redfish.dmtf.org/schemas/v1/odata-v4.json#/definitions/idRef",
+          "description": "Link to the RAS Service resource."
+        }
+      },
+      "description": "RasProto extension for Manager resource."
+    }
+  }
+}

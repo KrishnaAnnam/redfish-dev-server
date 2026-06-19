@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/P0_SOC_RUN",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "P0_SOC_RUN Sensor",
+  "Id": "P0_SOC_RUN",
+  "Name": "P0 SOC RUN",
+  "Reading": 0.925,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Voltage",
+  "ReadingUnits": "V",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 0.6
+    },
+    "LowerCritical": {
+      "Reading": 0.5
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 1.35
+    },
+    "UpperCritical": {
+      "Reading": 1.45
+    },
+    "UpperFatal": {
+      "Reading": 1.55
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "@odata.id": "/redfish/v1/Systems/system/Memory/DIMM7",
+  "@odata.type": "#Memory.v1_11_0.Memory",
+  "AllowedSpeedsMHz": [
+    6400
+  ],
+  "BaseModuleType": "RDIMM",
+  "CapacityMiB": 131072,
+  "DeviceLocator": "Slot G0",
+  "Id": "7",
+  "MemoryDeviceType": "DDR5",
+  "MemoryType": "DRAM",
+  "Name": "DIMM 7",
+  "Status": {
+    "Health": "OK",
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "@odata.id": "/redfish/v1/chassis/DefaultSetting/FRU",
+  "@odata.type": "#FRUCollection.FRUCollection",
+  "Description": "Collection of FRU's for this Chassis",
+  "Members": [],
+  "Members@odata.count": 0,
+  "Name": "FRU Collection"
+}

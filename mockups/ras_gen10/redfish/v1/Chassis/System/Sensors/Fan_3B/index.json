@@ -1,0 +1,30 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_3B",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Fan_3B Sensor",
+  "Id": "Fan_3B",
+  "Name": "Fan 3B",
+  "Reading": 6850.0,
+  "ReadingRangeMax": 25000.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Rotational",
+  "ReadingUnits": "RPM",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 1000.0
+    },
+    "LowerCritical": {
+      "Reading": 600.0
+    },
+    "UpperCaution": {
+      "Reading": null
+    },
+    "UpperCritical": {
+      "Reading": null
+    }
+  }
+}

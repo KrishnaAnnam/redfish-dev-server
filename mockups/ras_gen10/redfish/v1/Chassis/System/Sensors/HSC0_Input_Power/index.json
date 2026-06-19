@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/HSC0_Input_Power",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "HSC0_Input_Power Sensor",
+  "Id": "HSC0_Input_Power",
+  "Name": "HSC0 Input Power",
+  "Reading": 241.585127,
+  "ReadingRangeMax": 3000.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Power",
+  "ReadingUnits": "W",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": null
+    },
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 1300.0
+    },
+    "UpperCritical": {
+      "Reading": 1350.0
+    },
+    "UpperFatal": {
+      "Reading": 1400.0
+    }
+  }
+}

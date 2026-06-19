@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/P5V_AUX_SCM",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "P5V_AUX_SCM Sensor",
+  "Id": "P5V_AUX_SCM",
+  "Name": "P5V AUX SCM",
+  "Reading": 5.0485,
+  "ReadingRangeMax": 5.454545237801301,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Voltage",
+  "ReadingUnits": "V",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 4.7
+    },
+    "LowerCritical": {
+      "Reading": 4.5
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 5.3
+    },
+    "UpperCritical": {
+      "Reading": 5.5
+    },
+    "UpperFatal": {
+      "Reading": 5.75
+    }
+  }
+}

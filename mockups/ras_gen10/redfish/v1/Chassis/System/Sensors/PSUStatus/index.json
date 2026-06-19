@@ -1,0 +1,14 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/PSUStatus",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "PSUStatus Sensor",
+  "Id": "PSUStatus",
+  "Name": "PSUStatus",
+  "Reading": 0.0,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/P12V",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "P12V Sensor",
+  "Id": "P12V",
+  "Name": "P12V",
+  "Reading": 12.2589,
+  "ReadingRangeMax": 16.071428075356767,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Voltage",
+  "ReadingUnits": "V",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 11.0
+    },
+    "LowerCritical": {
+      "Reading": 10.5
+    },
+    "UpperCaution": {
+      "Reading": 13.2
+    },
+    "UpperCritical": {
+      "Reading": 14.34
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "@odata.id": "/redfish/v1/Registries/HttpStatus",
+  "@odata.type": "#MessageRegistryFile.v1_1_0.MessageRegistryFile",
+  "Description": "HttpStatus Message Registry File Location",
+  "Id": "HttpStatus",
+  "Languages": [
+    "en"
+  ],
+  "Languages@odata.count": 1,
+  "Location": [
+    {
+      "Language": "en",
+      "Uri": "/redfish/v1/Registries/HttpStatus/HttpStatus"
+    }
+  ],
+  "Location@odata.count": 1,
+  "Name": "HttpStatus Message Registry File",
+  "Registry": "HttpStatus.1.0.0"
+}

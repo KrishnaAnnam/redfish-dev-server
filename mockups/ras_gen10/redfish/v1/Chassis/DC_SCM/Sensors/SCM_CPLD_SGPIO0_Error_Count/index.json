@@ -1,0 +1,14 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/SCM_CPLD_SGPIO0_Error_Count",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "SCM_CPLD_SGPIO0_Error_Count Sensor",
+  "Id": "SCM_CPLD_SGPIO0_Error_Count",
+  "Name": "SCM CPLD SGPIO0 Error Count",
+  "Reading": 0.0,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

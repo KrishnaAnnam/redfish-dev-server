@@ -100,6 +100,7 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
             lenn = int(self.headers["content-length"])
             if lenn > 0:
                 raw_body = self.rfile.read(lenn)
+                
                 try:
                     data_received = json.loads(raw_body.decode("utf-8"))
                 except (ValueError, json.JSONDecodeError):
@@ -112,10 +113,16 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
         for plugin_name, plugin_handler in self.plugin_handlers.items():
             if plugin_handler.can_handle_path(self.path):
                 try:
-                    status, response_data = plugin_handler.handle_post(self.path, data_received or {}, self.cached_links)
-                    if status != 405:  # Plugin handled it
-                        self._send_platform_response(status, response_data)
-                        return
+                    # Acknowledge the client immediately
+                    self._send_platform_response(200)
+                    # Then forward to plugin for processing
+                    plugin_handler.handle_post(self.path, data_received or {}, self.cached_links)
+
+                    # Bridge: dispatch event to core EventService subscribers
+                    if 'SubmitCPAD' in self.path:
+                        self._dispatch_ras_cpad_events(data_received or {})
+
+                    return
                 except Exception as e:
                     logger.error(f"Plugin {plugin_name} POST handler error: {e}")
         
@@ -138,6 +145,68 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
         # Fall back to standard POST handling
         super().do_POST()
     
+    def _dispatch_ras_cpad_events(self, data_received):
+        """After a SubmitCPAD, notify core EventService subscribers.
+
+        The RAS plugin creates LogEntries but does not push events to
+        Redfish EventService subscribers.  This bridge scans for recently
+        created entries and fires LogEntry.1.0.LogEntryCreated events so
+        that subscription listeners (e.g. SDK RedfishEventListener) receive
+        push notifications.
+        """
+        try:
+            import re
+            import time
+            from datetime import datetime, timezone
+
+            manager_match = re.search(r'/Managers/([^/]+)/', self.path)
+            manager_id = manager_match.group(1) if manager_match else "System"
+
+            entries_dir = os.path.join(
+                self.server.config.mock_dir,
+                "redfish", "v1", "Managers", manager_id,
+                "LogServices", "RAS", "Entries"
+            )
+
+            if not os.path.isdir(entries_dir):
+                return
+
+            # Find entry directories created in the last 10 seconds
+            now = time.time()
+            recent_entries = [
+                name for name in os.listdir(entries_dir)
+                if os.path.isdir(os.path.join(entries_dir, name))
+                and name != "__pycache__"
+                and now - os.path.getmtime(os.path.join(entries_dir, name)) < 10
+            ]
+
+            for entry_id in recent_entries:
+                event_data = {
+                    "EventType": "Alert",
+                    "EventId": f"LogEntry.Created.{entry_id}",
+                    "EventTimestamp": datetime.now(timezone.utc).isoformat(),
+                    "Severity": "Warning",
+                    "Message": f"New RAS CPER log entry created: {entry_id}",
+                    "MessageId": "OemCper.1.0.CperCreated",
+                    "MessageArgs": [entry_id, "RAS CPER log entry created"],
+                    "OriginOfCondition": {
+                        "@odata.id": f"/redfish/v1/Managers/{manager_id}/LogServices/RAS/Entries/{entry_id}"
+                    },
+                    "AdditionalDataURI": f"/redfish/v1/Managers/{manager_id}/LogServices/RAS/Entries/{entry_id}/Attachment",
+                }
+
+                self.event_service.handle_eventing(
+                    "/redfish/v1/EventService/Actions/EventService.SubmitTestEvent",
+                    event_data,
+                    self.cached_links,
+                )
+
+            if recent_entries:
+                logger.info(f"EventBridge: dispatched {len(recent_entries)} events for RAS LogEntries")
+
+        except Exception as e:
+            logger.error(f"EventBridge: failed to dispatch RAS events: {e}")
+
     def _send_platform_response(self, status: int, response_data: dict = None):
         """Send platform handler response"""
         self.send_response(status)

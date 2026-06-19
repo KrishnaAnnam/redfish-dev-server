@@ -1,0 +1,16 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Pwm_PSU_Fan_2",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Pwm_PSU_Fan_2 Sensor",
+  "Id": "Pwm_PSU_Fan_2",
+  "Name": "Pwm PSU Fan 2",
+  "Reading": 50.0,
+  "ReadingRangeMax": 100.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Percent",
+  "ReadingUnits": "%",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

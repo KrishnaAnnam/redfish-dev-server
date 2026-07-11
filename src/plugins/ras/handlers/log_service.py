@@ -24,7 +24,7 @@ class RASLogServiceHandler:
     
     def __init__(self, mockup_dir: str, manager_id: str = "System", event_handler: Optional[RASEventServiceHandler] = None):
         """
-        Initialize RAS LogService handler.
+        Initialize RAS CPER LogService handler.
         
         Args:
             mockup_dir: Path to mockup directory root
@@ -34,25 +34,46 @@ class RASLogServiceHandler:
         self.mockup_dir = mockup_dir
         self.manager_id = manager_id
         self.event_handler = event_handler
-        self.log_service_path = f"/redfish/v1/Managers/{manager_id}/LogServices/RAS"
+        self.log_service_path = f"/redfish/v1/Managers/{manager_id}/LogServices/CPER"
         self.entries_path = f"{self.log_service_path}/Entries"
         
         # File system paths
-        self.log_service_fs_path = Path(mockup_dir) / "redfish/v1/Managers" / manager_id / "LogServices/RAS"
+        self.log_service_fs_path = Path(mockup_dir) / "redfish/v1/Managers" / manager_id / "LogServices/CPER"
         self.entries_fs_path = self.log_service_fs_path / "Entries"
         
         # Ensure directories exist
         self.entries_fs_path.mkdir(parents=True, exist_ok=True)
-        
-        logger.info(f"RAS LogService initialized for Manager: {manager_id}")
+
+        # BMC-assigned CPER recordID counter.  A real RAS API endpoint assigns
+        # the recordID as it logs each CPER; this demo has no such endpoint, so
+        # the BMC assigns sequential recordIDs starting at 1 (see next_record_id).
+        self._record_id_counter = 0
+
+        # Initialize LogService resource if not present
+        self._ensure_log_service_resource()
+
+        logger.info(f"CPER LogService initialized for Manager: {manager_id}")
+
+    def next_record_id(self) -> int:
+        """Assign the next sequential CPER recordID.
+
+        The recordID is BMC-assigned (a stand-in for the RAS API endpoint) and
+        starts at 1, incrementing for every new CPER the BMC emits.  It resets
+        on server restart, which is fine for the demo.
+        """
+        self._record_id_counter += 1
+        return self._record_id_counter
     
     def add_cper_log_entry(self, cper_data: Dict[str, Any], binary_cper_path: str = None) -> Tuple[int, str]:
         """
-        Add a CPER record as a LogEntry.
+        Add a CPER record as a LogEntry per OCP RAS API §4.
+        
+        Uses Pattern A (inline DiagnosticData) for small CPERs,
+        Pattern B (AdditionalDataURI) for large CPERs.
         
         Args:
             cper_data: CPER record data (JSON)
-            binary_cper_path: Optional path to binary .cper file to store as Attachment
+            binary_cper_path: Optional path to binary .cper file
             
         Returns:
             tuple: (HTTP status, entry_id)
@@ -61,14 +82,24 @@ class RASLogServiceHandler:
             # Generate entry ID
             entry_id = self._generate_entry_id(cper_data)
             
-            # Convert CPER to LogEntry format
-            log_entry = CPERToLogEntry.convert(cper_data, self.manager_id, entry_id)
+            # Read binary CPER if available
+            binary_cper = None
+            if binary_cper_path and os.path.exists(binary_cper_path):
+                with open(binary_cper_path, 'rb') as f:
+                    binary_cper = f.read()
+            
+            # Convert CPER to LogEntry format (handles Pattern A vs B internally)
+            log_entry = CPERToLogEntry.convert(cper_data, self.manager_id, entry_id, binary_cper)
             
             # Save LogEntry
             self._save_log_entry(entry_id, log_entry)
             
-            # Save attachment (binary CPER if available, else JSON fallback)
-            self._save_attachment(entry_id, cper_data, binary_cper_path)
+            # Save attachment for Pattern B (large CPERs or when binary is available)
+            if binary_cper and "AdditionalDataURI" in log_entry:
+                self._save_binary_attachment(entry_id, binary_cper)
+            elif not binary_cper and "AdditionalDataURI" in log_entry:
+                # Fallback: save JSON-serialized CPER as binary attachment
+                self._save_binary_attachment(entry_id, json.dumps(cper_data).encode('utf-8'))
             
             # Update collection
             self._update_collection(entry_id)
@@ -81,7 +112,8 @@ class RASLogServiceHandler:
                         self.manager_id,
                         entry_id,
                         severity,
-                        cper_data
+                        cper_data,
+                        log_entry
                     )
                 except Exception as e:
                     logger.error(f"Failed to emit CPER created event: {e}")
@@ -134,7 +166,7 @@ class RASLogServiceHandler:
                 return (200, {
                     "@odata.type": "#LogEntryCollection.LogEntryCollection",
                     "@odata.id": self.entries_path,
-                    "Name": "RAS Log Entries",
+                    "Name": "CPER Log Entries",
                     "Members@odata.count": 0,
                     "Members": []
                 })
@@ -198,7 +230,7 @@ class RASLogServiceHandler:
             collection = {
                 "@odata.type": "#LogEntryCollection.LogEntryCollection",
                 "@odata.id": self.entries_path,
-                "Name": "RAS Log Entries",
+                "Name": "CPER Log Entries",
                 "Members@odata.count": 0,
                 "Members": []
             }
@@ -250,22 +282,86 @@ class RASLogServiceHandler:
         with open(entry_file, 'w') as f:
             json.dump(log_entry, f, indent=2)
     
-    def _save_attachment(self, entry_id: str, cper_data: Dict[str, Any], binary_cper_path: str = None):
-        """Save CPER data as attachment. Uses binary .cper if provided, else JSON fallback."""
+    def _save_binary_attachment(self, entry_id: str, binary_cper: bytes):
+        """Save raw binary CPER as attachment for Pattern B."""
         entry_dir = self.entries_fs_path / entry_id
         attachment_file = entry_dir / "Attachment"
+        with open(attachment_file, 'wb') as f:
+            f.write(binary_cper)
+        logger.info(f"Stored binary CPER attachment for entry {entry_id} ({len(binary_cper)} bytes)")
+
+    def _ensure_log_service_resource(self):
+        """Create the CPER LogService resource file if not present."""
+        log_service_file = self.log_service_fs_path / "index.json"
+        if not log_service_file.exists():
+            resource = {
+                "@odata.type": "#LogService.v1_8_0.LogService",
+                "@odata.id": self.log_service_path,
+                "Id": "CPER",
+                "Name": "CPER Log Service",
+                "Description": "Persistent Common Platform Error Record storage",
+                "OverWritePolicy": "WrapsWhenFull",
+                "MaxNumberOfRecords": 1000,
+                "Entries": {
+                    "@odata.id": self.entries_path
+                },
+                "Actions": {
+                    "#LogService.ClearLog": {
+                        "target": f"{self.log_service_path}/Actions/LogService.ClearLog"
+                    }
+                },
+                "Status": {
+                    "State": "Enabled",
+                    "Health": "OK"
+                }
+            }
+            self.log_service_fs_path.mkdir(parents=True, exist_ok=True)
+            with open(log_service_file, 'w') as f:
+                json.dump(resource, f, indent=2)
+            logger.info(f"Created CPER LogService resource at {self.log_service_path}")
+
+    def delete_entry(self, entry_id: str) -> Tuple[int, Dict[str, Any]]:
+        """
+        Delete a specific CPER LogEntry (§4.8).
         
-        if binary_cper_path and os.path.exists(binary_cper_path):
-            # Store actual binary CPER from cper-convert
-            import shutil
-            shutil.copy2(binary_cper_path, str(attachment_file))
-            logger.info(f"Stored binary CPER attachment for entry {entry_id}")
-        else:
-            # Fallback: store JSON-encoded CPER
-            attachment_data = CPERToLogEntry.create_entry_attachment(cper_data)
-            with open(attachment_file, 'wb') as f:
-                f.write(attachment_data)
-            logger.info(f"Stored JSON CPER attachment for entry {entry_id} (no binary available)")
+        Args:
+            entry_id: Entry ID to delete
+            
+        Returns:
+            tuple: (HTTP status, response)
+        """
+        entry_dir = self.entries_fs_path / entry_id
+        if not entry_dir.exists():
+            return (404, {"error": f"Entry {entry_id} not found"})
+        
+        try:
+            # Remove entry directory and contents
+            for file in entry_dir.iterdir():
+                file.unlink()
+            entry_dir.rmdir()
+            
+            # Update collection to remove the entry
+            collection_file = self.entries_fs_path / "index.json"
+            if collection_file.exists():
+                with open(collection_file, 'r') as f:
+                    collection = json.load(f)
+                
+                member_uri = f"{self.entries_path}/{entry_id}"
+                collection["Members"] = [
+                    m for m in collection.get("Members", [])
+                    if m.get("@odata.id") != member_uri
+                ]
+                collection["Members@odata.count"] = len(collection["Members"])
+                
+                with open(collection_file, 'w') as f:
+                    json.dump(collection, f, indent=2)
+            
+            logger.info(f"Deleted CPER LogEntry: {entry_id}")
+            return (200, {"Message": f"Entry {entry_id} deleted successfully."})
+            
+        except Exception as e:
+            logger.error(f"Failed to delete entry {entry_id}: {e}")
+            return (500, {"error": str(e)})
     
     def _update_collection(self, entry_id: str):
         """Update LogEntry collection to include new entry"""
@@ -279,7 +375,7 @@ class RASLogServiceHandler:
             collection = {
                 "@odata.type": "#LogEntryCollection.LogEntryCollection",
                 "@odata.id": self.entries_path,
-                "Name": "RAS Log Entries",
+                "Name": "CPER Log Entries",
                 "Members": []
             }
         
@@ -328,7 +424,7 @@ class RASLogServiceHandler:
     
     def handle_get(self, path: str) -> Tuple[int, Dict[str, Any]]:
         """
-        Handle GET requests to RAS LogService paths.
+        Handle GET requests to CPER LogService paths.
         
         Args:
             path: Request path
@@ -336,7 +432,7 @@ class RASLogServiceHandler:
         Returns:
             tuple: (status, response)
         """
-        if path.endswith("/LogServices/RAS"):
+        if path.endswith("/LogServices/CPER"):
             # Return LogService resource
             log_service_file = self.log_service_fs_path / "index.json"
             if log_service_file.exists():
@@ -344,11 +440,11 @@ class RASLogServiceHandler:
                     return (200, json.load(f))
             return (404, {"error": "LogService not found"})
         
-        elif path.endswith("/LogServices/RAS/Entries"):
+        elif path.endswith("/LogServices/CPER/Entries"):
             # Return collection
             return self.get_log_entries()
         
-        elif "/LogServices/RAS/Entries/" in path:
+        elif "/LogServices/CPER/Entries/" in path:
             # Get specific entry or attachment
             parts = path.split("/")
             entry_id = parts[-1] if not path.endswith("/Attachment") else parts[-2]
@@ -356,7 +452,11 @@ class RASLogServiceHandler:
             if path.endswith("/Attachment"):
                 status, data = self.get_attachment(entry_id)
                 if status == 200:
-                    return (status, {"data": data.decode('utf-8') if data else None})
+                    # Return the raw CPER bytes; the transport layer sends them
+                    # as application/octet-stream.  The attachment is binary
+                    # (CPER signature + register dumps) and must not be decoded
+                    # as UTF-8.
+                    return (status, data)
                 return (status, {"error": "Attachment not found"})
             else:
                 return self.get_log_entry(entry_id)
@@ -378,3 +478,19 @@ class RASLogServiceHandler:
             return self.clear_logs()
         
         return (404, {"error": "Action not found"})
+    
+    def handle_delete(self, path: str) -> Tuple[int, Dict[str, Any]]:
+        """
+        Handle DELETE requests (individual entry deletion per §4.8).
+        
+        Args:
+            path: Request path
+            
+        Returns:
+            tuple: (status, response)
+        """
+        if "/LogServices/CPER/Entries/" in path:
+            entry_id = path.split("/")[-1]
+            return self.delete_entry(entry_id)
+        
+        return (405, {"error": "DELETE not supported on this resource"})

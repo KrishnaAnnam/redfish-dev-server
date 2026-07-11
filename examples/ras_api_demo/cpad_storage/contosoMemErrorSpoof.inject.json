@@ -1,0 +1,57 @@
+{
+  "cpad": {
+    "platformID": "990f8820-bd4d-5064-58cc-961a053dea79",
+    "partitionID": "22222222-3333-4444-5555-666666666666",
+    "revision": { "major": 1, "minor": 0 },
+    "urgency": false,
+    "fruID": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+    "fruText": "DIMM A1"
+  },
+  "error": {
+    "sectionType": "Memory Controller - First Generation",
+    "errorBank": "DRAM Errors",
+    "errorName": "Corrected Memory ECC Error",
+    "severityOverride": null,
+    "injected": true,
+    "occurrence": "immediate"
+  },
+  "section": {
+    "subcomponent": {
+      "chiplet": 0,
+      "controller": 0
+    },
+    "errorStatus": {
+      "addressValid": true,
+      "overflow": false
+    },
+    "errorAddress": "0x6942759454E18000",
+    "misc0": {
+      "injected": true,
+      "ce_count": 1
+    },
+    "misc1": "0x0",
+    "additional": {
+      "channel": 0,
+      "subchannel": 0,
+      "dimm": 1,
+      "rank": 0,
+      "bank_group": 2,
+      "bank": 3,
+      "row": 1234,
+      "column": 567,
+      "syndrome": "0x00A5",
+      "beat_mask": [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0]
+      ]
+    }
+  }
+}

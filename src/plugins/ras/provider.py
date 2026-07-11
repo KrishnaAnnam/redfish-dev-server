@@ -89,7 +89,7 @@ class RASHandler(BasePlatformHandler):
             r'^/redfish/v1/Managers/([^/]+)/Oem/RasProto/RASService/Actions/RasProto\.SubmitCPAD/?$'
         )
         self.logservice_pattern = re.compile(
-            r'^/redfish/v1/Managers/([^/]+)/LogServices/RAS(/.*)?$'
+            r'^/redfish/v1/Managers/([^/]+)/LogServices/CPER(/.*)?$'
         )
         self.analytics_pattern = re.compile(
             r'^/redfish/v1/Managers/([^/]+)/Oem/RasProto/Analytics/?$'
@@ -190,9 +190,9 @@ class RASHandler(BasePlatformHandler):
         return [
             '/redfish/v1/Managers/*/Oem/RasProto/RASService',
             '/redfish/v1/Managers/*/Oem/RasProto/RASService/Actions/RasProto.SubmitCPAD',
-            '/redfish/v1/Managers/*/LogServices/RAS',
-            '/redfish/v1/Managers/*/LogServices/RAS/Entries',
-            '/redfish/v1/Managers/*/LogServices/RAS/Entries/*',
+            '/redfish/v1/Managers/*/LogServices/CPER',
+            '/redfish/v1/Managers/*/LogServices/CPER/Entries',
+            '/redfish/v1/Managers/*/LogServices/CPER/Entries/*',
             '/redfish/v1/Managers/*/Oem/RasProto/Analytics',
             '/redfish/v1/Managers/*/Oem/RasProto/Health',
         ]
@@ -293,7 +293,7 @@ class RASHandler(BasePlatformHandler):
         path_without_query = path.split('?')[0]
         
         # Handle LogService actions (ClearLog)
-        if self.log_service_handler and 'LogServices/RAS/Actions' in path_without_query:
+        if self.log_service_handler and 'LogServices/CPER/Actions' in path_without_query:
             return self.log_service_handler.handle_post(path_without_query, data)
         
         # Manager OEM extension doesn't support POST
@@ -344,7 +344,10 @@ class RASHandler(BasePlatformHandler):
     
     def handle_delete(self, path: str, cached_links: Dict) -> Tuple[int, Dict[str, Any]]:
         """
-        Handle DELETE requests (not supported for RAS endpoints).
+        Handle DELETE requests for RAS endpoints.
+        
+        Per OCP RAS API §4.8, individual CPER deletion uses:
+            DELETE /redfish/v1/Managers/{ManagerId}/LogServices/CPER/Entries/{EntryId}
         
         Args:
             path: Request path
@@ -353,13 +356,17 @@ class RASHandler(BasePlatformHandler):
         Returns:
             Tuple of (status_code, response_data)
         """
+        # Route individual LogEntry deletion to log_service_handler
+        if "/LogServices/CPER/Entries/" in path:
+            return self.log_service_handler.handle_delete(path)
+        
         return (405, {
             "error": {
                 "@Message.ExtendedInfo": [{
                     "MessageId": "Base.1.16.0.ActionNotSupported",
-                    "Message": "DELETE is not supported on RAS endpoints.",
+                    "Message": "DELETE is not supported on this RAS endpoint.",
                     "Severity": "Warning",
-                    "Resolution": "Use GET or POST methods."
+                    "Resolution": "Use DELETE on individual LogEntries or POST LogService.ClearLog to clear all."
                 }]
             }
         })

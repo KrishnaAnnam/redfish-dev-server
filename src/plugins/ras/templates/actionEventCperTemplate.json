@@ -9,15 +9,15 @@
             "code": 4,
             "name": "Action Event"
         },
-        "recordLength": 264,
+        "recordLength": 272,
         "timestamp": "2025-06-27T12:00:00+00:00",
         "timestampIsPrecise": true,
         "platformID": "00000000-0000-0000-0000-000000000000",
         "partitionID": "00000000-0000-0000-0000-000000000000",
         "creatorID": "00000000-0000-0000-0000-000000000000",
         "notificationType": {
-            "guid": "2dce8bb1-bdd7-450e-b9ad-9cf4ebd4f890",
-            "type": "CMC"
+            "guid": "96023f3b-e100-4689-ad1b-f4c1b5bc2a21",
+            "type": "Platform Action Event (implementation-defined)"
         },
         "recordID": 0,
         "flags": {
@@ -29,7 +29,7 @@
     "sectionDescriptors": [
         {
             "sectionOffset": 200,
-            "sectionLength": 64,
+            "sectionLength": 72,
             "revision": {
                 "major": 1,
                 "minor": 0

@@ -219,7 +219,7 @@ class RASEvent:
         
         if log_entry_id:
             context["LogEntryId"] = log_entry_id
-            context["LogEntryURI"] = f"/redfish/v1/Managers/{manager_id}/LogServices/RAS/Entries/{log_entry_id}"
+            context["LogEntryURI"] = f"/redfish/v1/Managers/{manager_id}/LogServices/CPER/Entries/{log_entry_id}"
         
         return RASEvent.create_event(
             RASEventType.CPAD_APPROVED,
@@ -257,33 +257,78 @@ class RASEvent:
         manager_id: str,
         log_entry_id: str,
         severity: str,
-        cper_data: Dict[str, Any]
+        cper_data: Dict[str, Any],
+        log_entry: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Create event for CPER record created"""
-        origin = f"/redfish/v1/Managers/{manager_id}/LogServices/RAS/Entries/{log_entry_id}"
+        """Create event for CPER record created per §5.5.
         
-        context = {
-            "LogEntryId": log_entry_id,
-            "RecordId": cper_data.get("RecordId"),
-            "SectionType": cper_data.get("SectionType"),
-            "FRUId": cper_data.get("FRUId")
+        Uses OCPRAS MessageIds and includes DiagnosticData for Pattern A
+        or AdditionalDataURI for Pattern B.
+        """
+        origin = f"/redfish/v1/Managers/{manager_id}/LogServices/CPER/Entries/{log_entry_id}"
+        
+        # §5.2 Map severity to OCPRAS MessageId
+        message_id_map = {
+            "Critical": "OCPRAS.1.0.0.FatalError",
+            "Warning": "OCPRAS.1.0.0.CorrectedError",
+            "OK": "OCPRAS.1.0.0.InformationalEvent",
+        }
+        # Check if this is a platform action event
+        queue_type = None
+        if log_entry:
+            oem = log_entry.get("Oem", {}).get("OCPRASAPIWS", {})
+            queue_type = oem.get("QueueType")
+            if queue_type == "PlatformActionStatus":
+                message_id = "OCPRAS.1.0.0.PlatformActionEvent"
+            elif queue_type == "Recoverable":
+                message_id = "OCPRAS.1.0.0.UncorrectedError"
+            elif queue_type == "Fatal":
+                message_id = "OCPRAS.1.0.0.FatalError"
+            else:
+                message_id = message_id_map.get(severity, "OCPRAS.1.0.0.InformationalEvent")
+        else:
+            message_id = message_id_map.get(severity, "OCPRAS.1.0.0.InformationalEvent")
+        
+        # Build message from log entry or default
+        message = "CPER record created."
+        if log_entry:
+            message = log_entry.get("Message", message)
+        
+        # Build event record per §5.5
+        event_record = {
+            "EventType": "Alert",
+            "EventId": f"CPER-{log_entry_id}",
+            "EventTimestamp": datetime.now(timezone.utc).isoformat(),
+            "Severity": severity,
+            "Message": message,
+            "MessageId": message_id,
+            "MessageArgs": [],
+            "OriginOfCondition": {
+                "@odata.id": origin
+            },
         }
         
-        # Map CPER severity to event severity
-        severity_map = {
-            "OK": RASEventSeverity.OK,
-            "Warning": RASEventSeverity.WARNING,
-            "Critical": RASEventSeverity.CRITICAL
-        }
-        event_severity = severity_map.get(severity, RASEventSeverity.OK)
+        # Include inline DiagnosticData (Pattern A) or AdditionalDataURI (Pattern B)
+        if log_entry:
+            if "DiagnosticData" in log_entry:
+                event_record["DiagnosticData"] = log_entry["DiagnosticData"]
+                event_record["DiagnosticDataType"] = "CPER"
+            elif "AdditionalDataURI" in log_entry:
+                event_record["AdditionalDataURI"] = log_entry["AdditionalDataURI"]
+            
+            # Include OEM metadata
+            oem = log_entry.get("Oem", {}).get("OCPRASAPIWS", {})
+            if oem:
+                event_record["Oem"] = {"OCPRASAPIWS": oem}
         
-        return RASEvent.create_event(
-            RASEventType.CPER_RECORD_CREATED,
-            origin,
-            [log_entry_id, severity],
-            event_severity,
-            context
-        )
+        event = {
+            "@odata.type": "#Event.v1_7_0.Event",
+            "Id": f"RAS-Event-{log_entry_id}",
+            "Name": "RAS Event",
+            "Events": [event_record]
+        }
+        
+        return event
     
     @staticmethod
     def create_log_cleared_event(
@@ -291,7 +336,7 @@ class RASEvent:
         entries_cleared: int
     ) -> Dict[str, Any]:
         """Create event for LogService cleared"""
-        origin = f"/redfish/v1/Managers/{manager_id}/LogServices/RAS"
+        origin = f"/redfish/v1/Managers/{manager_id}/LogServices/CPER"
         
         context = {
             "EntriesCleared": entries_cleared,

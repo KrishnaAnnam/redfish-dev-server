@@ -53,12 +53,12 @@ def reset_log_entries(entries_path, manager_id):
     
     # Update or create the index.json to show empty collection
     index_path = entries_path / "index.json"
-    entries_uri = f"/redfish/v1/Managers/{manager_id}/LogServices/RAS/Entries"
+    entries_uri = f"/redfish/v1/Managers/{manager_id}/LogServices/CPER/Entries"
     
     empty_collection = {
         "@odata.type": "#LogEntryCollection.LogEntryCollection",
         "@odata.id": entries_uri,
-        "Name": "RAS Log Entries",
+        "Name": "CPER Log Entries",
         "Members@odata.count": 0,
         "Members": []
     }
@@ -198,7 +198,7 @@ def main():
     print("=" * 60)
     
     # Step 1: Reset RAS LogService Entries
-    entries_path = mockdir / "redfish" / "v1" / "Managers" / args.manager / "LogServices" / "RAS" / "Entries"
+    entries_path = mockdir / "redfish" / "v1" / "Managers" / args.manager / "LogServices" / "CPER" / "Entries"
     
     print(f"\n📋 Step 1: Resetting RAS LogService Entries")
     print(f"   Path: {entries_path}")

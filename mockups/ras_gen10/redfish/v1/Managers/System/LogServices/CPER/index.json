@@ -1,0 +1,21 @@
+{
+  "@odata.type": "#LogService.v1_8_0.LogService",
+  "@odata.id": "/redfish/v1/Managers/System/LogServices/CPER",
+  "Id": "CPER",
+  "Name": "CPER Log Service",
+  "Description": "Persistent Common Platform Error Record storage",
+  "OverWritePolicy": "WrapsWhenFull",
+  "MaxNumberOfRecords": 1000,
+  "Entries": {
+    "@odata.id": "/redfish/v1/Managers/System/LogServices/CPER/Entries"
+  },
+  "Actions": {
+    "#LogService.ClearLog": {
+      "target": "/redfish/v1/Managers/System/LogServices/CPER/Actions/LogService.ClearLog"
+    }
+  },
+  "Status": {
+    "State": "Enabled",
+    "Health": "OK"
+  }
+}

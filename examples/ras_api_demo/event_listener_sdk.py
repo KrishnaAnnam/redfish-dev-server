@@ -8,7 +8,7 @@ Subscribes to the BMC server, receives push events, and auto-downloads
 CPER binaries via AdditionalDataURI.
 
 Usage:
-    python examples/ras_api_demo/event_listener_sdk.py [--port 8888] [--bmc localhost:8000]
+    python Demos/RasApi/event_listener_sdk.py [--port 8888] [--bmc localhost:8000]
 """
 
 import argparse
@@ -89,14 +89,14 @@ def print_event(event: RedfishEvent) -> None:
 
 
 def print_download(cper_event: CperEvent, cper_bytes: bytes, save_path: Path) -> None:
-    """Display auto-download result."""
+    """Display inline CPER extraction result."""
     platform_id, partition_id, _ = parse_cper_header_ids(cper_bytes)
-    print(f"\n   📥 CPER AUTO-DOWNLOADED")
+    print(f"\n   📥 CPER EXTRACTED (inline DiagnosticData)")
     print(f"      Size:        {len(cper_bytes)} bytes")
     print(f"      Platform:    {platform_id}")
     print(f"      Partition:   {partition_id}")
     if cper_event.origin_of_condition:
-        print(f"      Source:      {cper_event.origin_of_condition}")
+        print(f"      LogEntry:    {cper_event.origin_of_condition}")
     print(f"      Saved:       {save_path}")
 
 
@@ -185,6 +185,11 @@ def main() -> None:
     print(f"\n{'=' * 60}")
     print(f"🎧 SDK EVENT LISTENER")
     print(f"{'=' * 60}")
+    print(f"   Mode:     Push subscription via EventService")
+    print(f"   Registry: OCPRAS (filters: CorrectedError, FatalError, etc.)")
+    print(f"   Pattern:  Inline CPER extraction from DiagnosticData")
+    print(f"   Flow:     BMC → push event → SDK extracts CPER → notifies demo client")
+    print(f"")
     print(f"   Connecting to BMC at {bmc_host}:{bmc_port}...")
 
     ctx = connect(
@@ -210,7 +215,7 @@ def main() -> None:
         # Auto-download CPER if this is a CPER event
         ce = CperEvent.from_event_record(event.raw)
         mid_lower = ce.message_id.lower()
-        if ce.severity is None and "cper" not in mid_lower and "ras" not in mid_lower:
+        if ce.severity is None and "ocpras" not in mid_lower and "cper" not in mid_lower and "ras" not in mid_lower:
             return
 
         cper_bytes = None
@@ -223,9 +228,8 @@ def main() -> None:
             cper_bytes = ce.cper_data
         elif ce.origin_of_condition:
             try:
-                resp = await ctx.get_async(ce.origin_of_condition + "/Attachment")
-                if resp.success:
-                    cper_bytes = (resp.raw or "").encode()
+                attachment_uri = ce.origin_of_condition + "/Attachment"
+                cper_bytes = await ctx.ras_service.fetch_cper_data_async(attachment_uri)
             except Exception as e:
                 print(f"      ❌ Attachment fetch failed: {e}")
 
@@ -235,21 +239,22 @@ def main() -> None:
             platform_id, partition_id, _ = parse_cper_header_ids(cper_bytes)
             cper_dir = storage_dir / platform_id / partition_id
             cper_dir.mkdir(parents=True, exist_ok=True)
-            filename = f"cper_{download_count:04d}.cper"
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            filename = f"cper_{ts}.cper"
             save_path = cper_dir / filename
             save_path.write_bytes(cper_bytes)
             print_download(ce, cper_bytes, save_path)
 
-            # Clear the RAS LogService so entries don't accumulate
-            try:
-                log_uri = f"/redfish/v1/Managers/System/LogServices/RAS"
-                clear_resp = await ctx.log_service.clear_log_async(log_uri)
-                if clear_resp.success:
-                    print(f"      🗑️  Server log cleared")
-                else:
-                    print(f"      ⚠️  Log clear returned {clear_resp.status_code}")
-            except Exception as e:
-                print(f"      ⚠️  Could not clear server log: {e}")
+            # Delete the individual LogEntry (per OCP RAS API §4.8)
+            if ce.origin_of_condition:
+                try:
+                    del_resp = await ctx.delete_async(ce.origin_of_condition)
+                    if del_resp.success:
+                        print(f"      🗑️  Deleted entry: {ce.origin_of_condition.split('/')[-1]}")
+                    else:
+                        print(f"      ⚠️  Delete returned {del_resp.status_code}")
+                except Exception as e:
+                    print(f"      ⚠️  Could not delete entry: {e}")
 
             # Notify the demo client that a CPER was downloaded
             import time as _time
@@ -263,7 +268,7 @@ def main() -> None:
                 "partition_id": partition_id,
                 "size": len(cper_bytes),
                 "message_id": ce.message_id,
-                "severity": ce.severity,
+                "severity": ce.severity.value if ce.severity else None,
             })
             if should_notify:
                 last_notify_time = now
@@ -277,7 +282,8 @@ def main() -> None:
     listener.start()
     listen_url = listener.listen_url.replace("0.0.0.0", "localhost")
     print(f"   ✅ Listening on {listen_url}")
-    print(f"   📁 Storage: {storage_dir}")
+    print(f"   📁 CPER storage: {storage_dir}")
+    print(f"   📡 Demo client notification port: {args.notify_port}")
 
     # --- 5. Subscribe to BMC events ---
     print(f"\n   Subscribing to BMC events...")
@@ -305,10 +311,14 @@ def main() -> None:
     if not already_subscribed:
         resp = ctx.ras_service.subscribe_cper_events(
             destination=listen_url,
-            registry_prefixes=["OemCper"],
+            registry_prefixes=["OCPRAS"],
+            resource_types=["LogEntry"],
         )
         if resp.success:
-            print(f"   ✅ Subscribed for CPER events")
+            print(f"   ✅ Subscribed to: http://{args.bmc}/redfish/v1/EventService/Subscriptions")
+            print(f"      RegistryPrefixes: ['OCPRAS']")
+            print(f"      ResourceTypes:    ['LogEntry']")
+            print(f"      Destination:      {listen_url}")
         else:
             print(f"   ⚠️  Subscription response: {resp.status_code}")
 
@@ -326,9 +336,9 @@ def main() -> None:
             print(f"📊 SESSION SUMMARY")
             print(f"{'=' * 60}")
             events = listener.get_buffered_events()
-            print(f"   Events received:  {len(events)}")
-            print(f"   CPERs downloaded: {download_count}")
-            print(f"   Storage:          {storage_dir}")
+            print(f"   Events received:    {len(events)}")
+            print(f"   CPERs extracted:    {download_count}")
+            print(f"   CPER storage:       {storage_dir}")
             print(f"{'=' * 60}")
             notifier.stop()
             listener.stop()

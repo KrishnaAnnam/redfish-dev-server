@@ -1,6 +1,6 @@
 {
     "header": {
-        "creatorID": "11111111-2222-3333-4444-5555555555555",
+        "creatorID": "11111111-2222-3333-4444-555555555555",
         "flags": {
             "name": "HW_ERROR_FLAGS_SIMULATED",
             "value": 4
@@ -11,7 +11,7 @@
         },
         "persistenceInfo": 0,
         "platformID": "990f8820-bd4d-5064-58cc-961a053dea79",
-        "partitionID": "11111111-2222-3333-4444-5555555555555",
+        "partitionID": "11111111-2222-3333-4444-555555555555",
         "recordID": 123456789,
         "recordLength": 296,
         "revision": {

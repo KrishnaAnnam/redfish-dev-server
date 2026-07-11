@@ -150,9 +150,8 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
 
         The RAS plugin creates LogEntries but does not push events to
         Redfish EventService subscribers.  This bridge scans for recently
-        created entries and fires LogEntry.1.0.LogEntryCreated events so
-        that subscription listeners (e.g. SDK RedfishEventListener) receive
-        push notifications.
+        created entries and fires OCPRAS events (§5.5) so that subscription
+        listeners (e.g. SDK RedfishEventListener) receive push notifications.
         """
         try:
             import re
@@ -165,35 +164,64 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
             entries_dir = os.path.join(
                 self.server.config.mock_dir,
                 "redfish", "v1", "Managers", manager_id,
-                "LogServices", "RAS", "Entries"
+                "LogServices", "CPER", "Entries"
             )
 
             if not os.path.isdir(entries_dir):
+                logger.info(f"EventBridge: entries_dir not found: {entries_dir}")
                 return
 
-            # Find entry directories created in the last 10 seconds
+            # Find entry directories with index.json modified in the last 10 seconds
             now = time.time()
-            recent_entries = [
+            all_dirs = [
                 name for name in os.listdir(entries_dir)
                 if os.path.isdir(os.path.join(entries_dir, name))
                 and name != "__pycache__"
-                and now - os.path.getmtime(os.path.join(entries_dir, name)) < 10
             ]
+            recent_entries = []
+            for name in all_dirs:
+                index_file = os.path.join(entries_dir, name, "index.json")
+                if os.path.exists(index_file):
+                    age = now - os.path.getmtime(index_file)
+                    if age < 10:
+                        recent_entries.append(name)
 
             for entry_id in recent_entries:
+                # Read the LogEntry to get severity, MessageId, DiagnosticData
+                entry_file = os.path.join(entries_dir, entry_id, "index.json")
+                log_entry = {}
+                if os.path.exists(entry_file):
+                    with open(entry_file, 'r') as f:
+                        log_entry = json.load(f)
+
+                severity = log_entry.get("Severity", "Warning")
+                message_id = log_entry.get("MessageId", "OCPRAS.1.0.0.CorrectedError")
+                message = log_entry.get("Message", "CPER record created.")
+                oem = log_entry.get("Oem", {}).get("OCPRASAPIWS", {})
+
                 event_data = {
                     "EventType": "Alert",
-                    "EventId": f"LogEntry.Created.{entry_id}",
+                    "EventId": f"CPER-{entry_id}",
                     "EventTimestamp": datetime.now(timezone.utc).isoformat(),
-                    "Severity": "Warning",
-                    "Message": f"New RAS CPER log entry created: {entry_id}",
-                    "MessageId": "OemCper.1.0.CperCreated",
-                    "MessageArgs": [entry_id, "RAS CPER log entry created"],
+                    "Severity": severity,
+                    "Message": message,
+                    "MessageId": message_id,
+                    "MessageArgs": [],
                     "OriginOfCondition": {
-                        "@odata.id": f"/redfish/v1/Managers/{manager_id}/LogServices/RAS/Entries/{entry_id}"
+                        "@odata.id": f"/redfish/v1/Managers/{manager_id}/LogServices/CPER/Entries/{entry_id}"
                     },
-                    "AdditionalDataURI": f"/redfish/v1/Managers/{manager_id}/LogServices/RAS/Entries/{entry_id}/Attachment",
                 }
+
+                # Pattern A: include inline DiagnosticData; Pattern B: include AdditionalDataURI
+                if "DiagnosticData" in log_entry:
+                    event_data["DiagnosticData"] = log_entry["DiagnosticData"]
+                    event_data["DiagnosticDataType"] = "CPER"
+                elif "AdditionalDataURI" in log_entry:
+                    event_data["AdditionalDataURI"] = log_entry["AdditionalDataURI"]
+
+                # Include OEM metadata
+                if oem:
+                    event_data["Oem"] = {"OCPRASAPIWS": oem}
 
                 self.event_service.handle_eventing(
                     "/redfish/v1/EventService/Actions/EventService.SubmitTestEvent",
@@ -202,16 +230,25 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
                 )
 
             if recent_entries:
-                logger.info(f"EventBridge: dispatched {len(recent_entries)} events for RAS LogEntries")
+                logger.info(f"EventBridge: dispatched {len(recent_entries)} OCPRAS events for CPER LogEntries")
 
         except Exception as e:
             logger.error(f"EventBridge: failed to dispatch RAS events: {e}")
 
-    def _send_platform_response(self, status: int, response_data: dict = None):
-        """Send platform handler response"""
+    def _send_platform_response(self, status: int, response_data=None):
+        """Send platform handler response.
+
+        Accepts either a dict (sent as JSON) or raw bytes (sent as
+        application/octet-stream, e.g. a binary CPER attachment).
+        """
         self.send_response(status)
-        
-        if response_data:
+
+        if isinstance(response_data, (bytes, bytearray)):
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", len(response_data))
+            self.end_headers()
+            self.wfile.write(response_data)
+        elif response_data:
             encoded_data = json.dumps(response_data, sort_keys=True, indent=4, separators=(",", ": ")).encode()
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", len(encoded_data))

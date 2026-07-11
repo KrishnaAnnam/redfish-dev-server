@@ -30,6 +30,79 @@ from .event_service import RASEventServiceHandler
 logger = logging.getLogger(__name__)
 
 
+# ── Contoso proprietary severity / notification decoding (endpoint role) ─────
+# The BMC simulates the Contoso RAS API endpoint, so for a Contoso error section
+# it derives the CPER severity and notification type from the *proprietary*
+# section body it was handed in the CPAD.  Body layout (little-endian, packed;
+# see Demos/RasApi/analyzers/contoso/contoso-cper-sections.md):
+#   section header : 8 bytes  (major, minor, bankCount:u16, subcomponent:4)
+#   each error bank: 40 bytes; Error Status Register = first 8 bytes (u64):
+#       bits 61:59 = Contoso severity, bits 15:0 = errorID (0 = no error)
+_CONTOSO_SECTION_HEADER_SIZE = 8
+_CONTOSO_ERROR_BANK_SIZE = 40
+
+# Contoso severity value → CPER severity {code, name} (UEFI codes via libcper).
+_CONTOSO_SEV_TO_CPER = {
+    1: {"code": 1, "name": "Fatal"},          # Contoso Fatal
+    2: {"code": 1, "name": "Fatal"},          # Contoso Uncorrected
+    3: {"code": 0, "name": "Recoverable"},    # Contoso Recoverable
+    4: {"code": 3, "name": "Informational"},  # Contoso Deferred
+    5: {"code": 2, "name": "Corrected"},      # Contoso Corrected
+}
+
+# Rank for choosing the "highest" CPER severity (most severe first).
+_CPER_SEVERITY_RANK = {"Fatal": 3, "Recoverable": 2, "Corrected": 1, "Informational": 0}
+
+# Notification type follows from the (body-derived) CPER severity.
+_NOTIF_CMC = {"guid": "2dce8bb1-bdd7-450e-b9ad-9cf4ebd4f890", "type": "Corrected Machine Check (CMC)"}
+_NOTIF_MCE = {"guid": "e8f56ffe-919c-4cc5-ba88-65abe14913bb", "type": "Machine Check Exception (MCE)"}
+_NOTIFICATION_BY_SEVERITY = {
+    "Corrected": _NOTIF_CMC,
+    "Informational": _NOTIF_CMC,
+    "Recoverable": _NOTIF_MCE,
+    "Fatal": _NOTIF_MCE,
+}
+_DEFAULT_CPER_SEVERITY = {"code": 2, "name": "Corrected"}
+
+# The UEFI CPER specification does NOT define a notification-type GUID for
+# Platform Action Event records (they are a RAS API extension, not a standard
+# CPER error class).  We therefore use an implementation-defined GUID so the
+# record is self-describing and distinguishable from standard notifications.
+_NOTIF_PLATFORM_ACTION_EVENT = {
+    "guid": "96023f3b-e100-4689-ad1b-f4c1b5bc2a21",
+    "type": "Platform Action Event (implementation-defined)",
+}
+
+
+def _contoso_body_severity(body: bytes) -> Dict[str, Any]:
+    """Return the CPER severity {code, name} for a Contoso error section body.
+
+    Scans every error bank; for each bank that logged an error (errorID != 0)
+    it reads the Contoso severity (Error Status Register bits 61:59) and maps it
+    to a CPER severity, returning the highest one found.  Falls back to
+    Corrected if the body cannot be interpreted.
+    """
+    try:
+        bank_count = struct.unpack_from('<H', body, 2)[0]
+    except Exception:
+        return dict(_DEFAULT_CPER_SEVERITY)
+
+    best = None
+    for i in range(bank_count):
+        off = _CONTOSO_SECTION_HEADER_SIZE + _CONTOSO_ERROR_BANK_SIZE * i
+        if off + 8 > len(body):
+            break
+        status = struct.unpack_from('<Q', body, off)[0]
+        if (status & 0xFFFF) == 0:            # errorID 0 → no error in this bank
+            continue
+        cper_sev = _CONTOSO_SEV_TO_CPER.get((status >> 59) & 0x7)
+        if not cper_sev:
+            continue
+        if best is None or _CPER_SEVERITY_RANK[cper_sev["name"]] > _CPER_SEVERITY_RANK[best["name"]]:
+            best = cper_sev
+    return dict(best) if best else dict(_DEFAULT_CPER_SEVERITY)
+
+
 class SubmitCPADActionHandler:
     """Handler for SubmitCPAD action processing."""
     
@@ -68,6 +141,18 @@ class SubmitCPADActionHandler:
             tuple: (status_code, response_body)
         """
         return self.handle_submit_cpad(manager_id, request_body)
+
+    def _next_cper_record_id(self) -> int:
+        """Return the next BMC-assigned CPER recordID.
+
+        Delegates to the LogService (the BMC's CPER log) so every CPER the BMC
+        emits gets a sequential recordID starting at 1.  Falls back to a local
+        counter if the LogService is unavailable.
+        """
+        if self.log_service_handler is not None:
+            return self.log_service_handler.next_record_id()
+        self._fallback_record_id = getattr(self, '_fallback_record_id', 0) + 1
+        return self._fallback_record_id
     
     def _locate_cpad_convert(self):
         """
@@ -391,7 +476,7 @@ class SubmitCPADActionHandler:
                 'Message': f'CPER record created in LogService: {log_entry_id}',
                 'MessageArgs': [log_entry_id],
                 'Severity': 'OK',
-                'RelatedProperties': [f'/redfish/v1/Managers/{manager_id}/LogServices/RAS/Entries/{log_entry_id}']
+                'RelatedProperties': [f'/redfish/v1/Managers/{manager_id}/LogServices/CPER/Entries/{log_entry_id}']
             })
         
         response = {
@@ -420,7 +505,7 @@ class SubmitCPADActionHandler:
         if log_entry_id:
             response['Links'] = {
                 'LogEntry': {
-                    '@odata.id': f'/redfish/v1/Managers/{manager_id}/LogServices/RAS/Entries/{log_entry_id}'
+                    '@odata.id': f'/redfish/v1/Managers/{manager_id}/LogServices/CPER/Entries/{log_entry_id}'
                 }
             }
         
@@ -527,102 +612,114 @@ class SubmitCPADActionHandler:
     
     def _convert_cpad_to_cper(self, cpad_data: Dict[str, Any], metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Convert CPAD (Action Document) to CPER (Error Record) using template-based approach.
-        
-        Follows RasAPI-main implementation: loads CPER template and merges CPAD data.
-        
+        Convert an error-injection CPAD (Action 0x0006) into an error CPER by
+        copying the vendor-proprietary error section verbatim.
+
+        This models what the SoC does on receipt of an injection CPAD: it logs
+        the injected error in a CPER.  The CPAD's section body IS the error the
+        SoC "logs", so the CPER simply wraps that opaque, vendor-specific
+        section (e.g. a Contoso Memory Controller section) in a corrected-error
+        CPER envelope.  The BMC never needs to understand the proprietary body —
+        only the vendor's analyzer decodes it.
+
         Args:
-            cpad_data: Original CPAD data
-            metadata: Extracted CPAD metadata
-            
+            cpad_data: Original CPAD data (cperlib JSON format).
+            metadata:  Extracted CPAD metadata.
+
         Returns:
-            dict: CPER data structure
+            dict: CPER data structure ready for cper-convert.
         """
         import os
         import json
-        from datetime import datetime, timedelta
-        
+        import time
+        import random
+        import base64
+        from datetime import datetime, timezone
+
         action_id = metadata['action_id']
-        
-        # Map action_id to template file (following RasAPI-main)
-        # Action IDs are hex codes from cpad-convert (e.g. "0x0006", "0x8001")
-        ACTION_ID_TEMPLATE_MAP = {
-            '0x0006': 'memCperSourcePoC.json',     # Memory Error Spoof
-            '0x8001': 'infoPprCperSourcePoC.json',  # SPPR (Soft Post Package Repair)
-        }
-        
-        template_filename = ACTION_ID_TEMPLATE_MAP.get(action_id)
-        if not template_filename:
-            self.logger.error(f"Unsupported ActionID in CPAD to CPER conversion: {action_id}")
-            raise ValueError(f"Unsupported action ID: {action_id}")
-        
-        # Load template file
-        template_path = os.path.join(os.path.dirname(__file__), '..', 'templates', template_filename)
+        if action_id != '0x0006':
+            raise ValueError(f"Unsupported action ID for error CPER: {action_id}")
+
+        # The CPER section body lives at a fixed offset for a single-section
+        # CPER (header + one descriptor = 200 bytes; verified against libcper).
+        SINGLE_SECTION_OFFSET = 200
+
+        # Load the Contoso error-CPER envelope template (header + descriptor,
+        # no typed section — the proprietary body is copied in below).
+        template_path = os.path.join(
+            os.path.dirname(__file__), '..', 'templates', 'contosoErrorCperTemplate.json')
         template_path = os.path.abspath(template_path)
-        
         if not os.path.exists(template_path):
             self.logger.error(f"Template file not found: {template_path}")
             raise FileNotFoundError(f"CPER template not found: {template_path}")
-        
+
         with open(template_path, 'r') as f:
-            template_data = json.load(f)
-        
-        # Extract data from CPAD
+            cper = json.load(f)
+
         cpad_header = cpad_data.get('header', {})
-        cpad_section_desc = cpad_data.get('sectionDescriptors', [{}])[0]
-        
-        # Generate unique recordID for each CPER (template has a static placeholder)
-        import time
-        import random
-        unique_record_id = int(time.time() * 1000) % (2**31) + random.randint(0, 9999)
-        template_data['header']['recordID'] = unique_record_id
-        
-        # Update template with CPAD values (following RasAPI-main merge logic)
-        template_data['header']['creatorID'] = cpad_header.get('creatorID')
-        template_data['header']['platformID'] = cpad_header.get('platformID')
-        
-        # Copy partitionID if present in CPAD
+        cpad_desc = cpad_data.get('sectionDescriptors', [{}])[0]
+        cpad_sections = cpad_data.get('sections', [{}])
+
+        # ── Header: carry identity from the CPAD, BMC-assigned recordID ──
+        # A real endpoint assigns the recordID as it logs the CPER; here the
+        # BMC assigns sequential recordIDs (starting at 1) via the LogService.
+        cper['header']['recordID'] = self._next_cper_record_id()
+        cper['header']['creatorID'] = cpad_header.get('creatorID')
+        cper['header']['platformID'] = cpad_header.get('platformID')
         if 'partitionID' in cpad_header:
-            template_data['header']['partitionID'] = cpad_header.get('partitionID')
-        
-        # Add 5 minutes to timestamp (following RasAPI-main)
-        original_timestamp = cpad_header.get('timestamp', datetime.now().isoformat() + '+00:00')
+            cper['header']['partitionID'] = cpad_header.get('partitionID')
+
+        # Timestamp: BMC-assigned at log time (UTC).  A real RAS API endpoint
+        # stamps the CPER when it logs the error; here the BMC does so (the CPAD
+        # carries no meaningful timestamp).
+        cper['header']['timestamp'] = datetime.now(timezone.utc).isoformat()
+        cper['header']['timestampIsPrecise'] = True
+
+        # ── Descriptor: FRU + the proprietary section-type GUID from the CPAD ──
+        cper['sectionDescriptors'][0]['fruID'] = cpad_desc.get('fruID')
+        cper['sectionDescriptors'][0]['fruText'] = cpad_desc.get('fruText')
+        cpad_section_type = cpad_desc.get('sectionType')
+        if isinstance(cpad_section_type, dict) and cpad_section_type.get('data'):
+            cper['sectionDescriptors'][0]['sectionType'] = {
+                'data': cpad_section_type['data'],
+                'type': cpad_section_type.get('type', 'Unknown'),
+            }
+
+        # ── Section body: copy the opaque proprietary bytes verbatim ────────
+        opaque = cpad_sections[0].get('Unknown', {}) if cpad_sections else {}
+        section_b64 = opaque.get('data', '')
         try:
-            dt = datetime.fromisoformat(original_timestamp.replace('Z', '+00:00'))
-            new_dt = dt + timedelta(minutes=5)
-            template_data['header']['timestamp'] = new_dt.isoformat().replace('+00:00', '+00:00')
-        except Exception as e:
-            self.logger.warning(f"Failed to parse timestamp, using template default: {e}")
-        
-        # Copy FRU information
-        template_data['sectionDescriptors'][0]['fruID'] = cpad_section_desc.get('fruID')
-        template_data['sectionDescriptors'][0]['fruText'] = cpad_section_desc.get('fruText')
-        
-        # Merge flags - handle both dict and int formats
-        if 'flags' in cpad_section_desc:
-            template_flags = template_data['sectionDescriptors'][0].get('flags', {})
-            cpad_flags = cpad_section_desc['flags']
-            
-            # If CPAD flags is a dict, merge with template flags
-            if isinstance(cpad_flags, dict):
-                # Merge: start with CPAD flags, then override with template flags
-                merged_flags = cpad_flags.copy()
-                merged_flags.update(template_flags)
-                template_data['sectionDescriptors'][0]['flags'] = merged_flags
-            # If CPAD flags is an int, keep template flags (template takes priority)
-            # This follows RasAPI behavior where template structure is preferred
-        
-        # Copy sections data (e.g., InfoActionPpr data from CPAD)
-        cpad_sections = cpad_data.get('sections', [])
-        if cpad_sections and len(cpad_sections) > 0:
-            # For PPR action, copy InfoActionPpr data if present
-            if action_id == '0x8001' and 'InfoActionPpr' in cpad_sections[0]:
-                template_data['sections'][0]['InfoActionPpr'] = cpad_sections[0]['InfoActionPpr']
-            # For memory error spoofing, copy Memory2 data if present
-            elif action_id == '0x0006' and 'Memory2' in cpad_sections[0]:
-                template_data['sections'][0]['Memory2'] = cpad_sections[0]['Memory2']
-        
-        return template_data
+            body = base64.b64decode(section_b64) if section_b64 else b''
+        except Exception:
+            body = b''
+        cper['sections'] = [{"Unknown": {"data": section_b64}}]
+        body_len = len(body)
+
+        # ── Severity + notification type: derived from the proprietary body ──
+        # The BMC (as the Contoso endpoint) reads the injected error's severity
+        # from the section body.  The per-section descriptor gets that severity;
+        # the header gets the HIGHEST severity of any section; the notification
+        # type follows from the header severity.
+        cper['sectionDescriptors'][0]['severity'] = _contoso_body_severity(body)
+        header_severity = max(
+            (d.get('severity', _DEFAULT_CPER_SEVERITY) for d in cper['sectionDescriptors']),
+            key=lambda s: _CPER_SEVERITY_RANK.get(s.get('name'), -1))
+        cper['header']['severity'] = header_severity
+        cper['header']['notificationType'] = dict(
+            _NOTIFICATION_BY_SEVERITY.get(header_severity['name'], _NOTIF_CMC))
+
+        # ── Revision: carried in the CPAD and set by the injector ───────────
+        if isinstance(cpad_header.get('revision'), dict):
+            cper['header']['revision'] = cpad_header['revision']
+        if isinstance(cpad_desc.get('revision'), dict):
+            cper['sectionDescriptors'][0]['revision'] = cpad_desc['revision']
+
+        # ── Fix up the single-section geometry to match the copied body ─────
+        cper['sectionDescriptors'][0]['sectionOffset'] = SINGLE_SECTION_OFFSET
+        cper['sectionDescriptors'][0]['sectionLength'] = body_len
+        cper['header']['recordLength'] = SINGLE_SECTION_OFFSET + body_len
+
+        return cper
     
     def _locate_cper_convert(self):
         """
@@ -732,6 +829,7 @@ class SubmitCPADActionHandler:
         import time
         import random
         import base64
+        from datetime import timezone
         
         # Load Action Event CPER template
         template_path = os.path.join(os.path.dirname(__file__), '..', 'templates', 'actionEventCperTemplate.json')
@@ -744,12 +842,15 @@ class SubmitCPADActionHandler:
         cpad_section_desc = cpad_data.get('sectionDescriptors', [{}])[0]
         
         # --- Header ---
-        unique_record_id = int(time.time() * 1000) % (2**31) + random.randint(0, 9999)
-        ae_cper['header']['recordID'] = unique_record_id
+        # BMC-assigned recordID (sequential, starts at 1) — see LogService.
+        ae_cper['header']['recordID'] = self._next_cper_record_id()
         ae_cper['header']['platformID'] = cpad_header.get('platformID', '00000000-0000-0000-0000-000000000000')
         ae_cper['header']['partitionID'] = cpad_header.get('partitionID', '00000000-0000-0000-0000-000000000000')
         ae_cper['header']['creatorID'] = cpad_header.get('creatorID', '00000000-0000-0000-0000-000000000000')
-        ae_cper['header']['timestamp'] = datetime.now().isoformat() + '+00:00'
+        ae_cper['header']['timestamp'] = datetime.now(timezone.utc).isoformat()
+        # A Platform Action Event has no CPER-spec notification type; use the
+        # implementation-defined GUID rather than a standard error notification.
+        ae_cper['header']['notificationType'] = dict(_NOTIF_PLATFORM_ACTION_EVENT)
         
         # --- Section Descriptor ---
         ae_cper['sectionDescriptors'][0]['fruID'] = cpad_section_desc.get('fruID', '00000000-0000-0000-0000-000000000000')
@@ -789,7 +890,15 @@ class SubmitCPADActionHandler:
             '0x8001': 'Soft Post Package Repair (SPPR)',
         }
         context_str = ACTION_DESCRIPTIONS.get(metadata['action_id'], f"Action {metadata['action_id']}")
-        ae_section['additionalContext'] = base64.b64encode(context_str.encode('utf-8')).decode('ascii')
+        context_bytes = context_str.encode('utf-8')
+        ae_section['additionalContext'] = base64.b64encode(context_bytes).decode('ascii')
+        
+        # Update sectionLength and recordLength to account for struct size + additional context.
+        # EFI_PLATFORM_ACTION_EVENT struct is 72 bytes; additional context follows immediately.
+        PLATFORM_ACTION_EVENT_STRUCT_SIZE = 72
+        section_length = PLATFORM_ACTION_EVENT_STRUCT_SIZE + len(context_bytes)
+        ae_cper['sectionDescriptors'][0]['sectionLength'] = section_length
+        ae_cper['header']['recordLength'] = 200 + section_length  # 128 (header) + 72 (descriptor) + section body
         
         return ae_cper
 

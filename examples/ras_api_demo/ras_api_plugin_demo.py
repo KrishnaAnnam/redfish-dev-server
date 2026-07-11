@@ -19,6 +19,7 @@ import sys
 import os
 import json
 import socket
+import subprocess
 import requests
 import time
 from pathlib import Path
@@ -26,7 +27,7 @@ from datetime import datetime
 import logging
 
 # Import modular components (local modules)
-from analyzer import AnalysisOrchestrator, CPERAnalyzer
+from analysis_orchestrator import AnalysisOrchestrator, normalize_guid
 from policy import PolicyEngine
 from submit_cpad import CPADSubmitter, read_binary_cpad, parse_guid
 from collect_cpers import CPERCollector
@@ -73,23 +74,32 @@ class RASAPIPluginDemo:
         self.cper_storage_dir = self.output_dir / "cper_storage"
         self.cpad_storage_dir = self.script_dir / "cpad_storage"
         self.cper_storage_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Binary CPAD file for memory error spoofing
-        self.cpad_file = self.cpad_storage_dir / "memErrorSpoof.cpad"
-        
-        # Analysis orchestrator — stateless, operates on local files only
-        self.analysis = AnalysisOrchestrator(
-            platform_id=self.PLATFORM_ID,
-            partition_id=self.ENDPOINTS[0]['partition_id'],
-            cper_storage_dir=str(self.cper_storage_dir),
-            output_dir=str(self.output_dir),
-        )
-        
+
+        # Contoso Error Injector (vendor tool) + its editable injection spec.
+        # The demo shells out to this tool to build error-injection CPADs,
+        # demonstrating the standard "vendor tool produces vendor CPADs" pattern.
+        self.injector = self.script_dir / "analyzers" / "contoso" / "injector-contoso.py"
+        self.injection_spec = self.cpad_storage_dir / "contosoMemErrorSpoof.inject.json"
+        self.generated_cpad_dir = self.output_dir / "injected_cpads"
+        self.generated_cpad_dir.mkdir(parents=True, exist_ok=True)
+
         # CPAD submitter — handles base64 + JSON transport to BMC
         self.submitter = CPADSubmitter(
             base_url=self.base_url,
             manager_id=self.MANAGER_ID,
             platform_bmc_map=self.PLATFORM_BMC_MAP,
+        )
+
+        # Analysis orchestrator — discovers analyzer plugins and routes CPERs.
+        # It evaluates and submits analyzer-produced CPADs via the injected
+        # policy engine and submitter.
+        self.analysis = AnalysisOrchestrator(
+            platform_id=self.PLATFORM_ID,
+            partition_id=self.ENDPOINTS[0]['partition_id'],
+            cper_storage_dir=str(self.cper_storage_dir),
+            output_dir=str(self.output_dir),
+            policy_engine=PolicyEngine(),
+            submitter=self.submitter,
         )
         
         # CPER collector — downloads CPERs from BMC LogService (legacy, kept for standalone use)
@@ -104,6 +114,9 @@ class RASAPIPluginDemo:
         
         # Track CPER files already seen (for incremental collection from disk)
         self._seen_cper_files = set()
+
+        # CPERs collected in the most recent collect step (pushed to the AO)
+        self._last_collected = []
 
         # Notification socket — connects to SDK listener's notification port
         self._notify_sock = None
@@ -122,7 +135,7 @@ class RASAPIPluginDemo:
             print(f"   📡 Will receive real-time CPER download notifications")
         except ConnectionRefusedError:
             print(f"   ⚠️  Could not connect — is the SDK listener running?")
-            print(f"      Start it first: python3 examples/ras_api_demo/event_listener_sdk.py")
+            print(f"      Start it first: python3 Demos/RasApi/event_listener_sdk.py")
             self._notify_sock = None
         except Exception as e:
             print(f"   ❌ Connection error: {e}")
@@ -176,19 +189,27 @@ class RASAPIPluginDemo:
        
         1. Discovery
         2. Connect to SDK listener
-        3. Inject 1st corrected memory error
+        3. Inject 1st corrected memory error (DRAM row 1234, column 567)
         4. Collect CPERs (1st error — auto-downloaded by SDK listener)
-        5. Analyze (records error location - first occurrence, no SPPR created)
-        6. Inject 2nd corrected memory error (same location)
+        5. Analyze (records the row/column - first occurrence, no SPPR created)
+        6. Inject 2nd corrected memory error (same row 1234, column 891)
         7. Collect CPERs (2nd error — auto-downloaded by SDK listener)
-        8. Analyze (detects repeat at same location → auto-creates SPPR CPAD)
+        8. Analyze (detects 2nd column on same row → failing row → auto-creates SPPR CPAD)
         9. Policy check on analyzer-generated SPPR CPAD
         10. Submit analyzer-generated SPPR CPAD
         11. Collect informational CPERs from SPPR operation
         12. Analyze informational CPERs
         """
         self.print_banner()
-        
+
+        # Analyzer discovery runs during construction; report it now and stop
+        # immediately if no usable analyzers were found.
+        if not self.analysis.print_discovery_report():
+            print("\n" + "=" * 80)
+            print("❌ Cannot proceed - no usable analyzers were discovered")
+            print("=" * 80)
+            return
+
         # Step 1: Discover the Server
         self.print_platform_info()
         
@@ -202,9 +223,11 @@ class RASAPIPluginDemo:
         input("\n🔑 Press Enter for the next operation...")
         self.connect_to_listener()
         
-        # Step 3: Inject first memory corrected error
+        # Step 3: Inject first memory corrected error (row 1234, column 567,
+        # DRAM 3 / DQ 0).
         input("\n🔑 Press Enter for the next operation...")
-        self.inject_memory_error()
+        self.inject_memory_error(column=567, beat="dram=3;dq=0;beats=2",
+                                 occurrence_label="1st column of the row")
         self._wait_and_show_notification(step=7)
         
         # Collect CPERs 
@@ -215,35 +238,26 @@ class RASAPIPluginDemo:
         input("\n🔑 Press Enter for next action...")
         self.analyze_cpers()
         
-        # Step 6: Inject second memory corrected error (same location)
+        # Step 6: Inject second memory corrected error (same row, different
+        # column, and a different DQ of the *same* DRAM 3).
         input("\n🔑 Press Enter for the next operation...")
-        self.inject_memory_error()
+        self.inject_memory_error(column=891, beat="dram=3;dq=1;beats=7",
+                                 occurrence_label="2nd column of the same row")
         self._wait_and_show_notification(step=7)
         
         # Collect CPERs 
         input("\n🔑 Press Enter for the next operation...")
         self.collect_cpers()
         
-        # Analyze second error 
+        # Analyze second error — detects a 2nd column failing on the same row.
+        # The orchestrator evaluates the generated SPPR CPAD against policy and,
+        # on approval, submits it to trigger the repair operation.
         input("\n🔑 Press Enter for next action...")
         self.analyze_cpers()
-        
-        # Step 8: Run policy check on analyzer-generated SPPR CPAD before submission
-        input("\n🔑 Press Enter for next action...")
-        policy_approved = self.run_policy_check()
-        
-        if not policy_approved:
-            print("\n❌ Policy check failed - SPPR CPAD submission blocked")
-            print("\n" + "=" * 80)
-            print("⚠️  RAS Plugin Demonstration Stopped - Policy Denied Action")
-            print("=" * 80)
-            return
-        
-        # Step 9: Submit analyzer-generated SPPR CPAD to trigger repair operation
-        input("\n🔑 Press Enter for next action...")
-        self.submit_sppr_cpad()
+
+        # The SPPR submission triggers informational CPERs from the repair.
         self._wait_and_show_notification(step=7)
-        
+
         # Collect informational CPERs from SPPR operation
         input("\n🔑 Press Enter for next action...")
         self.collect_cpers()
@@ -256,14 +270,16 @@ class RASAPIPluginDemo:
         print("\n" + "=" * 80)
         print("✅ RAS Plugin Demonstration Complete!")
         print("=" * 80)
-        print("\n📊 Key Achievements:")
-        print("   ✓ Platform Discovery")
-        print("   ✓ CPAD Submission & Validation")
-        print("   ✓ CPER Collection & Analysis (1st error - recorded)")
-        print("   ✓ Repeat Error Detection (2nd error - SPPR CPAD auto-created)")
-        print("   ✓ Policy Engine Integration")
-        print("   ✓ Automated SPPR Remediation")
-        print("   ✓ Informational CPER Analysis")
+        print("\n📊 What this demonstration showed:")
+        print("   ✓ Injected an error via CPADs")
+        print("   ✓ Collected the resulting CPERs via Redfish RAS API interfaces")
+        print("   ✓ Analyzed the CPERs")
+        print("   ✓ The analyzer suggested a RAS action, which we evaluated against")
+        print("     a data center operator policy")
+        print("   ✓ Routed an approved RAS action back to the BMC that reported the")
+        print("     errors")
+        print("   ✓ Demonstrated the full round-trip flow: RAS API endpoint → analyzer")
+        print("     → back to the endpoint")
         print("\n🎯 RAS Plugin Demonstration Complete!")
         print("=" * 80 + "\n")
     
@@ -521,16 +537,16 @@ class RASAPIPluginDemo:
             print(f"      ✗ Error creating subscription: {e}")
     
     def _print_analyzer_lookup(self):
-        """Perform analyzer lookup for configured endpoint creator IDs"""
+        """Report which discovered analyzer owns each configured creator ID."""
         try:
             for endpoint in self.ENDPOINTS:
                 creator_id = endpoint['creator_id']
                 print(f"   Performing lookup for analyzers for Creator ID: {creator_id}")
-                analyzer_name = CPERAnalyzer.ANALYZER_REGISTRY.get(creator_id)
-                if analyzer_name:
-                    print(f"   ✅ Analyzer found: {analyzer_name}")
+                info = self.analysis.analyzer_by_creator.get(normalize_guid(creator_id))
+                if info:
+                    print(f"   ✅ Analyzer found: {info.name} (v{info.version})")
                 else:
-                    print(f"   ⓘ No specific analyzer registered - will use default RasApi CPER analyzer")
+                    print(f"   ⓘ No analyzer registered for this Creator ID")
         except Exception as e:
             print(f"   ❌ Error during analyzer lookup: {e}")
     
@@ -555,7 +571,7 @@ class RASAPIPluginDemo:
         additional_data_size = "N/A"
         
         try:
-            log_entries_url = f"{self.base_url}/redfish/v1/Managers/{self.MANAGER_ID}/LogServices/RAS/Entries"
+            log_entries_url = f"{self.base_url}/redfish/v1/Managers/{self.MANAGER_ID}/LogServices/CPER/Entries"
             response = self.session.get(log_entries_url, timeout=5)
             
             if response.status_code == 200:
@@ -581,29 +597,71 @@ class RASAPIPluginDemo:
         print(f'           "AdditionalDataURI": "{additional_data_uri}"')
         print(f'           "AdditionalDataSizeBytes": {additional_data_size} bytes')
     
-    def inject_memory_error(self):
-        """Inject a memory corrected error using binary CPAD submission."""
+    def _generate_error_cpad(self, column, beat):
+        """Run the Contoso Error Injector to build a memory-error CPAD.
+
+        Every injection targets the *same* DRAM row (defined in the committed
+        injection spec); only the column and the failing beats are overridden
+        here.  Corrected errors on multiple columns of one row simulate a
+        failing row, and the beats place both errors on the *same* DRAM chip.
+
+        Args:
+            column: DRAM column address for this injection.
+            beat:   A --beat spec (e.g. "dram=3;dq=0;beats=2") selecting the
+                    failing DRAM/DQ/beats for this injection.
+
+        Returns:
+            Path to the generated binary .cpad file.
+        """
+        out_path = self.generated_cpad_dir / f"mem_err_col{column}.cpad"
+        cmd = [
+            sys.executable, str(self.injector), "inject",
+            "--spec", str(self.injection_spec),
+            "--set", f"section.additional.column={column}",
+            "--beat", beat,
+            "--out", str(out_path),
+        ]
+        print(f"\n   Running the Contoso Error Injector (vendor tool):")
+        print(f"      injector-contoso.py inject --spec {self.injection_spec.name} "
+              f"--set section.additional.column={column} --beat \"{beat}\" "
+              f"--out {out_path.name}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.stdout.strip():
+            for line in result.stdout.rstrip().splitlines():
+                print(f"      {line}")
+        if result.returncode != 0:
+            print(result.stderr.rstrip())
+            raise RuntimeError("Contoso Error Injector failed to generate the CPAD")
+        return out_path
+
+    def inject_memory_error(self, column, beat, occurrence_label):
+        """Generate and submit a corrected memory error at a given DRAM column.
+
+        All injections hit the same DRAM row (only the column differs) and the
+        same physical DRAM (only the DQ/beats differ), so the analyzer can show
+        both a failing row and that the errors are on DQs of one DRAM.
+
+        Args:
+            column: DRAM column address for this injection.
+            beat:   A --beat spec selecting the failing DRAM/DQ/beats.
+            occurrence_label: Short description shown in the banner.
+        """
         if not self.server_online:
             print("\n❌ Cannot inject error - server is offline!")
             print("   Please start the server and try again.")
             return
-        
+
         print("\n" + "=" * 80)
-        print("\t\t\t\tSPOOFING MEMORY CORRECTED ERROR")
+        print(f"\t\t\tSPOOFING MEMORY CORRECTED ERROR ({occurrence_label})")
         print("=" * 80)
-        
+
         try:
-            # Check if binary CPAD file exists
-            if not self.cpad_file.exists():
-                print(f"\n❌ Error: Binary CPAD file not found: {self.cpad_file}")
-                return
-            
-            print(f"\n🚀 Initiating CPAD submission for error injection...")
-            
-            # Submit the binary CPAD file
-            self._submit_binary_cpad(self.cpad_file, verbose_steps=True,
-                                     source_label="Loading memory error spoof CPAD file from Contoso Error Injection Tool")
-            
+            cpad_path = self._generate_error_cpad(column, beat)
+            print(f"\n🚀 Submitting injected CPAD (DRAM row 1234, column {column}; {beat})...")
+            self._submit_binary_cpad(
+                cpad_path, verbose_steps=True,
+                source_label=(f"Contoso Error Injector CPAD — corrected memory "
+                              f"error at row 1234, column {column} ({beat})"))
         except Exception as e:
             print(f"\n❌ Error: {e}")
     
@@ -623,6 +681,7 @@ class RASAPIPluginDemo:
 
     def _collect_cpers_from_disk(self):
         """Collect CPERs by scanning the storage directory."""
+        self._last_collected = []
         partition_id = self.ENDPOINTS[0]['partition_id']
         storage_path = self.cper_storage_dir / self.PLATFORM_ID / partition_id
 
@@ -668,12 +727,15 @@ class RASAPIPluginDemo:
             print(f"      📥 {cper_file.name}  ({size} bytes)")
             self._seen_cper_files.add(cper_file.name)
 
+        # Record newly collected CPERs so analyze_cpers() can push them to the AO.
+        self._last_collected = [str(f) for f in new_files]
+
         print(f"\n   ✅ {len(new_files)} CPER(s) collected from local storage")
         print(f"      📂 {storage_path}")
     
     def analyze_cpers(self):
-        """Analyze collected CPERs — delegates to AnalysisOrchestrator."""
-        self.analysis.analyze_cpers()
+        """Analyze newly collected CPERs — push them to the orchestrator."""
+        self.analysis.notify_new_cpers(self._last_collected)
     
     def run_policy_check(self):
         """Run policy check on analyzer-generated SPPR CPAD JSON files.

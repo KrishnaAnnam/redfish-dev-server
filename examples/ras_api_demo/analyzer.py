@@ -459,16 +459,6 @@ class CPERAnalyzer:
                             action_desc = ACTION_ID_MAP.get(action_id, action_id)
                             print(f"         Source Action:    {action_desc} ({action_id})")
 
-                            # Additional Context (base64-decoded if present)
-                            additional = ae_data.get('additionalContext')
-                            if additional and ae_data.get('additionalContextValid', False):
-                                try:
-                                    import base64
-                                    decoded = base64.b64decode(additional).decode('utf-8', errors='replace')
-                                    print(f"         Context:         {decoded}")
-                                except Exception:
-                                    print(f"         Context:         {additional}")
-
                     # Section severity
                     sec_severity = section.get('severity', {})
                     if isinstance(sec_severity, dict):

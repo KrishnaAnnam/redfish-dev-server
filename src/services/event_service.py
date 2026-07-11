@@ -124,7 +124,8 @@ class EventServiceHandler:
         # Forward optional fields from data_received into event_record
         for optional_field in ('EventId', 'EventTimestamp', 'Severity',
                                'MessageArgs', 'OriginOfCondition',
-                               'AdditionalDataURI'):
+                               'AdditionalDataURI', 'DiagnosticData',
+                               'DiagnosticDataType', 'Oem'):
             if optional_field in data_received:
                 event_record[optional_field] = data_received[optional_field]
         

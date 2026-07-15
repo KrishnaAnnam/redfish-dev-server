@@ -76,7 +76,8 @@ def initialize(output_dir, skip_analyzer=False):
         Total number of items deleted
     """
     print("\n" + "=" * 60)
-    print("RAS API Initialization - Clearing Client Output Directories")
+    print("Preparing a clean demo state")
+    print("Removing CPERs and CPADs from previous demo runs")
     print("=" * 60 + "\n")
 
     total_deleted = 0

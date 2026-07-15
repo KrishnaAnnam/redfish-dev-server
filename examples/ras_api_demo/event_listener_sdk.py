@@ -288,21 +288,21 @@ def main() -> None:
     # --- 5. Subscribe to BMC events ---
     print(f"\n   Subscribing to BMC events...")
 
-    # Check if we already have a subscription pointing to our listener
+    # Check if we already have a subscription pointing to our listener (use SDK auth)
     already_subscribed = False
+    subscription_uri = None
     try:
-        import requests as req
-        subs_url = f"http://{args.bmc}/redfish/v1/EventService/Subscriptions"
-        subs_resp = req.get(subs_url, timeout=5)
-        if subs_resp.status_code == 200:
-            members = subs_resp.json().get("Members", [])
+        subs_resp = ctx.get("/redfish/v1/EventService/Subscriptions")
+        if subs_resp.success:
+            members = subs_resp.body.get("Members", [])
             for member in members:
                 sub_uri = member.get("@odata.id", "")
-                sub_resp = req.get(f"http://{args.bmc}{sub_uri}", timeout=5)
-                if sub_resp.status_code == 200:
-                    sub_data = sub_resp.json()
+                sub_resp = ctx.get(sub_uri)
+                if sub_resp.success:
+                    sub_data = sub_resp.body
                     if sub_data.get("Destination") == listen_url:
                         already_subscribed = True
+                        subscription_uri = sub_uri
                         print(f"   ✅ Reusing existing subscription: {sub_uri}")
                         break
     except Exception:
@@ -315,10 +315,20 @@ def main() -> None:
             resource_types=["LogEntry"],
         )
         if resp.success:
+            # Extract subscription URI from response body
+            body = resp.body if hasattr(resp, 'body') and isinstance(resp.body, dict) else {}
+            raw = resp.raw if isinstance(resp.raw, dict) else {}
+            sub_location = body.get("@odata.id") or raw.get("@odata.id") or body.get("Id")
+            if sub_location:
+                if not sub_location.startswith("/"):
+                    sub_location = f"/redfish/v1/EventService/Subscriptions/{sub_location}"
+                subscription_uri = sub_location
             print(f"   ✅ Subscribed to: http://{args.bmc}/redfish/v1/EventService/Subscriptions")
             print(f"      RegistryPrefixes: ['OCPRAS']")
             print(f"      ResourceTypes:    ['LogEntry']")
             print(f"      Destination:      {listen_url}")
+            if subscription_uri:
+                print(f"      URI:              {subscription_uri}")
         else:
             print(f"   ⚠️  Subscription response: {resp.status_code}")
 
@@ -339,6 +349,18 @@ def main() -> None:
             print(f"   Events received:    {len(events)}")
             print(f"   CPERs extracted:    {download_count}")
             print(f"   CPER storage:       {storage_dir}")
+
+            # Clean up subscription on the BMC
+            if subscription_uri:
+                try:
+                    del_resp = ctx.delete(subscription_uri)
+                    if del_resp.success:
+                        print(f"   🗑️  Subscription removed: {subscription_uri}")
+                    else:
+                        print(f"   ⚠️  Could not remove subscription: {del_resp.status_code}")
+                except Exception as e:
+                    print(f"   ⚠️  Subscription cleanup failed: {e}")
+
             print(f"{'=' * 60}")
             notifier.stop()
             listener.stop()

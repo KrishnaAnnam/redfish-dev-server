@@ -83,7 +83,9 @@ tmux send-keys -t $SESSION_NAME:0.2 "echo 'Run full pipeline (reset + init + dem
 tmux send-keys -t $SESSION_NAME:0.2 "echo '  python3 examples/ras_api_demo/reset_server.py --all && python3 examples/ras_api_demo/init_ras_api.py && python3 examples/ras_api_demo/ras_api_plugin_demo.py'" C-m
 tmux send-keys -t $SESSION_NAME:0.2 "echo ''" C-m
 tmux send-keys -t $SESSION_NAME:0.2 "echo 'Press UP arrow and ENTER when ready...'" C-m
-tmux send-keys -t $SESSION_NAME:0.2 "python3 examples/ras_api_demo/reset_server.py --all && python3 examples/ras_api_demo/init_ras_api.py && python3 examples/ras_api_demo/ras_api_plugin_demo.py" C-m
+# Run the demo, then pre-type (without Enter) the cleanup command so the user
+# can tear down the tmux session by simply pressing Enter when finished.
+tmux send-keys -t $SESSION_NAME:0.2 "python3 examples/ras_api_demo/reset_server.py --all && python3 examples/ras_api_demo/init_ras_api.py && python3 examples/ras_api_demo/ras_api_plugin_demo.py; tmux send-keys -t $SESSION_NAME:0.2 '$SCRIPT_DIR/cleanup_ras_demo.sh'" C-m
 
 # Select the demo pane
 tmux select-pane -t $SESSION_NAME:0.2
@@ -116,6 +118,11 @@ echo "   tmux attach -t $SESSION_NAME"
 echo ""
 echo "❌ Stop everything:"
 echo "   tmux kill-session -t $SESSION_NAME"
+echo ""
+echo "🧹 Clean up the terminal when done:"
+echo "   $SCRIPT_DIR/cleanup_ras_demo.sh"
+echo "   (When the demo finishes, this command is pre-typed in the demo pane —"
+echo "    just press ENTER to run it.)"
 echo ""
 echo "Attaching to session in 2 seconds..."
 sleep 2

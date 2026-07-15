@@ -282,6 +282,10 @@ class RASAPIPluginDemo:
         print("     → back to the endpoint")
         print("\n🎯 RAS Plugin Demonstration Complete!")
         print("=" * 80 + "\n")
+        print("🧹 To close the demo windows and return to a clean terminal, run:")
+        print("      ./examples/ras_api_demo/cleanup_ras_demo.sh")
+        print("   (If you launched via run_ras_demo.sh, this command is already")
+        print("    pre-typed in this pane — just press ENTER to run it.)\n")
     
     def print_banner(self):
         """Print the application banner."""

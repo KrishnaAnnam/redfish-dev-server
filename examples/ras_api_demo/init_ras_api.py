@@ -155,9 +155,9 @@ def main():
     total_deleted = initialize(output_dir, skip_analyzer=skip_analyzer)
 
     if total_deleted > 0:
-        print("✓ RAS API initialization complete - directories cleared")
+        print("✓ Clean demo state ready - cleared CPERs and CPADs from previous runs")
     else:
-        print("✓ RAS API initialization complete - directories were already empty")
+        print("✓ Clean demo state ready - no CPERs or CPADs from previous runs to clear")
 
     sys.exit(0)
 

@@ -327,7 +327,7 @@ pytest tests/test_platform_server.py -v
 
 ```bash
 # Start server
-python3 servers/redfishMockupServer_platform.py -D mockups/ras_gen10
+python3 servers/redfishMockupServer_platform.py -D mockups/ras_gen1
 
 # Test plugin endpoints
 curl http://localhost:8000/redfish/v1/Managers/System/Oem/RasProto/RASService

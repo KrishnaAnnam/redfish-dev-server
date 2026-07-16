@@ -15,7 +15,7 @@
 - `examples/event_listener.py` - Event listener for subscriptions
 - `examples/subscribe_to_events.py` - Event subscription helper
 - `scripts/run_ras_demo.sh` - Tmux-based demo launcher
-- `mockups/ras_gen10/` - RAS-enabled mockup data
+- `mockups/ras_gen1/` - RAS-enabled mockup data
 
 ### Fixed
 - Fixed POST handler body consumption bug in `redfishMockupServer_platform.py`

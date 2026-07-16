@@ -208,7 +208,7 @@ Features:
 
 ```bash
 # Start server with RAS-enabled mockup
-python servers/redfishMockupServer_platform.py -D mockups/ras_gen10 -p 8000
+python servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000
 
 # Run the parity demo
 python examples/ras_plugin_parity_demo.py

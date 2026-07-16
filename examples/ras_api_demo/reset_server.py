@@ -12,7 +12,7 @@ This script only touches BMC/Redfish server-side state. Client-side demo output
 Usage:
     python scripts/resetServer.py
     python scripts/resetServer.py --mockdir mockups/public-rackmount1
-    python scripts/resetServer.py --mockdir mockups/ras_gen10 --manager System
+    python scripts/resetServer.py --mockdir mockups/ras_gen1 --manager System
     python scripts/resetServer.py --clean-temp
 """
 
@@ -112,8 +112,8 @@ def main():
     )
     parser.add_argument(
         '--mockdir',
-        default='mockups/ras_gen10',
-        help='Path to the mockup directory (default: mockups/ras_gen10)'
+        default='mockups/ras_gen1',
+        help='Path to the mockup directory (default: mockups/ras_gen1)'
     )
     parser.add_argument(
         '--manager',

@@ -49,7 +49,7 @@ Added RasProto OEM extension to `/redfish/v1/Managers/System/index.json`:
 ## Directory Structure
 
 ```
-ras_gen10/redfish/v1/
+ras_gen1/redfish/v1/
 ├── Managers/
 │   └── System/
 │       ├── index.json (updated with RasProto OEM)
@@ -78,7 +78,7 @@ ras_gen10/redfish/v1/
 ### Starting the Server
 ```bash
 cd /home/hari/Tools/bmc-redfish-simulator
-python3 servers/redfishMockupServer_platform.py -D mockups/ras_gen10/redfish
+python3 servers/redfishMockupServer_platform.py -D mockups/ras_gen1/redfish
 ```
 
 ### Accessing RASService
@@ -142,7 +142,7 @@ The transformed mockup aligns with our RAS plugin implementation:
 
 All paths verified to use Manager OEM structure:
 ```bash
-grep -r '"/redfish/v1/RASService' mockups/ras_gen10/
+grep -r '"/redfish/v1/RASService' mockups/ras_gen1/
 # Should return no results - all transformed
 ```
 

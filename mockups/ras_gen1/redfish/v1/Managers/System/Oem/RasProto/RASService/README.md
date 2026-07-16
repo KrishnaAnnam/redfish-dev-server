@@ -47,7 +47,7 @@ The mockup JSON structure matches these handlers:
 # Start server with plugin
 cd /home/hari/Tools/bmc-redfish-simulator
 python3 servers/redfishMockupServer_platform.py \
-  -D mockups/ras_gen10/redfish \
+  -D mockups/ras_gen1/redfish \
   --enable-plugin ras
 
 # Test RASService

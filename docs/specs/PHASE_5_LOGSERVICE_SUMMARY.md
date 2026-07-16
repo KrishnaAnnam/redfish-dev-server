@@ -39,7 +39,7 @@ Phase 5 implements dedicated RAS LogService integration to store Common Platform
 ## Components Implemented
 
 ### 1. Mockup Structure
-**Location**: `mockups/ras_gen10/redfish/v1/Managers/System/LogServices/RAS/`
+**Location**: `mockups/ras_gen1/redfish/v1/Managers/System/LogServices/RAS/`
 
 #### LogService Resource
 ```json
@@ -407,18 +407,18 @@ else:
 ## Files Modified/Created
 
 ### Created
-1. `mockups/ras_gen10/redfish/v1/Managers/System/LogServices/RAS/index.json`
-2. `mockups/ras_gen10/redfish/v1/Managers/System/LogServices/RAS/Entries/index.json`
+1. `mockups/ras_gen1/redfish/v1/Managers/System/LogServices/RAS/index.json`
+2. `mockups/ras_gen1/redfish/v1/Managers/System/LogServices/RAS/Entries/index.json`
 3. `src/plugins/ras/models/log_entry.py`
 4. `src/plugins/ras/handlers/log_service.py`
 5. `tests/test_ras_logservice_handler.py`
 6. `tests/test_ras_logservice_integration.py`
 
 ### Modified
-1. `mockups/ras_gen10/redfish/v1/Managers/System/LogServices/index.json` (added RAS member)
+1. `mockups/ras_gen1/redfish/v1/Managers/System/LogServices/index.json` (added RAS member)
 2. `src/plugins/ras/handlers/submit_cpad_action.py` (LogService integration)
 3. `src/plugins/ras/provider.py` (LogService routing)
-4. `mockups/ras_gen10/redfish/v1/Managers/System/Oem/RasProto/RASService/index.json` (Links.RelatedLogService)
+4. `mockups/ras_gen1/redfish/v1/Managers/System/Oem/RasProto/RASService/index.json` (Links.RelatedLogService)
 
 ## Metrics
 

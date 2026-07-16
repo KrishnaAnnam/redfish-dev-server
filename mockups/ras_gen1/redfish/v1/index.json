@@ -35,7 +35,7 @@
       "ManagementInterfacesSupported": "IPMI"
     }
   },
-  "Product": "C219B",
+  "Product": "Contoso Cloud Host Gen 1",
   "ProtocolFeaturesSupported": {
     "DeepOperations": {
       "DeepPATCH": false,

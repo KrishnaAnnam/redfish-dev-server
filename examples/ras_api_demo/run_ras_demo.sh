@@ -60,7 +60,7 @@ tmux send-keys -t $SESSION_NAME:0.0 "echo '════════════�
 tmux send-keys -t $SESSION_NAME:0.0 "echo '🖥️  BMC REDFISH SERVER (Port 8000)'" C-m
 tmux send-keys -t $SESSION_NAME:0.0 "echo '═══════════════════════════════════════════'" C-m
 tmux send-keys -t $SESSION_NAME:0.0 "echo 'Starting server...'" C-m
-tmux send-keys -t $SESSION_NAME:0.0 "python3 -B servers/redfishMockupServer_platform.py -D mockups/ras_gen10 -p 8000" C-m
+tmux send-keys -t $SESSION_NAME:0.0 "python3 -B servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000" C-m
 
 # Pane 1 (bottom-left): SDK Event Listener
 tmux send-keys -t $SESSION_NAME:0.1 "cd $PROJECT_DIR" C-m

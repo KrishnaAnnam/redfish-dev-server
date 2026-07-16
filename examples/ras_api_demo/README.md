@@ -62,7 +62,7 @@ Or run each component manually:
 
 ```bash
 # Terminal 1 — BMC Server
-python3 servers/redfishMockupServer_platform.py -D mockups/ras_gen10 -p 8000
+python3 servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000
 
 # Terminal 2 — SDK Event Listener
 python3 examples/ras_api_demo/event_listener_sdk.py --port 8888 --bmc localhost:8000

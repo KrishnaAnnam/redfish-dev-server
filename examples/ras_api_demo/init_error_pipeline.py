@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-Initialize RAS API - Clean up client-side output files
+Initialize Error-Logging Pipeline - Reset client-side demo storage
 
 Clears all files from the cper_storage, cpad_storage, and Analyzer_output_files
-directories under ras_demo_output/ to prepare for a fresh RAS API testing session.
-Use --no-analyzer to skip clearing error history and analyzer outputs.
+directories under ras_demo_output/ so the error-logging pipeline starts from a
+clean state. Use --no-analyzer to keep the error history and analyzer outputs.
 
-This is the bmc-redfish-simulator equivalent of RasApi0204/InitializeRasApi.py.
+This script owns all client-side demo storage. BMC/Redfish server-side state is
+reset separately by reset_server.py.
 
 Usage:
-    python scripts/initializeRasApi.py
-    python scripts/initializeRasApi.py --output-dir ras_demo_output
-    python scripts/initializeRasApi.py --no-analyzer
+    python init_error_pipeline.py
+    python init_error_pipeline.py --output-dir ras_demo_output
+    python init_error_pipeline.py --no-analyzer
 """
 
 import os
@@ -64,9 +65,9 @@ def clear_directory(directory_path, dir_name):
     return deleted_count
 
 
-def initialize(output_dir, skip_analyzer=False):
+def init_error_pipeline(output_dir, skip_analyzer=False):
     """
-    Initialize RAS API by clearing client-side output directories.
+    Initialize the error-logging pipeline by clearing client-side storage.
 
     Args:
         output_dir: Path to ras_demo_output directory
@@ -76,8 +77,8 @@ def initialize(output_dir, skip_analyzer=False):
         Total number of items deleted
     """
     print("\n" + "=" * 60)
-    print("Preparing a clean demo state")
-    print("Removing CPERs and CPADs from previous demo runs")
+    print("Initializing error-logging pipeline")
+    print("Clearing client-side CPER, CPAD, and analyzer storage")
     print("=" * 60 + "\n")
 
     total_deleted = 0
@@ -126,8 +127,8 @@ def initialize(output_dir, skip_analyzer=False):
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Initialize RAS API by clearing client-side CPER/CPAD storage directories",
-        epilog="Example: python scripts/initializeRasApi.py --all",
+        description="Initialize the error-logging pipeline by clearing client-side CPER/CPAD/analyzer storage",
+        epilog="Example: python init_error_pipeline.py --no-analyzer",
     )
     parser.add_argument(
         "--output-dir",
@@ -152,12 +153,12 @@ def main():
 
     skip_analyzer = args.no_analyzer
 
-    total_deleted = initialize(output_dir, skip_analyzer=skip_analyzer)
+    total_deleted = init_error_pipeline(output_dir, skip_analyzer=skip_analyzer)
 
     if total_deleted > 0:
-        print("✓ Clean demo state ready - cleared CPERs and CPADs from previous runs")
+        print("✓ Error-logging pipeline ready - cleared CPERs and CPADs from previous runs")
     else:
-        print("✓ Clean demo state ready - no CPERs or CPADs from previous runs to clear")
+        print("✓ Error-logging pipeline ready - no CPERs or CPADs from previous runs to clear")
 
     sys.exit(0)
 

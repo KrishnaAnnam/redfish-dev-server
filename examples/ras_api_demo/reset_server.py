@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
-Reset Server - Clean up RAS LogService entries and CPER files
+Reset Server - Reset BMC/Redfish server-side RAS state
 
 Deletes all CPER log entries from the RAS LogService on the server file system,
-resets the Entries collection index, and optionally cleans up temp files and
-client-side output directories.
+resets the Entries collection index, and optionally cleans up the temporary CPER
+directories the server creates during binary-CPER conversion.
+
+This script only touches BMC/Redfish server-side state. Client-side demo output
+(cper_storage/, cpad_storage/, analyzer output) is owned by init_error_pipeline.py.
 
 Usage:
     python scripts/resetServer.py
     python scripts/resetServer.py --mockdir mockups/public-rackmount1
     python scripts/resetServer.py --mockdir mockups/ras_gen10 --manager System
-    python scripts/resetServer.py --clean-temp --clean-output
+    python scripts/resetServer.py --clean-temp
 """
 
 import os
@@ -101,49 +104,6 @@ def clean_temp_cper_dirs():
     return cleaned_count
 
 
-def clean_output_dir(output_dir):
-    """
-    Clean up the client-side demo output directory (ras_demo_output/).
-    
-    Args:
-        output_dir: Path to the output directory
-    
-    Returns:
-        Number of files/directories removed
-    """
-    if not output_dir.exists():
-        print(f"  ⓘ Output directory not found: {output_dir}")
-        return 0
-    
-    removed_count = 0
-    
-    # Clean cper_storage
-    cper_storage = output_dir / "cper_storage"
-    if cper_storage.exists():
-        try:
-            file_count = sum(1 for _ in cper_storage.rglob("*") if _.is_file())
-            shutil.rmtree(cper_storage)
-            cper_storage.mkdir(parents=True, exist_ok=True)
-            removed_count += file_count
-            print(f"  ✓ Cleared cper_storage/ ({file_count} files)")
-        except Exception as e:
-            print(f"  ✗ Failed to clear cper_storage/: {e}")
-    
-    # Clean cpad_storage
-    cpad_storage = output_dir / "cpad_storage"
-    if cpad_storage.exists():
-        try:
-            file_count = sum(1 for _ in cpad_storage.rglob("*") if _.is_file())
-            shutil.rmtree(cpad_storage)
-            cpad_storage.mkdir(parents=True, exist_ok=True)
-            removed_count += file_count
-            print(f"  ✓ Cleared cpad_storage/ ({file_count} files)")
-        except Exception as e:
-            print(f"  ✗ Failed to clear cpad_storage/: {e}")
-    
-    return removed_count
-
-
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -165,22 +125,8 @@ def main():
         action='store_true',
         help='Also clean up temporary CPER directories in system temp'
     )
-    parser.add_argument(
-        '--clean-output',
-        action='store_true',
-        help='Also clean up client-side ras_demo_output/ directory'
-    )
-    parser.add_argument(
-        '--all',
-        action='store_true',
-        help='Clean everything: server entries, temp files, and output directory'
-    )
     
     args = parser.parse_args()
-    
-    if args.all:
-        args.clean_temp = True
-        args.clean_output = True
     
     # Resolve paths relative to the project root (examples/ras_api_demo/ -> Demos/ -> project root)
     project_root = Path(__file__).resolve().parent.parent.parent
@@ -194,7 +140,7 @@ def main():
         sys.exit(1)
     
     print("\n" + "=" * 60)
-    print("RAS Server Reset")
+    print("BMC/Redfish Server Reset")
     print("=" * 60)
     
     # Step 1: Reset RAS LogService Entries
@@ -210,16 +156,6 @@ def main():
         print(f"\n🗑️  Step 2: Cleaning temporary CPER directories")
         temp_count = clean_temp_cper_dirs()
     
-    # Step 3: Clean output directory (optional)
-    output_count = 0
-    if args.clean_output:
-        step_num = 3 if args.clean_temp else 2
-        script_dir = Path(__file__).resolve().parent
-        output_dir = script_dir / "ras_demo_output"
-        print(f"\n🗑️  Step {step_num}: Cleaning client output directory")
-        print(f"   Path: {output_dir}")
-        output_count = clean_output_dir(output_dir)
-    
     # Summary
     print("\n" + "=" * 60)
     print("Summary")
@@ -227,14 +163,12 @@ def main():
     print(f"  Log entries deleted:  {entry_count}")
     if args.clean_temp:
         print(f"  Temp dirs cleaned:    {temp_count}")
-    if args.clean_output:
-        print(f"  Output files removed: {output_count}")
     
-    total = entry_count + temp_count + output_count
+    total = entry_count + temp_count
     if total > 0:
-        print(f"\n✅ Server reset complete - {total} item(s) cleaned")
+        print(f"\n✅ BMC/Redfish server reset complete - {total} item(s) cleaned")
     else:
-        print(f"\n✅ Server was already clean - nothing to reset")
+        print(f"\n✅ BMC/Redfish server was already clean - nothing to reset")
     
     print()
     sys.exit(0)

@@ -68,7 +68,7 @@ python3 servers/redfishMockupServer_platform.py -D mockups/ras_gen10 -p 8000
 python3 examples/ras_api_demo/event_listener_sdk.py --port 8888 --bmc localhost:8000
 
 # Terminal 3 — Demo
-python3 examples/ras_api_demo/reset_server.py --all && python3 examples/ras_api_demo/init_ras_api.py && python3 examples/ras_api_demo/ras_api_plugin_demo.py
+python3 examples/ras_api_demo/reset_server.py --clean-temp && python3 examples/ras_api_demo/init_error_pipeline.py && python3 examples/ras_api_demo/ras_api_plugin_demo.py
 ```
 
 ## Architecture
@@ -117,8 +117,8 @@ python3 examples/ras_api_demo/reset_server.py --all && python3 examples/ras_api_
 |---|---|
 | `run_ras_demo.sh` | Tmux launcher (3 panes: server, SDK listener, demo) |
 | `setup.sh` | Fetches and installs the Redfish Client SDK |
-| `reset_server.py` | Clears LogService entries and event subscriptions |
-| `init_ras_api.py` | Creates initial Redfish resources (EventDestination, etc.) |
+| `reset_server.py` | Resets BMC/Redfish LogService entries and temporary CPER files |
+| `init_error_pipeline.py` | Clears client-side CPER/CPAD/analyzer storage under `ras_demo_output/` |
 | `cpad_storage/` | Binary CPAD files used for error injection and SPPR templates |
 | `ras_demo_output/` | Runtime output (collected CPERs, analyzer JSON, SPPR CPADs) |
 

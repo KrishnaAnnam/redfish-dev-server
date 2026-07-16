@@ -243,6 +243,33 @@ class ContosoAnalyzer:
             return f"DRAM {be['dram']}, DQ {be['dq']}, beat {beats[0]}"
         return f"DRAM {be['dram']}, DQ {be['dq']}, beats {beats}"
 
+    @staticmethod
+    def _wrap_labeled(label: str, value: str, print_fn, width: int = 70) -> None:
+        """Print ``label``/``value`` with the value wrapped to fit the frame.
+
+        Long comma-separated coordinate strings (e.g. a full DRAM location) are
+        broken at ``", "`` boundaries and continued on lines aligned under the
+        value column, so nothing wraps raw in the terminal.  All detail is
+        preserved — only the line breaks change.
+        """
+        col = 23                       # value column: 3-space indent + 20-char label
+        avail = width + 3 - col        # printable width for the value
+        prefix = f"   {label:<20}"
+        indent = " " * col
+        lines, cur = [], ""
+        for part in value.split(", "):
+            piece = f"{cur}, {part}" if cur else part
+            if cur and len(piece) > avail:
+                lines.append(cur)
+                cur = part
+            else:
+                cur = piece
+        if cur:
+            lines.append(cur)
+        print_fn(f"{prefix}{lines[0] if lines else ''}")
+        for line in lines[1:]:
+            print_fn(f"{indent}{line}")
+
     def _failing_row_lines(self, current: Optional[Dict]) -> List[str]:
         """Evidence lines for a failing-row diagnosis.
 
@@ -629,7 +656,8 @@ class ContosoAnalyzer:
             print(f"\n   Finding:            A DRAM row is failing — repeated corrected errors")
             print(f"                       map to one row at multiple column addresses.")
             if memory_location:
-                print(f"\n   Failing Row:        {self._format_row(memory_location)}")
+                print("")
+                self._wrap_labeled("Failing Row:", self._format_row(memory_location), print)
                 print("")
                 for line in self._failing_row_lines(memory_location):
                     print(line)
@@ -664,7 +692,11 @@ class ContosoAnalyzer:
                 print(f"                       Continue monitoring for errors.")
                 if first_memory_location:
                     col = first_memory_location.get('column')
-                    print(f"   Error Location:     {self._format_row(first_memory_location)}, Column {col}")
+                    self._wrap_labeled(
+                        "Error Location:",
+                        f"{self._format_row(first_memory_location)}, Column {col}",
+                        print,
+                    )
                     beat_list = first_memory_location.get('beat_errors', [])
                     if beat_list:
                         detail = "; ".join(self._fmt_beat(be) for be in beat_list)

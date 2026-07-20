@@ -70,15 +70,15 @@ def validate_ras_service_resource(resource: Dict[str, Any]) -> List[str]:
     
     # Validate @odata.type
     if "@odata.type" in resource:
-        if not resource["@odata.type"].startswith("#RasProto."):
+        if not resource["@odata.type"].startswith("#OCPRASService."):
             errors.append(f"Invalid @odata.type: {resource['@odata.type']}")
     
     # Validate Actions
     if "Actions" in resource:
-        if "#RasProto.SubmitCPAD" not in resource["Actions"]:
-            errors.append("Missing required action: #RasProto.SubmitCPAD")
+        if "#RASService.SubmitCPAD" not in resource["Actions"]:
+            errors.append("Missing required action: #RASService.SubmitCPAD")
         else:
-            action = resource["Actions"]["#RasProto.SubmitCPAD"]
+            action = resource["Actions"]["#RASService.SubmitCPAD"]
             if "target" not in action:
                 errors.append("SubmitCPAD action missing 'target' property")
     
@@ -90,9 +90,9 @@ def validate_ras_service_resource(resource: Dict[str, Any]) -> List[str]:
     return errors
 
 
-def validate_manager_extension(oem_extension: Dict[str, Any]) -> List[str]:
+def validate_service_root_extension(oem_extension: Dict[str, Any]) -> List[str]:
     """
-    Validate Manager.Oem.RasProto extension structure
+    Validate ServiceRoot.Oem.OCPRASAPIWS extension structure
     
     Args:
         oem_extension: OEM extension dictionary
@@ -104,7 +104,7 @@ def validate_manager_extension(oem_extension: Dict[str, Any]) -> List[str]:
     
     if "@odata.type" not in oem_extension:
         errors.append("Missing @odata.type")
-    elif not oem_extension["@odata.type"].startswith("#RasProto."):
+    elif not oem_extension["@odata.type"].startswith("#OCPRASServiceRoot."):
         errors.append(f"Invalid @odata.type: {oem_extension['@odata.type']}")
     
     if "RASService" not in oem_extension:
@@ -138,11 +138,10 @@ def print_validation_results(resource_name: str, errors: List[str]) -> bool:
 
 if __name__ == "__main__":
     """Test schema validation"""
-    from schema_registry import (
-        build_ras_service_response,
-        build_manager_oem_extension
-    )
-    
+    from discovery import RASDiscoveryHandler
+
+    discovery = RASDiscoveryHandler("System")
+
     print("=" * 60)
     print("RAS Plugin Schema Validation Tests")
     print("=" * 60)
@@ -151,7 +150,7 @@ if __name__ == "__main__":
     # Test 1: RASService resource
     print("Test 1: RASService Resource")
     print("-" * 60)
-    ras_service = build_ras_service_response("BMC", service_enabled=True)
+    _, ras_service = discovery.ras_service()
     errors = validate_ras_service_resource(ras_service)
     valid = print_validation_results("RASService", errors)
     
@@ -160,28 +159,16 @@ if __name__ == "__main__":
         print(json.dumps(ras_service, indent=2))
     print()
     
-    # Test 2: Manager OEM extension
-    print("Test 2: Manager OEM Extension")
+    # Test 2: ServiceRoot OEM extension
+    print("Test 2: ServiceRoot OEM Extension")
     print("-" * 60)
-    manager_oem = build_manager_oem_extension("BMC")
-    errors = validate_manager_extension(manager_oem)
-    valid = print_validation_results("Manager.Oem.RasProto", errors)
+    service_root_oem = discovery.service_root_extension()
+    errors = validate_service_root_extension(service_root_oem)
+    valid = print_validation_results("ServiceRoot.Oem.OCPRASAPIWS", errors)
     
     if valid:
         print("\nGenerated Extension:")
-        print(json.dumps(manager_oem, indent=2))
-    print()
-    
-    # Test 3: Governance metadata
-    print("Test 3: Governance Metadata")
-    print("-" * 60)
-    if "Governance" in ras_service:
-        errors = validate_governance_metadata(ras_service["Governance"])
-        valid = print_validation_results("Governance", errors)
-        
-        if valid:
-            print("\nGovernance Metadata:")
-            print(json.dumps(ras_service["Governance"], indent=2))
+        print(json.dumps(service_root_oem, indent=2))
     print()
     
     print("=" * 60)

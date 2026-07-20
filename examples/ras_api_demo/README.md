@@ -73,42 +73,52 @@ python3 examples/ras_api_demo/reset_server.py --clean-temp && python3 examples/r
 
 ## Architecture
 
-- **Pane 1 — BMC Server** (`redfishMockupServer_platform.py`): Simulates a BMC with RAS LogService
-- **Pane 2 — SDK Listener** (`event_listener_sdk.py`): Subscribes to BMC events, auto-downloads CPERs, notifies demo client via TCP
-- **Pane 3 — Demo Client** (`ras_api_plugin_demo.py`): Guided demo flow — inject errors, collect CPERs, analyze, policy check, submit SPPR
+- **Pane 1 — BMC Server** (`redfishMockupServer_platform.py`): Simulates a BMC with a RAS LogService
+- **Pane 2 — SDK Listener** (`event_listener_sdk.py`): Subscribes to a host's events on command, auto-downloads CPERs, and notifies the orchestrator over a control socket
+- **Pane 3 — Demo Client** (`ras_api_plugin_demo.py`): Guided demo flow — tells the orchestrator which host to monitor, then injects DRAM row errors; the orchestrator handles discovery, analysis, policy, and submit
 
 ## Module Architecture
 
 | Module | Class | Responsibility |
 |---|---|---|
-| `ras_api_plugin_demo.py` | `RASAPIPluginDemo` | Thin orchestrator — drives the demo flow |
-| `event_listener_sdk.py` | — | SDK-based listener with auto-download and TCP notification |
-| `analyzer.py` | `CPERAnalyzer` | Converts binary `.cper` → JSON via `cper-convert`, detects repeat errors, auto-creates SPPR CPADs |
-| | `AnalysisOrchestrator` | Thin wrapper that creates a fresh (stateless) `CPERAnalyzer` per run |
+| `ras_api_plugin_demo.py` | `RASAPIPluginDemo` | Drives the guided demo: tells the orchestrator which host to monitor, then injects DRAM row errors |
+| `analysis_orchestrator.py` | `AnalysisOrchestrator` | Coordinator — discovers analyzer plugins, discovers/monitors hosts (RAS API discovery), tells the listener to subscribe, and routes CPERs → analyzers → policy → back to the host |
+| `analyzers/<vendor>/analyzer-<vendor>.py` | — | Vendor analyzer plugin (e.g. Contoso): decodes its own CPERs, detects repeat errors, and emits SPPR CPADs; discovered via `--discover` |
+| `event_listener_sdk.py` | — | Standalone SDK listener: subscribes on command, auto-downloads `.cper` files, notifies the orchestrator over a control socket |
+| `cper_decoder.py` | `CperDecoder` | cperlib-based CPER decode; the orchestrator reads only the header (CreatorID) to route |
 | `policy.py` | `PolicyEngine` | Evaluates CPAD files against trust/action/platform registries |
-| `submit_cpad.py` | `CPADSubmitter` | Reads binary CPAD, base64-encodes, POSTs as JSON to BMC |
+| `submit_cpad.py` | `CPADSubmitter` | Reads a binary CPAD, base64-encodes, and POSTs it as JSON to the BMC (routed by PlatformID) |
 
 ### Data Flow
 
 ```
-  inject_memory_error()     ──►  BMC creates Corrected CPER in LogService
-         │                       BMC pushes OemCper.1.0.CperCreated event
+  orchestrator.add_host()   ──►  Discovers the host (ServiceRoot → RASService →
+         │                       RASEndpoints), matches every endpoint's CreatorID
+         │                       to an analyzer, then tells the SDK listener to
+         │                       subscribe to the host's CPER events
          │
-  SDK listener              ──►  Auto-downloads .cper files to cper_storage/
-         │                       Sends TCP notification to demo client
+  inject_dram_row_error()   ──►  BMC creates a Corrected CPER in its LogService
+         │                       and pushes an OCPRAS CperCreated event
          │
-  collect_cpers()           ──►  Reads downloaded CPERs from local storage
+  SDK listener              ──►  Auto-downloads the .cper to cper_storage/ and
+         │                       sends a 'cper_downloaded' notification to the
+         │                       orchestrator over the control socket
          │
-  analyze_cpers()           ──►  cper-convert to-json → decoded summary → repeat detection
-         │                       Auto-creates SPPR CPAD if repeat error found
+  orchestrator              ──►  Reads the CPER header (CreatorID) and routes the
+   .process_new_cpers()          CPER to the owning analyzer-<vendor>.py plugin,
+         │                       which decodes it, detects a repeat, and (on the
+         │                       2nd column of the same row) emits an SPPR CPAD
          │
-  run_policy_check()        ──►  Validates SPPR CPAD against policy registries
+  PolicyEngine              ──►  Evaluates the SPPR CPAD against the operator's
+         │                       trust/action/platform policy
          │
-  submit_sppr_cpad()        ──►  Binary CPAD → base64 → JSON POST to BMC
+  CPADSubmitter             ──►  On approval, base64 + JSON POST back to the host
+         │                       that reported the error (routed by PlatformID)
          │
-  (BMC creates Action Event CPER)
+  (BMC performs the SPPR repair and emits informational Action-Event CPERs)
          │
-  collect + analyze again   ──►  Picks up Action Event CPER, confirms repair
+  listener → orchestrator   ──►  Same path again: downloads, routes, and analyzes
+                                 the informational CPERs to confirm the repair
 ```
 
 ## Support Files
@@ -124,15 +134,9 @@ python3 examples/ras_api_demo/reset_server.py --clean-temp && python3 examples/r
 
 ## Standalone Usage
 
-Each module can be run independently:
+Some modules can be run independently:
 
 ```bash
-# Collect CPERs from a running server
-python examples/ras_api_demo/collect_cpers.py --base-url http://localhost:8000
-
-# Analyze collected CPER files
-python examples/ras_api_demo/analyzer.py --cper-dir ras_demo_output/cper_storage
-
 # Run policy check on analyzer-generated SPPR CPADs
 python examples/ras_api_demo/policy.py --cpad-dir ras_demo_output/Analyzer_output_files
 

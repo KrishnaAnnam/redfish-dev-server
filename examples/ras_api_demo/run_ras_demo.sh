@@ -53,6 +53,13 @@ tmux set-option -g mouse on
 tmux split-window -h -t $SESSION_NAME:0.0
 tmux split-window -v -t $SESSION_NAME:0.0
 
+# Show a title bar on each pane and label them
+tmux set-option -g pane-border-status top
+tmux set-option -g pane-border-format " #{pane_title} "
+tmux select-pane -t $SESSION_NAME:0.0 -T "🖥️  BMC Redfish Server (port 8000)"
+tmux select-pane -t $SESSION_NAME:0.1 -T "🔔 SDK Event Listener (port 8888)"
+tmux select-pane -t $SESSION_NAME:0.2 -T "🧪 RAS API Client & Analysis Demo"
+
 # Pane 0 (top-left): BMC Server
 tmux send-keys -t $SESSION_NAME:0.0 "cd $PROJECT_DIR" C-m
 tmux send-keys -t $SESSION_NAME:0.0 "clear" C-m
@@ -76,7 +83,7 @@ tmux send-keys -t $SESSION_NAME:0.1 "python3 examples/ras_api_demo/event_listene
 tmux send-keys -t $SESSION_NAME:0.2 "cd $PROJECT_DIR" C-m
 tmux send-keys -t $SESSION_NAME:0.2 "clear" C-m
 tmux send-keys -t $SESSION_NAME:0.2 "echo '═══════════════════════════════════════════'" C-m
-tmux send-keys -t $SESSION_NAME:0.2 "echo '🧪 RAS DEMO'" C-m
+tmux send-keys -t $SESSION_NAME:0.2 "echo '🧪 RAS API CLIENT AND ANALYSIS DEMO'" C-m
 tmux send-keys -t $SESSION_NAME:0.2 "echo '═══════════════════════════════════════════'" C-m
 tmux send-keys -t $SESSION_NAME:0.2 "echo ''" C-m
 tmux send-keys -t $SESSION_NAME:0.2 "echo 'Run full pipeline (reset + init + demo):'" C-m

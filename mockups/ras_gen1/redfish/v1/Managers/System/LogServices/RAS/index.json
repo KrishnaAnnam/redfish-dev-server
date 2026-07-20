@@ -22,12 +22,12 @@
         }
     },
     "Oem": {
-        "RasProto": {
-            "@odata.type": "#RasProto.v1_0_0.LogServiceExtension",
+        "OCPRASAPIWS": {
+            "@odata.type": "#OCPRASLogService.v1_0_0.LogServiceExtension",
             "RecordFormat": "CPER",
             "SupportedSeverities": ["Informational", "Corrected", "Uncorrected", "Fatal"],
             "RelatedRASService": {
-                "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService"
+                "@odata.id": "/redfish/v1/Oem/OCPRASAPIWS/RASService"
             }
         }
     }

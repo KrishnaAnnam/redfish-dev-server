@@ -17,13 +17,13 @@
 
   <edmx:DataServices>
 
-    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="RasProto">
-      <Annotation Term="Redfish.OwningEntity" String="RasProto"/>
+    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="OCPRASService">
+      <Annotation Term="Redfish.OwningEntity" String="OCPRASService"/>
       <Annotation Term="Redfish.Release" String="1.0"/>
     </Schema>
 
-    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="RasProto.v1_0_0">
-      <Annotation Term="Redfish.OwningEntity" String="RasProto"/>
+    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="OCPRASService.v1_0_0">
+      <Annotation Term="Redfish.OwningEntity" String="OCPRASService"/>
       <Annotation Term="Redfish.Release" String="1.0"/>
 
       <!-- RASService Resource -->
@@ -40,7 +40,7 @@
           <Annotation Term="OData.Description" String="The status of this service."/>
         </Property>
         
-        <Property Name="Governance" Type="RasProto.v1_0_0.Governance">
+        <Property Name="Governance" Type="OCPRASService.v1_0_0.Governance">
           <Annotation Term="OData.Description" String="Governance metadata for this pre-standard service."/>
         </Property>
         
@@ -59,7 +59,7 @@
           <Annotation Term="OData.Description" String="RAS Initiators collection."/>
         </NavigationProperty>
         
-        <Property Name="Actions" Type="RasProto.v1_0_0.Actions" Nullable="false">
+        <Property Name="Actions" Type="OCPRASService.v1_0_0.Actions" Nullable="false">
           <Annotation Term="OData.Description" String="Available actions for this resource."/>
         </Property>
       </EntityType>
@@ -99,12 +99,12 @@
           <Annotation Term="OData.Description" String="Expected namespace after standardization."/>
         </Property>
         
-        <Property Name="ImplementationStatus" Type="RasProto.v1_0_0.ImplementationStatus">
+        <Property Name="ImplementationStatus" Type="OCPRASService.v1_0_0.ImplementationStatus">
           <Annotation Term="OData.Permissions" EnumMember="OData.Permission/Read"/>
           <Annotation Term="OData.Description" String="Maturity level of this implementation."/>
         </Property>
         
-        <Property Name="ContractStability" Type="RasProto.v1_0_0.ContractStability">
+        <Property Name="ContractStability" Type="OCPRASService.v1_0_0.ContractStability">
           <Annotation Term="OData.Permissions" EnumMember="OData.Permission/Read"/>
           <Annotation Term="OData.Description" String="Stability level of the API contract."/>
         </Property>
@@ -113,7 +113,7 @@
       <!-- Actions Complex Type -->
       <ComplexType Name="Actions">
         <Annotation Term="OData.AdditionalProperties" Bool="false"/>
-        <Property Name="Oem" Type="RasProto.v1_0_0.OemActions" Nullable="false"/>
+        <Property Name="Oem" Type="OCPRASService.v1_0_0.OemActions" Nullable="false"/>
       </ComplexType>
 
       <ComplexType Name="OemActions">
@@ -123,7 +123,7 @@
       <!-- SubmitCPAD Action -->
       <Action Name="SubmitCPAD" IsBound="true">
         <Annotation Term="OData.Description" String="Submit a Common Platform Error Record - Abstracted Data."/>
-        <Parameter Name="RASService" Type="RasProto.v1_0_0.Actions" Nullable="false"/>
+        <Parameter Name="RASService" Type="OCPRASService.v1_0_0.Actions" Nullable="false"/>
         <Parameter Name="CPADData" Type="Edm.String" Nullable="false">
           <Annotation Term="OData.Description" String="The CPAD record data."/>
         </Parameter>
@@ -166,9 +166,9 @@
       <!-- Manager Extension -->
       <ComplexType Name="ManagerExtension">
         <Annotation Term="OData.AdditionalProperties" Bool="false"/>
-        <Annotation Term="OData.Description" String="RasProto extension for Manager resource."/>
+        <Annotation Term="OData.Description" String="OCPRASService extension for Manager resource."/>
         
-        <NavigationProperty Name="RASService" Type="RasProto.v1_0_0.RASService">
+        <NavigationProperty Name="RASService" Type="OCPRASService.v1_0_0.RASService">
           <Annotation Term="OData.Permissions" EnumMember="OData.Permission/Read"/>
           <Annotation Term="OData.Description" String="Link to the RAS Service resource."/>
         </NavigationProperty>

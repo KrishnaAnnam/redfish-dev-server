@@ -1,5 +1,5 @@
 {
-  "platform_name": "RAS GEN10 Platform",
+  "platform_name": "RAS Gen 1 Platform",
   "platform_type": "enterprise_server",
   "plugins": [
     {

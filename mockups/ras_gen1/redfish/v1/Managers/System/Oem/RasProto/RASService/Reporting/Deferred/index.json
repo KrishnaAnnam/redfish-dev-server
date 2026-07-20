@@ -1,8 +1,0 @@
-{
-  "@odata.type": "#LogEntryCollection.LogEntryCollection",
-  "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService/Reporting/Deferred",
-  "Name": "Deferred Error Log Entries",
-  "Description": "Collection of deferred RAS error log entries",
-  "Members@odata.count": 0,
-  "Members": []
-}

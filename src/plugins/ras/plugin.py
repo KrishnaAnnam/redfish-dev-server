@@ -77,17 +77,16 @@ class RASPlugin:
             self._config = config
             
             # Import handlers
-            from .handlers.manager_extension import ManagerOEMExtensionHandler
             from .handlers.submit_cpad_action import SubmitCPADActionHandler
+            from .discovery import RASDiscoveryHandler
             
             # Initialize handlers
-            self.manager_handler = ManagerOEMExtensionHandler()
             self.submit_cpad_handler = SubmitCPADActionHandler()
+            self.discovery_handler = RASDiscoveryHandler()
             
             self._enabled = True
             
             logger.info(f"RAS Plugin v{PLUGIN_INFO['version']} initialized successfully")
-            logger.info("  - Manager OEM Extension Handler: Ready")
             logger.info("  - SubmitCPAD Action Handler: Ready")
             return True
             
@@ -121,10 +120,13 @@ class RASPlugin:
             List of path patterns
         """
         return [
-            # Manager OEM extension
-            "/redfish/v1/Managers/*/Oem/RasProto/RASService",
-            "/redfish/v1/Managers/*/Oem/RasProto/RASService/Actions/*",
-            "/redfish/v1/Managers/*/Oem/RasProto/RASService/SubmitCPADActionInfo",
+            # Service-root OEM RAS discovery tree
+            "/redfish/v1/Oem/OCPRASAPIWS/RASService",
+            "/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints",
+            "/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/{EndpointId}",
+            "/redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo",
+            # Service-root OEM RAS action
+            "/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD",
         ]
     
     def handles_path(self, path: str) -> bool:
@@ -137,24 +139,20 @@ class RASPlugin:
         Returns:
             True if plugin handles this path
         """
-        # Check for Manager OEM extension paths
         import re
         patterns = [
-            r'/redfish/v1/Managers/[^/]+/Oem/RasProto/RASService',
-            r'/redfish/v1/Managers/[^/]+/Oem/RasProto/RASService/Actions/.*',
-            r'/redfish/v1/Managers/[^/]+/Oem/RasProto/RASService/SubmitCPADActionInfo',
+            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/?$',
+            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/?$',
+            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/[^/]+/?$',
+            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo/?$',
+            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService\.SubmitCPAD/?$',
         ]
-        
-        for pattern in patterns:
-            if re.match(pattern, path):
-                return True
-        
-        return False
+        return any(re.match(pattern, path) for pattern in patterns)
     
     def handle_get(self, path: str, query_params: Dict[str, Any] = None,
                    cached_links: Dict[str, Any] = None) -> Tuple[int, Dict, Dict]:
         """
-        Handle GET requests.
+        Handle GET requests for the plugin-served RAS discovery tree.
         
         Args:
             path: URL path
@@ -169,18 +167,23 @@ class RASPlugin:
         
         import re
         
-        # Extract manager_id from path
-        manager_match = re.match(r'/redfish/v1/Managers/([^/]+)/Oem/RasProto/RASService$', path)
-        if manager_match:
-            manager_id = manager_match.group(1)
-            status, body = self.manager_handler.handle_get_ras_service(manager_id)
+        if re.match(r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/?$', path):
+            status, body = self.discovery_handler.ras_service()
             return status, {}, body
         
-        # SubmitCPAD ActionInfo
-        action_info_match = re.match(r'/redfish/v1/Managers/([^/]+)/Oem/RasProto/RASService/SubmitCPADActionInfo$', path)
-        if action_info_match:
-            manager_id = action_info_match.group(1)
-            status, body = self.manager_handler.handle_get_action_info(manager_id)
+        if re.match(r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/?$', path):
+            status, body = self.discovery_handler.endpoint_collection()
+            return status, {}, body
+        
+        endpoint_match = re.match(
+            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/([^/]+)/?$', path
+        )
+        if endpoint_match:
+            status, body = self.discovery_handler.endpoint(endpoint_match.group(1))
+            return status, {}, body
+        
+        if re.match(r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo/?$', path):
+            status, body = self.discovery_handler.submit_cpad_action_info()
             return status, {}, body
         
         return 404, {}, {"error": "Not found"}
@@ -203,11 +206,10 @@ class RASPlugin:
         
         import re
         
-        # SubmitCPAD action
-        submit_cpad_match = re.match(r'/redfish/v1/Managers/([^/]+)/Oem/RasProto/RASService/Actions/RasProto\.SubmitCPAD$', path)
+        # SubmitCPAD action (service-root scoped, no Manager id in URL)
+        submit_cpad_match = re.match(r'/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService\.SubmitCPAD$', path)
         if submit_cpad_match:
-            manager_id = submit_cpad_match.group(1)
-            status, body = self.submit_cpad_handler.handle_submit_cpad(manager_id, data)
+            status, body = self.submit_cpad_handler.handle_submit_cpad("System", data)
             return status, {}, body
         
         return 404, {}, {"error": "Not found"}

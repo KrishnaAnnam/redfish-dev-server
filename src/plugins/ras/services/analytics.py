@@ -100,7 +100,7 @@ class RASAnalyticsEngine:
                 severity_trend[hour_key][severity] += 1
                 
                 # Aggregate by component
-                oem_data = entry.get("Oem", {}).get("RasProto", {})
+                oem_data = entry.get("Oem", {}).get("OCPRASAPIWS", {})
                 component = oem_data.get("FRUId", "Unknown")
                 component_errors[component] += 1
         
@@ -169,7 +169,7 @@ class RASAnalyticsEngine:
                     entry = json.load(f)
                 
                 # Get component ID
-                oem_data = entry.get("Oem", {}).get("RasProto", {})
+                oem_data = entry.get("Oem", {}).get("OCPRASAPIWS", {})
                 component = oem_data.get("FRUId", "Unknown")
                 
                 # Update component stats

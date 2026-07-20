@@ -4,7 +4,7 @@ SubmitCPAD Action Handler
 Handles the SubmitCPAD action which processes CPAD (Common Platform Action Document)
 submissions and executes the requested actions.
 
-Endpoint: POST /redfish/v1/Managers/{ManagerId}/Oem/RasProto/RASService/Actions/RasProto.SubmitCPAD
+Endpoint: POST /redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD
 """
 
 import logging
@@ -497,7 +497,7 @@ class SubmitCPADActionHandler:
                     'FRU': metadata['fru_text'],
                     'Confidence': metadata['confidence']
                 }),
-                'TargetUri': f'/redfish/v1/Managers/{manager_id}/Oem/RasProto/RASService'
+                'TargetUri': '/redfish/v1/Oem/OCPRASAPIWS/RASService'
             }
         }
         
@@ -606,7 +606,7 @@ class SubmitCPADActionHandler:
         """
         return {
             'POST': {
-                r'/redfish/v1/Managers/(?P<manager_id>[^/]+)/Oem/RasProto/RASService/Actions/RasProto\.SubmitCPAD$': self.handle_submit_cpad,
+                r'/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService\.SubmitCPAD$': self.handle_submit_cpad,
             }
         }
     

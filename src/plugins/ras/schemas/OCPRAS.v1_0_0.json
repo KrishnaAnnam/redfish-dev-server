@@ -39,7 +39,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "#RasProto.SubmitCPAD": {
+            "#RASService.SubmitCPAD": {
               "$ref": "#/definitions/SubmitCPAD"
             }
           }
@@ -137,7 +137,7 @@
           "description": "Link to the RAS Service resource."
         }
       },
-      "description": "RasProto extension for Manager resource."
+      "description": "OCPRAS ServiceRoot extension advertising the RASService link."
     }
   }
 }

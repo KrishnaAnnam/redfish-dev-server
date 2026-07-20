@@ -30,11 +30,16 @@ import json
 import argparse
 import subprocess
 import shutil
+import socket
+import threading
+import time
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
+
+import requests
 
 from cper_decoder import CperDecoder
 
@@ -72,6 +77,27 @@ class AnalyzerInfo:
     script_path: Path               # path to the analyzer-<company>.py script
 
 
+@dataclass
+class MonitoredHost:
+    """A Redfish host (BMC) the orchestrator has discovered and is monitoring.
+
+    ``platform_id`` is the anchor that maps this host to the CPERs and CPADs it
+    produces: it is the PlatformID reported by the host's RASService and the
+    PlatformID carried in every CPER/CPAD header from this platform.
+    """
+    name: str                       # human-friendly label, e.g. "Contoso BMC"
+    base_url: str                   # e.g. "http://localhost:8000"
+    host: str                       # hostname or IP
+    port: int                       # Redfish port
+    manager_id: str                 # Redfish Manager id owning the CPER LogService
+    platform_id: str                # normalized PlatformID GUID (host ↔ CPER anchor)
+    endpoints: List[Dict[str, Any]] # RASEndpoints (Id, CreatorID, analyzer, ...)
+    username: Optional[str] = None
+    password: Optional[str] = None
+    subscribed: bool = False        # True once the listener is subscribed
+    subscription_uri: Optional[str] = None  # BMC subscription created by the listener
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # AnalysisOrchestrator — discovers analyzers and routes CPERs to them
 # ═══════════════════════════════════════════════════════════════════════════
@@ -100,18 +126,21 @@ class AnalysisOrchestrator:
 
     def __init__(self, *, platform_id=None, partition_id=None,
                  cper_storage_dir=None, output_dir=None,
-                 analyzers_dir=None, policy_engine=None, submitter=None):
+                 analyzers_dir=None, policy_engine=None, submitter=None,
+                 listener_host="localhost", listener_port=8889):
         """Initialize the orchestrator and run analyzer discovery.
 
         Args:
-            platform_id:      Platform GUID string.
-            partition_id:     Partition GUID string.
+            platform_id:      Platform GUID string (standalone/CLI fallback only).
+            partition_id:     Partition GUID string (standalone/CLI fallback only).
             cper_storage_dir: Path where collected CPERs are stored.
             output_dir:       Root output directory (Analyzer_output_files created underneath).
             analyzers_dir:    Directory to scan for analyzer plugins
                               (defaults to Demos/RasApi/analyzers).
             policy_engine:    Optional object exposing evaluate_cpad(json_path) -> bool.
             submitter:        Optional object exposing submit(cpad_path, ...).
+            listener_host:    Host of the SDK event listener's control socket.
+            listener_port:    Port of the SDK event listener's control socket.
         """
         self.platform_id = platform_id
         self.partition_id = partition_id
@@ -127,10 +156,27 @@ class AnalysisOrchestrator:
         self.policy_engine = policy_engine
         self.submitter = submitter
 
-        # Discovery results
+        # Analyzer discovery results
         self.analyzers: List[AnalyzerInfo] = []
         self.analyzer_by_creator: Dict[str, AnalyzerInfo] = {}
         self.discovery_error: Optional[str] = None
+
+        # Monitored hosts, keyed by PlatformID (host ↔ CPER anchor).
+        self.hosts: Dict[str, MonitoredHost] = {}
+
+        # SDK event-listener control/notification socket.
+        self.listener_host = listener_host
+        self.listener_port = listener_port
+        self._listener_sock: Optional[socket.socket] = None
+        self._pending_cpers: List[str] = []
+        self._pending_lock = threading.Lock()
+
+        # Subscription confirmations from the listener, keyed by "host:port".
+        # add_host() blocks on this until the listener reports the subscription
+        # is live, so we never inject before events can be delivered.
+        self._subscribe_cv = threading.Condition()
+        self._confirmed_subscriptions: Dict[str, Optional[str]] = {}
+        self._confirmed_unsubscribes: set = set()
 
         self._discover_analyzers()
 
@@ -316,6 +362,357 @@ class AnalysisOrchestrator:
         for row in rows[1:]:
             print(fmt(row))
         print()
+
+    # ─── Host Discovery & Monitoring ────────────────────────────────────
+
+    def add_host(self, name: str, host: str, port: int,
+                 username: Optional[str] = None, password: Optional[str] = None,
+                 manager_id: str = "System") -> bool:
+        """Discover a host and, if it qualifies, start monitoring it.
+
+        Real-world order: the orchestrator is told about a host, runs the RAS
+        API discovery process against it, and only after discovery succeeds does
+        it ask the event listener to subscribe to that host's events.
+
+        On success the host is registered, its PlatformID is mapped to its BMC
+        URL (so approved CPADs route back to it), and the listener is told to
+        subscribe.  Returns True if the host is now being monitored.
+        """
+        monitored = self.discover_host(name, host, port, username, password, manager_id)
+        if monitored is None:
+            return False
+
+        self.hosts[monitored.platform_id] = monitored
+
+        # Route CPADs carrying this PlatformID back to this host.
+        if self.submitter is not None:
+            self.submitter.platform_bmc_map[monitored.platform_id] = monitored.base_url
+
+        # Only now — after discovery confirmed RAS support — subscribe to events.
+        self._subscribe_host_events(monitored)
+        return True
+
+    def discover_host(self, name: str, host: str, port: int,
+                      username: Optional[str] = None, password: Optional[str] = None,
+                      manager_id: str = "System") -> Optional[MonitoredHost]:
+        """Run the OCP RAS API discovery process against a host.
+
+        Follows the spec discovery path (ServiceRoot → RASService → RASEndpoints
+        → each RASEndpoint), printing every Redfish request, and confirms that
+        every endpoint's CreatorID is owned by a discovered analyzer (strict
+        acceptance gate).  Returns a MonitoredHost on success, else None.
+        """
+        base_url = f"http://{host}:{port}"
+        session = requests.Session()
+        if username is not None:
+            session.auth = (username, password)
+
+        print("\n" + "=" * 80)
+        print("\t\t\t\tHOST DISCOVERY")
+        print("=" * 80)
+        print(f"\n   Host: {name}  ({base_url})")
+
+        # Step 1 — ServiceRoot advertises RAS support (spec §3.2).
+        print("\n   Step 1 — Discover RAS support via the Redfish ServiceRoot")
+        root = self._redfish_get(session, base_url, "/redfish/v1/")
+        if root is None:
+            print("\n   ❌ ServiceRoot unreachable — host is not monitorable.")
+            return None
+        ras_link = (root.get("Oem", {}).get("OCPRASAPIWS", {})
+                    .get("RASService", {}).get("@odata.id"))
+        if not ras_link:
+            print("\n   ❌ ServiceRoot has no Oem.OCPRASAPIWS.RASService link — "
+                  "host does not support the OCP RAS API.")
+            return None
+        print(f"   ✓ RAS API advertised at {ras_link}")
+
+        # Step 2 — Read the RASService resource (spec §3.3).
+        print("\n   Step 2 — Read the RASService resource")
+        ras = self._redfish_get(session, base_url, ras_link)
+        if ras is None:
+            print("\n   ❌ RASService could not be read — host is not monitorable.")
+            return None
+        platform_id = normalize_guid(ras.get("PlatformID"))
+        links = ras.get("Links", {})
+        print(f"   ✓ RASAPIVersion: {ras.get('RASAPIVersion', '?')}")
+        print(f"   ✓ PlatformID:    {platform_id or '(none)'}")
+        print(f"   ✓ Links:         {', '.join(links.keys()) or '(none)'}")
+        if not platform_id:
+            print("\n   ❌ RASService has no PlatformID — cannot map host to its CPERs.")
+            return None
+        endpoints_link = links.get("RASEndpoints", {}).get("@odata.id")
+        if not endpoints_link:
+            print("\n   ❌ RASService has no Links.RASEndpoints — host is not monitorable.")
+            return None
+
+        # Step 3 — Enumerate the RASEndpoints collection (spec §3.4).
+        print("\n   Step 3 — Enumerate the RAS endpoints")
+        collection = self._redfish_get(session, base_url, endpoints_link)
+        members = collection.get("Members", []) if collection else []
+        print(f"   ✓ {len(members)} endpoint(s) advertised")
+
+        # Step 4 — Read each endpoint and match its CreatorID to an analyzer
+        #          (spec §3.5).  Strict gate: every endpoint must match.
+        print("\n   Step 4 — Read each endpoint and match its CreatorID to an analyzer")
+        endpoints: List[Dict[str, Any]] = []
+        all_matched = True
+        for member in members:
+            ep_uri = member.get("@odata.id")
+            if not ep_uri:
+                continue
+            ep = self._redfish_get(session, base_url, ep_uri)
+            if ep is None:
+                all_matched = False
+                continue
+            creator_id = normalize_guid(ep.get("CreatorID"))
+            partition_id = normalize_guid(ep.get("PartitionID"))
+            analyzer = self.analyzer_by_creator.get(creator_id)
+            endpoints.append({
+                "Id": ep.get("Id"),
+                "Name": ep.get("Name"),
+                "CreatorID": creator_id,
+                "PartitionID": partition_id,
+                "EndpointType": ep.get("EndpointType"),
+                "FRUID": ep.get("FRUID"),
+                "FRUText": ep.get("FRUText"),
+                "SupportedQueues": ep.get("SupportedQueues", []),
+                "analyzer": analyzer.name if analyzer else None,
+            })
+
+            # Per-endpoint summary.
+            print(f"\n      Endpoint {ep.get('Id')} — {ep.get('Name', '(unnamed)')}")
+            print(f"         EndpointType:    {ep.get('EndpointType', '(none)')}")
+            print(f"         PartitionID:     {partition_id or '(none)'}")
+            print(f"         CreatorID:       {creator_id or '(none)'}")
+            print(f"         FRUID:           {ep.get('FRUID', '(none)')}")
+            print(f"         FRUText:         {ep.get('FRUText', '(none)')}")
+            print(f"         SupportedQueues: {', '.join(ep.get('SupportedQueues', [])) or '(none)'}")
+            if analyzer:
+                print(f"         ✓ Analyzer:      {analyzer.name} (owns CreatorID {creator_id})")
+            else:
+                all_matched = False
+                print(f"         ❌ Analyzer:      none registered for CreatorID {creator_id}")
+
+        if not endpoints:
+            print("\n   ❌ No RAS endpoints found — host is not monitorable.")
+            return None
+        if not all_matched:
+            print("\n   ❌ Acceptance gate: every endpoint's CreatorID must have a")
+            print("      matching analyzer. Host rejected.")
+            return None
+
+        print(f"\n   ✅ Discovery complete — {name} supports the OCP RAS API and every")
+        print(f"      endpoint has a matching analyzer. Now monitoring PlatformID {platform_id}.")
+        return MonitoredHost(
+            name=name, base_url=base_url, host=host, port=port,
+            manager_id=manager_id, platform_id=platform_id, endpoints=endpoints,
+            username=username, password=password,
+        )
+
+    def _redfish_get(self, session: "requests.Session", base_url: str,
+                     path: str, timeout: float = 10.0) -> Optional[Dict[str, Any]]:
+        """GET a Redfish resource, printing the request/response, or None."""
+        url = path if path.startswith("http") else f"{base_url}{path}"
+        print(f"      → GET {url}")
+        try:
+            resp = session.get(url, timeout=timeout)
+        except requests.RequestException as e:
+            print(f"      ← ERROR {e}")
+            return None
+        print(f"      ← {resp.status_code} {resp.reason}")
+        if resp.status_code != 200:
+            return None
+        try:
+            return resp.json()
+        except ValueError:
+            print("      ← (response was not JSON)")
+            return None
+
+    # ─── Event Listener Control ─────────────────────────────────────────
+
+    def connect_listener(self, host: Optional[str] = None,
+                         port: Optional[int] = None) -> bool:
+        """Connect to the SDK event listener's control/notification socket.
+
+        The orchestrator both sends commands (subscribe) and receives
+        notifications (cper_downloaded) over this one connection.
+        """
+        host = host or self.listener_host
+        port = port or self.listener_port
+        try:
+            sock = socket.create_connection((host, port), timeout=5)
+        except OSError as e:
+            print(f"   ⚠️  Could not reach the event listener at {host}:{port} ({e})")
+            self._listener_sock = None
+            return False
+        # The 5s timeout above only bounds the connect attempt.  Restore
+        # blocking mode so the reader thread's recv() waits indefinitely for
+        # notifications instead of dying with a socket timeout between events.
+        sock.settimeout(None)
+        self._listener_sock = sock
+        self.listener_host, self.listener_port = host, port
+        threading.Thread(target=self._listen_for_notifications, daemon=True).start()
+        print(f"   ✅ Connected to the event listener at {host}:{port}")
+        return True
+
+    def _subscribe_host_events(self, monitored: MonitoredHost,
+                               timeout: float = 15.0):
+        """Tell the listener to subscribe, and wait until it confirms.
+
+        Waiting for the listener's confirmation is what makes the flow
+        race-free: the listener sends its confirmation only *after* the
+        subscription is registered on the BMC, so by the time this returns the
+        host can actually deliver events.
+        """
+        if self._listener_sock is None and not self.connect_listener():
+            print("   ⚠️  Event listener unavailable — cannot subscribe. CPERs will")
+            print("      be read from disk as a fallback if the listener saved them.")
+            return
+
+        bmc = f"{monitored.host}:{monitored.port}"
+        with self._subscribe_cv:
+            self._confirmed_subscriptions.pop(bmc, None)
+
+        self._send_listener_command({
+            "command": "subscribe",
+            "bmc": bmc,
+            "username": monitored.username,
+            "password": monitored.password,
+            "registry_prefixes": ["OCPRAS"],
+            "platform_id": monitored.platform_id,
+        })
+        print(f"\n   📡 Asked the event listener to subscribe to {monitored.name} "
+              f"({monitored.base_url})")
+
+        # Block until the listener confirms the subscription is live.
+        with self._subscribe_cv:
+            confirmed = self._subscribe_cv.wait_for(
+                lambda: bmc in self._confirmed_subscriptions, timeout=timeout)
+            subscription_uri = self._confirmed_subscriptions.get(bmc)
+
+        if not confirmed:
+            print(f"   ⚠️  Timed out waiting for the listener to confirm the "
+                  f"subscription to {bmc}.")
+            print("      Proceeding, but events may be missed.")
+            return
+        if not subscription_uri:
+            print(f"   ⚠️  Listener could not subscribe to {bmc}; events will not "
+                  f"be delivered.")
+            return
+
+        monitored.subscribed = True
+        monitored.subscription_uri = subscription_uri
+        print(f"   ✅ Subscription to {monitored.name} is live "
+              f"({subscription_uri}) — monitoring RAS API endpoint events.")
+
+    def _send_listener_command(self, command: Dict[str, Any]):
+        """Send one newline-delimited JSON command to the listener."""
+        if self._listener_sock is None:
+            return
+        try:
+            self._listener_sock.sendall((json.dumps(command) + "\n").encode())
+        except OSError as e:
+            print(f"   ⚠️  Failed to send command to the listener: {e}")
+
+    def _listen_for_notifications(self):
+        """Background reader: buffer 'cper_downloaded' paths from the listener."""
+        sock = self._listener_sock
+        buffer = ""
+        while sock is not None:
+            try:
+                chunk = sock.recv(4096).decode()
+            except OSError:
+                break
+            if not chunk:
+                break
+            buffer += chunk
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    message = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                self._handle_notification(message)
+
+    def _handle_notification(self, message: Dict[str, Any]):
+        """Handle one notification message from the listener."""
+        event = message.get("event")
+        if event == "cper_downloaded":
+            path = message.get("path")
+            if path:
+                with self._pending_lock:
+                    self._pending_cpers.append(path)
+                print(f"\n   📨 Listener downloaded a CPER: {Path(path).name}")
+        elif event == "subscribed":
+            bmc = message.get("bmc")
+            subscription_uri = message.get("subscription_uri")
+            with self._subscribe_cv:
+                self._confirmed_subscriptions[bmc] = subscription_uri
+                self._subscribe_cv.notify_all()
+        elif event == "unsubscribed":
+            bmc = message.get("bmc")
+            with self._subscribe_cv:
+                self._confirmed_unsubscribes.add(bmc)
+                self._subscribe_cv.notify_all()
+
+    def wait_for_cpers(self, count: int = 1, timeout: float = 30.0) -> bool:
+        """Block until at least `count` CPERs are pending, or timeout elapses."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self._pending_lock:
+                if len(self._pending_cpers) >= count:
+                    return True
+            time.sleep(0.2)
+        return False
+
+    def process_new_cpers(self):
+        """Route every CPER the listener has delivered since the last call."""
+        with self._pending_lock:
+            paths = self._pending_cpers
+            self._pending_cpers = []
+        self.notify_new_cpers(paths)
+
+    def close(self, timeout: float = 5.0):
+        """Stop monitoring: tell the listener to remove every subscription.
+
+        Called on shutdown so we don't leave orphaned EventService
+        subscriptions on the hosts.  Waits briefly for the listener to confirm
+        each removal, then disconnects.
+        """
+        if self._listener_sock is None:
+            return
+
+        pending_bmcs = []
+        for host in self.hosts.values():
+            if not host.subscribed:
+                continue
+            bmc = f"{host.host}:{host.port}"
+            with self._subscribe_cv:
+                self._confirmed_unsubscribes.discard(bmc)
+            self._send_listener_command({
+                "command": "unsubscribe",
+                "bmc": bmc,
+                "subscription_uri": host.subscription_uri,
+            })
+            host.subscribed = False
+            pending_bmcs.append(bmc)
+            print(f"   🧹 Asked the listener to unsubscribe {host.name} ({bmc})")
+
+        # Wait for the listener to confirm the removals.
+        if pending_bmcs:
+            with self._subscribe_cv:
+                self._subscribe_cv.wait_for(
+                    lambda: all(b in self._confirmed_unsubscribes for b in pending_bmcs),
+                    timeout=timeout)
+
+        try:
+            self._listener_sock.close()
+        except OSError:
+            pass
+        self._listener_sock = None
 
     # ─── CPER Orchestration (explicit push) ─────────────────────────────
 
@@ -588,9 +985,9 @@ class AnalysisOrchestrator:
         print("=" * 80)
 
         print("\n   The Server Fleet Operator's policy engine decides whether a proposed action")
-        print("   is allowed. It inspects only the CPAD's decoded header and section")
-        print("   descriptors (IDs, action type, FRU/target, severity) — never the CPAD")
-        print("   section body. That keeps proprietary vendor data opaque to the operator")
+        print("   is allowed. It only needs toinspect the CPAD's decoded header and section")
+        print("   descriptors (IDs, action type, FRU/target, severity) — not the CPAD")
+        print("   section body. Proprietary vendor data can remain opaque to the operator")
         print("   while still allowing fleet-wide policy (rate limits, maintenance windows,")
         print("   blast-radius rules) to gate the action.")
 

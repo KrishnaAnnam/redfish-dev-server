@@ -36,7 +36,7 @@ def create_event_subscription(bmc_url, listener_url):
         ],
         "RegistryPrefixes": [
             "Base",
-            "RasProto"
+            "OCPRAS"
         ],
         "ResourceTypes": [
             "LogEntry"

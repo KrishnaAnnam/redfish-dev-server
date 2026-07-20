@@ -1,8 +1,0 @@
-{
-  "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService/Reporting/Fatal",
-  "@odata.type": "#LogEntryCollection.LogEntryCollection",
-  "Description": "Collection of fatal RAS error log entries",
-  "Members": [],
-  "Members@odata.count": 0,
-  "Name": "Fatal Error Log Entries"
-}

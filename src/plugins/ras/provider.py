@@ -21,21 +21,33 @@ logger = logging.getLogger(__name__)
 class RASHandler(BasePlatformHandler):
     """
     Handler for RAS-specific endpoints.
-    
+
     Handles paths:
-    - /redfish/v1/Managers/{ManagerId}/Oem/RasProto/RASService
-    - /redfish/v1/Managers/{ManagerId}/Oem/RasProto/RASService/Actions/*
+    - /redfish/v1/Oem/OCPRASAPIWS/RASService                      (GET, discovery)
+    - /redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints         (GET, discovery)
+    - /redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/{Id}    (GET, discovery)
+    - /redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo (GET, discovery)
+    - /redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD (POST)
+    - /redfish/v1/Managers/{ManagerId}/LogServices/CPER/* (CPER LogService)
+
+    The RAS discovery tree is built dynamically by the plugin (see
+    discovery.py) rather than served from static mockup files, so the
+    RAS feature is entirely self-contained within the plugin.
     """
+
+    # Manager that owns the CPER LogService written by SubmitCPAD.  The
+    # service-root SubmitCPAD URL carries no Manager id, so we use this default.
+    DEFAULT_MANAGER_ID = "System"
     
     def __init__(self, platform_config: Dict[str, Any] = None):
         """Initialize RAS handler"""
         super().__init__(platform_config or {})
         
         # Import handlers
-        from .handlers.manager_extension import ManagerOEMExtensionHandler
         from .handlers.submit_cpad_action import SubmitCPADActionHandler
         from .handlers.log_service import RASLogServiceHandler
         from .handlers.event_service import RASEventServiceHandler
+        from .discovery import RASDiscoveryHandler
         
         # Import Phase 7 services
         from .services import (
@@ -51,6 +63,9 @@ class RASHandler(BasePlatformHandler):
         # Initialize event service handler
         self.event_handler = RASEventServiceHandler()
         logger.info("RAS EventService handler initialized")
+
+        # Serves the RAS discovery tree (RASService, RASEndpoints, ActionInfo).
+        self.discovery_handler = RASDiscoveryHandler(self.DEFAULT_MANAGER_ID)
         
         # Initialize Phase 7 services
         self.queue_manager = None
@@ -59,7 +74,6 @@ class RASHandler(BasePlatformHandler):
         self.health_monitor = None
         
         # Initialize handlers with event support
-        self.manager_handler = ManagerOEMExtensionHandler()
         self.submit_cpad_handler = SubmitCPADActionHandler(
             mockup_dir=mockup_dir,
             event_handler=self.event_handler
@@ -82,20 +96,29 @@ class RASHandler(BasePlatformHandler):
                 logger.warning(f"RAS LogService handler initialization failed: {e}")
         
         # Compile path patterns
-        self.manager_oem_pattern = re.compile(
-            r'^/redfish/v1/Managers/([^/]+)/Oem/RasProto/RASService/?$'
+        self.rasservice_pattern = re.compile(
+            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/?$'
+        )
+        self.endpoint_collection_pattern = re.compile(
+            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/?$'
+        )
+        self.endpoint_pattern = re.compile(
+            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/([^/]+)/?$'
+        )
+        self.action_info_pattern = re.compile(
+            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo/?$'
         )
         self.submit_cpad_pattern = re.compile(
-            r'^/redfish/v1/Managers/([^/]+)/Oem/RasProto/RASService/Actions/RasProto\.SubmitCPAD/?$'
+            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService\.SubmitCPAD/?$'
         )
         self.logservice_pattern = re.compile(
             r'^/redfish/v1/Managers/([^/]+)/LogServices/CPER(/.*)?$'
         )
         self.analytics_pattern = re.compile(
-            r'^/redfish/v1/Managers/([^/]+)/Oem/RasProto/Analytics/?$'
+            r'^/redfish/v1/Managers/([^/]+)/Oem/OCPRASAPIWS/Analytics/?$'
         )
         self.health_pattern = re.compile(
-            r'^/redfish/v1/Managers/([^/]+)/Oem/RasProto/Health/?$'
+            r'^/redfish/v1/Managers/([^/]+)/Oem/OCPRASAPIWS/Health/?$'
         )
         
         logger.info("RAS Handler initialized")
@@ -158,7 +181,7 @@ class RASHandler(BasePlatformHandler):
                     event_data = {
                         "Severity": queue_item.metadata.get("severity", "OK"),
                         "Oem": {
-                            "RasProto": queue_item.cper_data
+                            "OCPRASAPIWS": queue_item.cper_data
                         }
                     }
                     self.remediation_engine.evaluate_event(event_data)
@@ -188,41 +211,34 @@ class RASHandler(BasePlatformHandler):
     def get_supported_paths(self) -> List[str]:
         """Return list of path patterns this handler supports"""
         return [
-            '/redfish/v1/Managers/*/Oem/RasProto/RASService',
-            '/redfish/v1/Managers/*/Oem/RasProto/RASService/Actions/RasProto.SubmitCPAD',
+            '/redfish/v1/Oem/OCPRASAPIWS/RASService',
+            '/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints',
+            '/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/*',
+            '/redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo',
+            '/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD',
             '/redfish/v1/Managers/*/LogServices/CPER',
             '/redfish/v1/Managers/*/LogServices/CPER/Entries',
             '/redfish/v1/Managers/*/LogServices/CPER/Entries/*',
-            '/redfish/v1/Managers/*/Oem/RasProto/Analytics',
-            '/redfish/v1/Managers/*/Oem/RasProto/Health',
+            '/redfish/v1/Managers/*/Oem/OCPRASAPIWS/Analytics',
+            '/redfish/v1/Managers/*/Oem/OCPRASAPIWS/Health',
         ]
-    
+
     def can_handle_path(self, path: str) -> bool:
         """Check if this handler can handle the given path"""
         # Remove query string if present
         path_without_query = path.split('?')[0]
-        
-        # Check Manager OEM path
-        if self.manager_oem_pattern.match(path_without_query):
-            return True
-        
-        # Check SubmitCPAD action path
-        if self.submit_cpad_pattern.match(path_without_query):
-            return True
-        
-        # Check LogService paths
-        if self.logservice_pattern.match(path_without_query):
-            return True
-        
-        # Check Analytics path
-        if self.analytics_pattern.match(path_without_query):
-            return True
-        
-        # Check Health path
-        if self.health_pattern.match(path_without_query):
-            return True
-        
-        return False
+
+        patterns = [
+            self.rasservice_pattern,
+            self.endpoint_collection_pattern,
+            self.endpoint_pattern,
+            self.action_info_pattern,
+            self.submit_cpad_pattern,
+            self.logservice_pattern,
+            self.analytics_pattern,
+            self.health_pattern,
+        ]
+        return any(pattern.match(path_without_query) for pattern in patterns)
     
     def handle_get(self, path: str, query_params: Dict[str, Any], cached_links: Dict) -> Tuple[int, Dict[str, Any]]:
         """
@@ -238,13 +254,21 @@ class RASHandler(BasePlatformHandler):
         """
         # Remove query string
         path_without_query = path.split('?')[0]
-        
-        # Handle Manager OEM extension
-        match = self.manager_oem_pattern.match(path_without_query)
+
+        # RAS discovery tree (RASService, RASEndpoints, ActionInfo)
+        if self.rasservice_pattern.match(path_without_query):
+            return self.discovery_handler.ras_service()
+
+        if self.endpoint_collection_pattern.match(path_without_query):
+            return self.discovery_handler.endpoint_collection()
+
+        match = self.endpoint_pattern.match(path_without_query)
         if match:
-            manager_id = match.group(1)
-            return self.manager_handler.handle_get(manager_id)
-        
+            return self.discovery_handler.endpoint(match.group(1))
+
+        if self.action_info_pattern.match(path_without_query):
+            return self.discovery_handler.submit_cpad_action_info()
+
         # Handle LogService paths
         if self.log_service_handler and self.logservice_pattern.match(path_without_query):
             return self.log_service_handler.handle_get(path_without_query)
@@ -296,25 +320,10 @@ class RASHandler(BasePlatformHandler):
         if self.log_service_handler and 'LogServices/CPER/Actions' in path_without_query:
             return self.log_service_handler.handle_post(path_without_query, data)
         
-        # Manager OEM extension doesn't support POST
-        match = self.manager_oem_pattern.match(path_without_query)
-        if match:
-            return (405, {
-                "error": {
-                    "@Message.ExtendedInfo": [{
-                        "MessageId": "Base.1.16.0.ActionNotSupported",
-                        "Message": "POST is not supported on this resource.",
-                        "Severity": "Warning",
-                        "Resolution": "Use GET method to retrieve this resource."
-                    }]
-                }
-            })
-        
-        # Handle SubmitCPAD action
+        # Handle SubmitCPAD action (service-root scoped, no Manager id in URL)
         match = self.submit_cpad_pattern.match(path_without_query)
         if match:
-            manager_id = match.group(1)
-            return self.submit_cpad_handler.handle_post(manager_id, data)
+            return self.submit_cpad_handler.handle_post(self.DEFAULT_MANAGER_ID, data)
         
         # Should not reach here if can_handle_path works correctly
         return (404, {})
@@ -374,43 +383,28 @@ class RASHandler(BasePlatformHandler):
 
 class ManagerOEMInjector:
     """
-    Injects RASService into Manager Oem section.
-    
-    This is called when GET /redfish/v1/Managers/{ManagerId} is requested
-    to dynamically add the RasProto OEM extension.
+    Deprecated: retained for backward-compatible imports only.
+
+    RAS discovery is advertised via a static ServiceRoot OEM link
+    (Oem.OCPRASAPIWS.RASService -> /redfish/v1/Oem/OCPRASAPIWS/RASService),
+    so no dynamic Manager OEM injection is performed.
     """
     
     def __init__(self):
         """Initialize OEM injector"""
-        from .handlers.manager_extension import ManagerOEMExtensionHandler
-        self.handler = ManagerOEMExtensionHandler()
-        logger.info("Manager OEM Injector initialized")
+        logger.info("Manager OEM Injector initialized (no-op)")
     
     def inject_oem(self, manager_resource: Dict[str, Any], manager_id: str) -> Dict[str, Any]:
         """
-        Inject RASService OEM into Manager resource.
-        
+        No-op: RAS discovery lives at the ServiceRoot, not on the Manager.
+
         Args:
             manager_resource: The Manager resource dict
             manager_id: The Manager ID
-            
+
         Returns:
-            Modified Manager resource with OEM injection
+            The Manager resource unchanged.
         """
-        try:
-            # Ensure Oem exists
-            if 'Oem' not in manager_resource:
-                manager_resource['Oem'] = {}
-            
-            # Add RasProto extension
-            ras_service = self.handler.build_ras_service(manager_id)
-            manager_resource['Oem']['RasProto'] = ras_service
-            
-            logger.debug(f"Injected RASService OEM into Manager '{manager_id}'")
-            
-        except Exception as e:
-            logger.error(f"Failed to inject RASService OEM: {e}")
-        
         return manager_resource
     
     def _handle_analytics_get(self, manager_id: str) -> Tuple[int, Dict[str, Any]]:
@@ -423,8 +417,8 @@ class ManagerOEMInjector:
             
             # Wrap in Redfish OEM format
             response = {
-                "@odata.type": "#RasProto.v1_0_0.Analytics",
-                "@odata.id": f"/redfish/v1/Managers/{manager_id}/Oem/RasProto/Analytics",
+                "@odata.type": "#OCPRASAnalytics.v1_0_0.Analytics",
+                "@odata.id": f"/redfish/v1/Managers/{manager_id}/Oem/OCPRASAPIWS/Analytics",
                 "Id": "Analytics",
                 "Name": "RAS Analytics",
                 "Description": "RAS analytics and trend analysis",
@@ -450,8 +444,8 @@ class ManagerOEMInjector:
             
             # Wrap in Redfish OEM format
             response = {
-                "@odata.type": "#RasProto.v1_0_0.Health",
-                "@odata.id": f"/redfish/v1/Managers/{manager_id}/Oem/RasProto/Health",
+                "@odata.type": "#OCPRASHealth.v1_0_0.Health",
+                "@odata.id": f"/redfish/v1/Managers/{manager_id}/Oem/OCPRASAPIWS/Health",
                 "Id": "Health",
                 "Name": "RAS System Health",
                 "Description": "RAS system health monitoring",

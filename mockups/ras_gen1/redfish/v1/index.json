@@ -33,6 +33,12 @@
     "Microsoft": {
       "@odata.type": "#MicrosoftManagementFeatures.v1_0_0.MicrosoftManagementFeatures",
       "ManagementInterfacesSupported": "IPMI"
+    },
+    "OCPRASAPIWS": {
+      "@odata.type": "#OCPRASServiceRoot.v1_0_0.ServiceRootExtension",
+      "RASService": {
+        "@odata.id": "/redfish/v1/Oem/OCPRASAPIWS/RASService"
+      }
     }
   },
   "Product": "Contoso Cloud Host Gen 1",
@@ -52,9 +58,6 @@
     "FilterQuery": true,
     "OnlyMemberQuery": true,
     "SelectQuery": false
-  },
-  "RASService": {
-    "@odata.id": "/redfish/v1/RASService"
   },
   "RedfishVersion": "1.9.0",
   "Registries": {

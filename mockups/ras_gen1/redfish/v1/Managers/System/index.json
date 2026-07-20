@@ -101,12 +101,6 @@
         "@odata.id": "/redfish/v1/Managers/System/Oem/InventoryConfig",
         "@odata.type": "#OemManager.InventoryConfig"
       }
-    },
-    "RasProto": {
-      "@odata.type": "#RasProto.v1_0_0.ManagerExtension",
-      "RASService": {
-        "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService"
-      }
     }
   },
   "PowerState": "On",

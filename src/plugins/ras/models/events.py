@@ -98,7 +98,7 @@ class RASEventMessage:
     @staticmethod
     def get_message_id(event_type: RASEventType) -> str:
         """Get full message ID for event type"""
-        return f"RasProto.1.0.0.{event_type.value}"
+        return f"OCPRAS.1.0.0.{event_type.value}"
     
     @staticmethod
     def build_message(event_type: RASEventType, *args) -> str:
@@ -172,7 +172,7 @@ class RASEvent:
         # Add OEM context if provided
         if additional_context:
             event["Events"][0]["Oem"] = {
-                "RasProto": additional_context
+                "OCPRASAPIWS": additional_context
             }
         
         return event
@@ -184,7 +184,7 @@ class RASEvent:
         submission_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Create event for CPAD received"""
-        origin = f"/redfish/v1/Managers/{manager_id}/Oem/RasProto/RASService"
+        origin = "/redfish/v1/Oem/OCPRASAPIWS/RASService"
         
         context = {
             "CPADId": cpad_id,
@@ -209,7 +209,7 @@ class RASEvent:
         log_entry_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Create event for CPAD approved"""
-        origin = f"/redfish/v1/Managers/{manager_id}/Oem/RasProto/RASService"
+        origin = "/redfish/v1/Oem/OCPRASAPIWS/RASService"
         
         context = {
             "CPADId": cpad_id,
@@ -236,7 +236,7 @@ class RASEvent:
         reason: str
     ) -> Dict[str, Any]:
         """Create event for CPAD denied"""
-        origin = f"/redfish/v1/Managers/{manager_id}/Oem/RasProto/RASService"
+        origin = "/redfish/v1/Oem/OCPRASAPIWS/RASService"
         
         context = {
             "CPADId": cpad_id,
@@ -395,7 +395,7 @@ class EventSubscriptionFilter:
                 return False
         
         # Check Severity filter (OEM extension)
-        severities = subscription.get("Oem", {}).get("RasProto", {}).get("Severities", [])
+        severities = subscription.get("Oem", {}).get("OCPRASAPIWS", {}).get("Severities", [])
         if severities and event_detail.get("Severity") not in severities:
             return False
         

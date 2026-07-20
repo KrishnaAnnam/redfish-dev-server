@@ -1,8 +1,0 @@
-{
-  "@odata.id": "/redfish/v1/Managers/System/Oem/RasProto/RASService/Reporting/Uncorrected",
-  "@odata.type": "#LogEntryCollection.LogEntryCollection",
-  "Description": "Collection of uncorrected RAS error log entries",
-  "Members": [],
-  "Members@odata.count": 0,
-  "Name": "Uncorrected Error Log Entries"
-}

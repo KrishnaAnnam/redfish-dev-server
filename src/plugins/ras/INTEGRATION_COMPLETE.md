@@ -2,16 +2,13 @@
 
 ## Overview
 
-Successfully integrated RasApi reference implementation into the BMC Redfish Simulator RAS plugin. This integration provides Manager-scoped OEM RAS capabilities compatible with the DMTF standardization proposal.
+Successfully integrated RasApi reference implementation into the BMC Redfish Simulator RAS plugin. This integration provides service-root OEM RAS capabilities aligned with the OCP RAS API Redfish Specification v0.7.
 
 ## Architecture
 
 ```
-Manager-Scoped OEM Placement:
-/redfish/v1/Managers/{ManagerId}/Oem/RasProto/RASService
-
-Target after DMTF standardization:
-/redfish/v1/Managers/{ManagerId}/RASService
+Service-Root OEM Placement (OCP RAS API v0.7):
+/redfish/v1/Oem/OCPRASAPIWS/RASService
 ```
 
 ## Integration Phases Completed
@@ -32,40 +29,33 @@ Target after DMTF standardization:
 
 **Source:** Extracted from RasApi-main/policy.py and submit_cpad.py
 
-### Phase 2: Manager OEM Integration ✅
+### Phase 2: Service-Root OEM Integration ✅
 
-**Files Created:**
-- `src/plugins/ras/handlers/manager_extension.py` - Manager OEM injection
+**Resources:**
+- `src/plugins/ras/discovery.py` - builds the RAS discovery tree dynamically (RASService, RASEndpoints, RASEndpoint, SubmitCPADActionInfo)
 - `src/plugins/ras/handlers/submit_cpad_action.py` - SubmitCPAD action handler
 
 **Capabilities:**
-- Inject RasProto OEM into Manager resources
-- Build RASService resource with Governance metadata
+- Expose `Oem.OCPRASAPIWS.RASService` from the ServiceRoot
+- Serve the RASService resource with RASEndpoints/CPERLogService/EventService links
 - Handle SubmitCPAD POST action
 - Generate OCPRAS messages for operations
 - Track submission history and statistics
 
 **Endpoints:**
-- `GET /redfish/v1/Managers/{ManagerId}/Oem/RasProto/RASService`
-- `GET /redfish/v1/Managers/{ManagerId}/Oem/RasProto/RASService/SubmitCPADActionInfo`
-- `POST /redfish/v1/Managers/{ManagerId}/Oem/RasProto/RASService/Actions/RasProto.SubmitCPAD`
+- `GET /redfish/v1/Oem/OCPRASAPIWS/RASService`
+- `GET /redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints`
+- `GET /redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/{EndpointId}`
+- `GET /redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo`
+- `POST /redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD`
 
-### Phase 3: CPER Analysis ✅
+### Phase 3: CPER Analysis (client-side)
 
-**Files Created:**
-- `src/plugins/ras/cper_analyzer.py` - CPER analysis engine
-
-**Capabilities:**
-- Convert CPER binary to JSON using libcper (cper-convert tool)
-- Mock CPER data when libcper unavailable
-- Cross-platform support (Linux, Windows/WSL)
-- CPER record summary generation
-
-**Source:** Extracted and adapted from RasApi-main/Analyzer.py
-
-**Dependencies:**
-- Optional: CPERgen/libcper (meson build required for real CPER analysis)
-- Graceful fallback to mock data if not available
+CPER analysis is **not** performed by this plugin. The plugin only creates CPER
+LogEntries in response to SubmitCPAD; decoding, repeat-detection, and SPPR
+generation are done client-side by vendor analyzer plugins (see
+`examples/ras_api_demo/analyzers/`). An earlier server-side `cper_analyzer.py`
+engine was removed as unused.
 
 ## Example Files
 
@@ -95,20 +85,20 @@ Pre-configured with RasApi defaults:
 python servers/redfishMockupServer_platform.py
 ```
 
-### 2. Get Manager Resource
+### 2. Get ServiceRoot
 ```bash
-curl http://localhost:8000/redfish/v1/Managers/BMC
-# Check for Oem.RasProto.RASService link
+curl -u demo:demo http://localhost:8000/redfish/v1
+# Check for Oem.OCPRASAPIWS.RASService link
 ```
 
 ### 3. Get RASService
 ```bash
-curl http://localhost:8000/redfish/v1/Managers/BMC/Oem/RasProto/RASService
+curl -u demo:demo http://localhost:8000/redfish/v1/Oem/OCPRASAPIWS/RASService
 ```
 
 ### 4. Submit CPAD
 ```bash
-curl -X POST http://localhost:8000/redfish/v1/Managers/BMC/Oem/RasProto/RASService/Actions/RasProto.SubmitCPAD \
+curl -u demo:demo -X POST http://localhost:8000/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD \
   -H "Content-Type: application/json" \
   -d @examples/ras/SpprCpadExample.json
 ```
@@ -140,14 +130,12 @@ src/plugins/ras/
 │   └── cpad_types.py                   # NEW - CPAD data models
 ├── handlers/
 │   ├── __init__.py                     # NEW
-│   ├── manager_extension.py            # NEW - Manager OEM injection
 │   └── submit_cpad_action.py           # NEW - SubmitCPAD handler
 ├── policy_engine.py                    # NEW - Policy evaluation
 ├── cpad_handler.py                     # NEW - CPAD validation
-├── cper_analyzer.py                    # NEW - CPER analysis
 ├── schemas/
-│   ├── RasProto.v1_0_0.json           # Existing
-│   └── RasProto_v1.xml                # Existing
+│   ├── OCPRAS.v1_0_0.json             # Existing
+│   └── OCPRAS_v1.xml                  # Existing
 ├── registries/
 │   └── OCPRAS.1.0.0.json              # Existing
 ├── message_utils.py                    # Existing

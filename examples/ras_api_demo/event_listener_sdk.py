@@ -14,6 +14,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import queue
 import signal
 import socket
 import struct
@@ -105,10 +106,16 @@ def print_download(cper_event: CperEvent, cper_bytes: bytes, save_path: Path) ->
 # ---------------------------------------------------------------------------
 
 class NotificationServer:
-    """Simple TCP server that pushes JSON notifications to connected clients."""
+    """Bidirectional TCP link with the orchestrator.
 
-    def __init__(self, port: int = 8889):
+    Outbound: pushes JSON notifications (e.g. ``cper_downloaded``) to connected
+    clients.  Inbound: reads newline-delimited JSON commands (e.g. ``subscribe``)
+    from clients and puts them on ``commands`` for the main loop to act on.
+    """
+
+    def __init__(self, port: int = 8889, commands: "queue.Queue | None" = None):
         self.port = port
+        self.commands = commands
         self._clients: list[socket.socket] = []
         self._lock = threading.Lock()
         self._server: socket.socket | None = None
@@ -127,9 +134,32 @@ class NotificationServer:
                 conn, addr = self._server.accept()
                 with self._lock:
                     self._clients.append(conn)
-                print(f"   📡 Demo client connected from {addr}")
+                print(f"   📡 Orchestrator connected from {addr}")
+                threading.Thread(
+                    target=self._read_loop, args=(conn,), daemon=True).start()
             except OSError:
                 break
+
+    def _read_loop(self, conn: socket.socket) -> None:
+        """Read newline-delimited JSON commands from one client."""
+        buffer = ""
+        while True:
+            try:
+                chunk = conn.recv(4096).decode()
+            except OSError:
+                break
+            if not chunk:
+                break
+            buffer += chunk
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                line = line.strip()
+                if not line or self.commands is None:
+                    continue
+                try:
+                    self.commands.put(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
 
     def notify(self, payload: dict) -> None:
         """Send a JSON notification (newline-delimited) to all connected clients."""
@@ -163,46 +193,37 @@ class NotificationServer:
 def main() -> None:
     parser = argparse.ArgumentParser(description="SDK-based Redfish Event Listener")
     parser.add_argument("--port", type=int, default=8888, help="Listener port (default: 8888)")
-    parser.add_argument("--bmc", default="localhost:8000", help="BMC host:port (default: localhost:8000)")
+    parser.add_argument("--bmc", default="localhost:8000", help="Unused; kept for launch-script compatibility. The BMC to subscribe to is provided per 'subscribe' command by the orchestrator.")
     parser.add_argument("--storage", default=None, help="CPER storage directory")
     parser.add_argument("--notify-port", type=int, default=8889, help="Notification port for demo client (default: 8889)")
     args = parser.parse_args()
 
-    bmc_host, bmc_port = args.bmc.split(":")
-    bmc_port = int(bmc_port)
     storage_dir = Path(args.storage) if args.storage else Path(__file__).resolve().parent / "ras_demo_output" / "cper_storage"
     storage_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- 0. Start notification server for demo client ---
-    notifier = NotificationServer(port=args.notify_port)
+    # --- 0. Start the control/notification server for the orchestrator ---
+    # Inbound 'subscribe' commands arrive on this queue; outbound
+    # 'cper_downloaded' notifications are pushed back over the same socket.
+    command_queue: "queue.Queue" = queue.Queue()
+    notifier = NotificationServer(port=args.notify_port, commands=command_queue)
     notifier.start()
-    print(f"   📡 Notification server on port {args.notify_port}")
+    print(f"   📡 Control/notification server on port {args.notify_port}")
 
     # --- 1. Create SDK listener ---
     listener = RedfishEventListener(port=args.port)
 
-    # --- 2. Connect to BMC ---
+    # --- 2. Announce; do NOT subscribe yet ---
     print(f"\n{'=' * 60}")
     print(f"🎧 SDK EVENT LISTENER")
     print(f"{'=' * 60}")
-    print(f"   Mode:     Push subscription via EventService")
+    print(f"   Mode:     Command-driven — waits for the orchestrator to discover")
+    print(f"             a host and tell this listener which host(s) to subscribe to")
     print(f"   Registry: OCPRAS (filters: CorrectedError, FatalError, etc.)")
     print(f"   Pattern:  Inline CPER extraction from DiagnosticData")
-    print(f"   Flow:     BMC → push event → SDK extracts CPER → notifies demo client")
-    print(f"")
-    print(f"   Connecting to BMC at {bmc_host}:{bmc_port}...")
+    print(f"   Flow:     orchestrator subscribe → BMC push → extract CPER → notify")
 
-    ctx = connect(
-        host=bmc_host,
-        port=bmc_port,
-        credentials=Credentials(username="admin", password="admin"),
-        auth_mode=AuthMode.STATELESS,
-        config=ConnectionConfig(use_tls=False),
-    )
-    print(f"   ✅ Connected to BMC")
-
-    # Attach context to listener for registry resolution
-    listener.use_context(ctx)
+    # One BMC connection per subscribed host (populated by 'subscribe' commands).
+    contexts: list = []
 
     # --- 3. Register event callback ---
     download_count = 0
@@ -218,20 +239,28 @@ def main() -> None:
         if ce.severity is None and "ocpras" not in mid_lower and "cper" not in mid_lower and "ras" not in mid_lower:
             return
 
+        # Inline data needs no host; otherwise try each subscribed host until
+        # one serves the CPER binary.  Remember which host it came from so we
+        # can delete the LogEntry there.
         cper_bytes = None
-        if ce.additional_data_uri:
-            try:
-                cper_bytes = await ctx.ras_service.fetch_cper_data_async(ce.additional_data_uri)
-            except Exception as e:
-                print(f"      ❌ Download failed: {e}")
-        elif ce.cper_data:
+        source_ctx = contexts[0] if contexts else None
+        if ce.cper_data:
             cper_bytes = ce.cper_data
-        elif ce.origin_of_condition:
-            try:
-                attachment_uri = ce.origin_of_condition + "/Attachment"
-                cper_bytes = await ctx.ras_service.fetch_cper_data_async(attachment_uri)
-            except Exception as e:
-                print(f"      ❌ Attachment fetch failed: {e}")
+        else:
+            uri = ce.additional_data_uri or (
+                ce.origin_of_condition + "/Attachment"
+                if ce.origin_of_condition else None)
+            if uri:
+                for ctx in contexts:
+                    try:
+                        cper_bytes = await ctx.ras_service.fetch_cper_data_async(uri)
+                    except Exception:
+                        cper_bytes = None
+                    if cper_bytes:
+                        source_ctx = ctx
+                        break
+        if not cper_bytes:
+            print("      ❌ Could not download CPER from any subscribed host")
 
         if cper_bytes:
             download_count += 1
@@ -246,9 +275,9 @@ def main() -> None:
             print_download(ce, cper_bytes, save_path)
 
             # Delete the individual LogEntry (per OCP RAS API §4.8)
-            if ce.origin_of_condition:
+            if ce.origin_of_condition and source_ctx is not None:
                 try:
-                    del_resp = await ctx.delete_async(ce.origin_of_condition)
+                    del_resp = await source_ctx.delete_async(ce.origin_of_condition)
                     if del_resp.success:
                         print(f"      🗑️  Deleted entry: {ce.origin_of_condition.split('/')[-1]}")
                     else:
@@ -285,92 +314,135 @@ def main() -> None:
     print(f"   📁 CPER storage: {storage_dir}")
     print(f"   📡 Demo client notification port: {args.notify_port}")
 
-    # --- 5. Subscribe to BMC events ---
-    print(f"\n   Subscribing to BMC events...")
+    print(f"\n   Waiting for the orchestrator to send subscribe command(s)...")
+    print(f"   (Ctrl+C to stop)")
+    print(f"{'=' * 60}\n")
 
-    # Check if we already have a subscription pointing to our listener (use SDK auth)
-    already_subscribed = False
-    subscription_uri = None
-    try:
-        subs_resp = ctx.get("/redfish/v1/EventService/Subscriptions")
-        if subs_resp.success:
-            members = subs_resp.body.get("Members", [])
-            for member in members:
-                sub_uri = member.get("@odata.id", "")
-                sub_resp = ctx.get(sub_uri)
-                if sub_resp.success:
-                    sub_data = sub_resp.body
-                    if sub_data.get("Destination") == listen_url:
-                        already_subscribed = True
-                        subscription_uri = sub_uri
-                        print(f"   ✅ Reusing existing subscription: {sub_uri}")
-                        break
-    except Exception:
-        pass
+    # --- 5. Subscribe on command from the orchestrator ---
+    # Each 'subscribe' command connects to one host and subscribes this listener
+    # to its CPER events.  Track them so we can clean up on shutdown.
+    subscriptions = []  # list of (bmc, subscription_uri, ctx)
 
-    if not already_subscribed:
+    def handle_subscribe(cmd: dict) -> None:
+        bmc = cmd.get("bmc", "")
+        host, _, port = bmc.partition(":")
+        prefixes = cmd.get("registry_prefixes") or ["OCPRAS"]
+        print(f"\n   📥 Subscribe command received for {bmc}")
+        try:
+            ctx = connect(
+                host=host,
+                port=int(port or 80),
+                credentials=Credentials(
+                    username=cmd.get("username") or "admin",
+                    password=cmd.get("password") or "admin"),
+                auth_mode=AuthMode.STATELESS,
+                config=ConnectionConfig(use_tls=False),
+            )
+        except Exception as e:
+            print(f"   ❌ Could not connect to {bmc}: {e}")
+            notifier.notify({"event": "subscribed", "bmc": bmc, "subscription_uri": None})
+            return
+
+        listener.use_context(ctx)   # for registry resolution
+        contexts.append(ctx)
+
         resp = ctx.ras_service.subscribe_cper_events(
             destination=listen_url,
-            registry_prefixes=["OCPRAS"],
+            registry_prefixes=prefixes,
             resource_types=["LogEntry"],
         )
+        subscription_uri = None
         if resp.success:
-            # Extract subscription URI from response body
-            body = resp.body if hasattr(resp, 'body') and isinstance(resp.body, dict) else {}
+            body = resp.body if isinstance(resp.body, dict) else {}
             raw = resp.raw if isinstance(resp.raw, dict) else {}
             sub_location = body.get("@odata.id") or raw.get("@odata.id") or body.get("Id")
-            if sub_location:
-                if not sub_location.startswith("/"):
-                    sub_location = f"/redfish/v1/EventService/Subscriptions/{sub_location}"
-                subscription_uri = sub_location
-            print(f"   ✅ Subscribed to: http://{args.bmc}/redfish/v1/EventService/Subscriptions")
-            print(f"      RegistryPrefixes: ['OCPRAS']")
-            print(f"      ResourceTypes:    ['LogEntry']")
+            if sub_location and not str(sub_location).startswith("/"):
+                sub_location = f"/redfish/v1/EventService/Subscriptions/{sub_location}"
+            subscription_uri = sub_location
+            subscriptions.append((bmc, subscription_uri, ctx))
+            print(f"   ✅ Subscribed to {bmc}")
+            print(f"      RegistryPrefixes: {prefixes}")
             print(f"      Destination:      {listen_url}")
             if subscription_uri:
                 print(f"      URI:              {subscription_uri}")
         else:
-            print(f"   ⚠️  Subscription response: {resp.status_code}")
+            print(f"   ⚠️  Subscription failed: {resp.status_code}")
+        notifier.notify({
+            "event": "subscribed", "bmc": bmc, "subscription_uri": subscription_uri})
 
-    print(f"\n   Waiting for events... (Ctrl+C to stop)")
-    print(f"{'=' * 60}\n")
-
-    # --- 6. Block until Ctrl+C ---
-    shutdown = False
-
-    def handle_signal(sig, frame):
-        nonlocal shutdown
-        if not shutdown:
-            shutdown = True
-            print(f"\n\n{'=' * 60}")
-            print(f"📊 SESSION SUMMARY")
-            print(f"{'=' * 60}")
-            events = listener.get_buffered_events()
-            print(f"   Events received:    {len(events)}")
-            print(f"   CPERs extracted:    {download_count}")
-            print(f"   CPER storage:       {storage_dir}")
-
-            # Clean up subscription on the BMC
-            if subscription_uri:
+    def handle_unsubscribe(cmd: dict) -> None:
+        bmc = cmd.get("bmc", "")
+        sub_uri = cmd.get("subscription_uri")
+        print(f"\n   📥 Unsubscribe command received for {bmc}")
+        removed = False
+        for entry in list(subscriptions):
+            entry_bmc, entry_uri, ctx = entry
+            if entry_bmc != bmc or (sub_uri and entry_uri != sub_uri):
+                continue
+            if entry_uri:
                 try:
-                    del_resp = ctx.delete(subscription_uri)
+                    del_resp = ctx.delete(entry_uri)
                     if del_resp.success:
-                        print(f"   🗑️  Subscription removed: {subscription_uri}")
+                        print(f"   🗑️  Subscription removed on {bmc}: {entry_uri}")
                     else:
-                        print(f"   ⚠️  Could not remove subscription: {del_resp.status_code}")
+                        print(f"   ⚠️  Could not remove subscription on {bmc}: {del_resp.status_code}")
                 except Exception as e:
-                    print(f"   ⚠️  Subscription cleanup failed: {e}")
+                    print(f"   ⚠️  Subscription cleanup failed on {bmc}: {e}")
+            subscriptions.remove(entry)
+            if ctx in contexts:
+                contexts.remove(ctx)
+            try:
+                ctx.close()
+            except Exception:
+                pass
+            removed = True
+        notifier.notify({"event": "unsubscribed", "bmc": bmc, "removed": removed})
 
-            print(f"{'=' * 60}")
-            notifier.stop()
-            listener.stop()
-            ctx.close()
-            sys.exit(0)
+    # --- 6. Shutdown handling ---
+    def handle_signal(sig, frame):
+        print(f"\n\n{'=' * 60}")
+        print(f"📊 SESSION SUMMARY")
+        print(f"{'=' * 60}")
+        events = listener.get_buffered_events()
+        print(f"   Events received:    {len(events)}")
+        print(f"   CPERs extracted:    {download_count}")
+        print(f"   CPER storage:       {storage_dir}")
+        for bmc, subscription_uri, ctx in subscriptions:
+            if not subscription_uri:
+                continue
+            try:
+                del_resp = ctx.delete(subscription_uri)
+                if del_resp.success:
+                    print(f"   🗑️  Subscription removed on {bmc}: {subscription_uri}")
+                else:
+                    print(f"   ⚠️  Could not remove subscription on {bmc}: {del_resp.status_code}")
+            except Exception as e:
+                print(f"   ⚠️  Subscription cleanup failed on {bmc}: {e}")
+        for ctx in contexts:
+            try:
+                ctx.close()
+            except Exception:
+                pass
+        print(f"{'=' * 60}")
+        notifier.stop()
+        listener.stop()
+        sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    signal.pause()
+    # --- 7. Command loop: block on the queue, act on commands ---
+    while True:
+        try:
+            cmd = command_queue.get(timeout=0.5)
+        except queue.Empty:
+            continue
+        if cmd.get("command") == "subscribe":
+            handle_subscribe(cmd)
+        elif cmd.get("command") == "unsubscribe":
+            handle_unsubscribe(cmd)
+        else:
+            print(f"   ⚠️  Ignoring unknown command: {cmd!r}")
 
 
 if __name__ == "__main__":

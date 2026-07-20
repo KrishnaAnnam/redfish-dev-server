@@ -330,10 +330,10 @@ pytest tests/test_platform_server.py -v
 python3 servers/redfishMockupServer_platform.py -D mockups/ras_gen1
 
 # Test plugin endpoints
-curl http://localhost:8000/redfish/v1/Managers/System/Oem/RasProto/RASService
+curl -u demo:demo http://localhost:8000/redfish/v1/Oem/OCPRASAPIWS/RASService
 
 # Submit CPAD
-curl -X POST http://localhost:8000/redfish/v1/Managers/System/Oem/RasProto/RASService/Actions/RasProto.SubmitCPAD \
+curl -u demo:demo -X POST http://localhost:8000/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD \
   -H "Content-Type: application/json" \
   -d @examples/ras/memErrorSpoofCpad.json
 ```

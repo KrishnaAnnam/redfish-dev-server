@@ -311,18 +311,18 @@ class EventServiceIntegration:
             "Context": "RAS Plugin Events",
             "EventTypes": ["Alert"],
             "MessageIds": [
-                "RasProto.1.0.0.CPADReceived",
-                "RasProto.1.0.0.CPADApproved",
-                "RasProto.1.0.0.CPADDenied",
-                "RasProto.1.0.0.CPERRecordCreated",
-                "RasProto.1.0.0.LogServiceCleared"
+                "OCPRAS.1.0.0.CPADReceived",
+                "OCPRAS.1.0.0.CPADValidated",
+                "OCPRAS.1.0.0.CPADValidationFailed",
+                "OCPRAS.1.0.0.CPERRecordCreated",
+                "OCPRAS.1.0.0.CPERRecordDeleted"
             ],
             "OriginResources": [
-                "/redfish/v1/Managers/*/Oem/RasProto/RASService",
-                "/redfish/v1/Managers/*/LogServices/RAS/*"
+                "/redfish/v1/Oem/OCPRASAPIWS/RASService",
+                "/redfish/v1/Managers/*/LogServices/CPER/*"
             ],
             "Oem": {
-                "RasProto": {
+                "OCPRASAPIWS": {
                     "Severities": ["OK", "Warning", "Critical"],
                     "IncludeCPERData": True
                 }

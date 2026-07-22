@@ -235,6 +235,32 @@ class ContosoAnalyzer:
                 f"DIMM {loc['dimm']}, Rank {loc['rank']}, Bank Group {loc['bank_group']}, "
                 f"Bank {loc['bank']}, Row {loc['row']}")
 
+    # ── SPPR confidence ──────────────────────────────────────────────────
+    # Confidence scales with evidence: 80% at two distinct column addresses on
+    # the failing row, +1% for each additional distinct column, capped at 95%.
+    # The more columns we see failing on one row, the surer we are it is a row
+    # failure that SPPR can repair.
+    SPPR_CONFIDENCE_BASE = 80
+    SPPR_CONFIDENCE_MAX = 95
+
+    @classmethod
+    def _sppr_confidence(cls, distinct_columns: int) -> int:
+        """Confidence (0-100) for an SPPR given the number of distinct failing
+        column addresses on the row."""
+        return min(cls.SPPR_CONFIDENCE_BASE + max(distinct_columns - 2, 0),
+                   cls.SPPR_CONFIDENCE_MAX)
+
+    def _distinct_columns_on_row(self, current: Optional[Dict]) -> int:
+        """Count distinct DRAM column addresses failing on the current row
+        (prior same-row errors plus the current one)."""
+        if not current:
+            return 0
+        same_row = [p for p in self.seen_locations
+                    if self._row_key(p) == self._row_key(current)]
+        errors = same_row + [current]
+        return len({loc.get('column') for loc in errors
+                    if loc.get('column') is not None})
+
     @staticmethod
     def _fmt_beat(be: Dict) -> str:
         """Format one beat-error entry (DRAM/DQ/beat) for display."""
@@ -750,10 +776,20 @@ class ContosoAnalyzer:
                 self._add_to_seen_locations(memory_location)
                 return None
 
-            # Repeat error - create SPPR CPAD
+            # Repeat error - create SPPR CPAD.  Confidence scales with the
+            # number of distinct column addresses failing on this row.
+            distinct_columns = self._distinct_columns_on_row(memory_location)
+            confidence = self._sppr_confidence(distinct_columns)
+            if self.verbose:
+                print(f"  📊 SPPR confidence: {confidence}% "
+                      f"({distinct_columns} distinct column address(es) on the row)")
 
             # Build SPPR CPAD from CPER data
-            sppr_cpad = self._build_sppr_cpad(cper_data, original_file)
+            sppr_cpad = self._build_sppr_cpad(cper_data, original_file, confidence)
+
+            # Record this column too, so further columns on the row raise the
+            # confidence on the next SPPR.
+            self._add_to_seen_locations(memory_location)
 
             # Generate output filenames using source CPER filename stem
             # e.g. corrected_20260130_102809 → corrected_20260130_102809_sppr_cpad.json/.cpad
@@ -785,7 +821,8 @@ class ContosoAnalyzer:
                 traceback.print_exc()
             return None
 
-    def _build_sppr_cpad(self, cper_data: Dict[str, Any], original_file: str) -> Dict[str, Any]:
+    def _build_sppr_cpad(self, cper_data: Dict[str, Any], original_file: str,
+                         confidence: int) -> Dict[str, Any]:
         """Build SPPR CPAD JSON by loading the spprSpoof.json template and
         overlaying values from the source CPER.
 
@@ -890,6 +927,10 @@ class ContosoAnalyzer:
         if sppr_cpad.get('sectionDescriptors'):
             sppr_cpad['sectionDescriptors'][0]['sectionOffset'] = CPAD_SINGLE_SECTION_OFFSET
             sppr_cpad['sectionDescriptors'][0]['sectionLength'] = section_length
+            # Confidence is a section-descriptor field (the standard CPAD
+            # location); cpad-convert sets its validation bit automatically.
+            sppr_cpad['sectionDescriptors'][0]['confidence'] = confidence
+        sppr_cpad['header'].pop('confidence', None)  # never in the top-level header
         sppr_cpad['header']['recordLength'] = CPAD_SINGLE_SECTION_OFFSET + section_length
 
         return sppr_cpad

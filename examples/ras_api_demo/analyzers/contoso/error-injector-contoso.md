@@ -108,6 +108,13 @@ This block carries the CPAD header fields, including the endpoint-targeting iden
 
 The action is always `0x0006` ("Inject Error") and is stamped by the tool, not the spec.
 
+**Confidence is always 100.** Error-injection CPADs are stamped with a confidence
+of `100` in the section descriptor (`sectionDescriptors[0].confidence`, the
+standard CPAD location — not the header). The operator explicitly ran the inject
+command, so certainty is maximal; there is no analysis to be uncertain about. The
+policy engine leaves error injection ungated (no `confidence_threshold`), so the
+value is informational, but it is set for consistency with analyzer-produced CPADs.
+
 **CreatorID is fixed and is NOT a user input.** The CreatorID identifies the analyzer
 and endpoint that a CPAD is routed to. Because this tool is specific to the Contoso SoC,
 it MUST always stamp the CPAD with the Contoso SoC CreatorID

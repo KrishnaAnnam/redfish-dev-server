@@ -43,6 +43,7 @@ class CPADHeader:
     urgency: bool
     timestamp: str
     timestampIsPrecise: bool
+    partitionID: str = ""
     flags: Dict[str, Any] = field(default_factory=dict)
     notificationType: Dict[str, str] = field(default_factory=dict)
     persistenceInfo: int = 0

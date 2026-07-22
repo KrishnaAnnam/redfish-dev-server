@@ -24,7 +24,6 @@ Usage (from orchestrator):
 import sys
 import struct
 import base64
-import time
 import argparse
 import logging
 import requests
@@ -224,20 +223,33 @@ class CPADSubmitter:
 
             if response.status_code in [200, 201, 202]:
                 if verbose_steps:
-                    print(f"           ✓ BMC accepted the CPAD (Response status: {response.status_code})")
-                    print()
+                    print(f"           ✓ BMC ACCEPTED the CPAD "
+                          f"(HTTP {response.status_code} Accepted)")
+                    print(f"           The BMC verified PlatformID, PartitionID, and that the")
+                    print(f"           CPAD is well-formed before accepting it for processing.")
+
+                    # Step 6 — Persist the accepted CPAD immediately.  Acceptance
+                    # (202) is a commitment to process the CPAD, but the endpoint
+                    # may act on it much later (preconditions, maintenance
+                    # windows).  We therefore record it now rather than waiting
+                    # for the Platform Action CPER, so the accepted action is
+                    # never lost between acceptance and execution.
+                    print(f"\n   Step 6: Storing the accepted CPAD in the infrastructure cloud database")
+                    print(f"           Tracking key: PlatformID={platform_id}")
+                    print(f"                         PartitionID={partition_id}")
+                    print(f"           ✓ CPAD stored in {cpad_file_path.parent}")
+
+                    # Step 7 — Listen for the Platform Action CPER(s) that report
+                    # the *outcome* of the accepted CPAD.  This is decoupled from
+                    # acceptance and may arrive after an arbitrary delay.
+                    print(f"\n   Step 7: Listening for the Platform Action CPER(s) for this CPAD")
                     print(f"   ┌─────────────────────────────────────────────────────────────┐")
                     print(f"   │  Look at the SERVER pane for processing details             │")
                     print(f"   │  (CPAD decode, validation, CPER creation)                   │")
                     print(f"   │                                                             │")
-                    print(f"   │  Look at the LISTENER pane to receive notifications,        │")
-                    print(f"   │  download and store CPERs                                   │")
+                    print(f"   │  Look at the LISTENER pane to receive the Platform Action   │")
+                    print(f"   │  CPER notifications, download and store the CPERs           │")
                     print(f"   └─────────────────────────────────────────────────────────────┘")
-
-                    time.sleep(2)
-
-                    print(f"\n   Step 6: Saving the CPAD to the infrastructure cloud database")
-                    print(f"           ✓ CPAD is stored in {cpad_file_path.parent}")
                 else:
                     print(f"      ✓ Accepted by BMC")
                 return True

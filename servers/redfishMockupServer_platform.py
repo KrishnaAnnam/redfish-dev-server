@@ -113,16 +113,23 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
         for plugin_name, plugin_handler in self.plugin_handlers.items():
             if plugin_handler.can_handle_path(self.path):
                 try:
-                    # Acknowledge the client immediately
-                    self._send_platform_response(200)
-                    # Then forward to plugin for processing
-                    plugin_handler.handle_post(self.path, data_received or {}, self.cached_links)
+                    # Forward to the plugin and return its real status code.
+                    # For SubmitCPAD the plugin runs the acceptance checks
+                    # (PlatformID / PartitionID / well-formed) and returns
+                    # 202 (Accepted) on success or a 4xx on rejection — the
+                    # client must be told which (spec §6.5).  Do not send a
+                    # premature status before the handler has decided.
+                    status, response_data = plugin_handler.handle_post(
+                        self.path, data_received or {}, self.cached_links)
+                    if status != 405:  # Plugin handled it
+                        self._send_platform_response(status, response_data)
 
-                    # Bridge: dispatch event to core EventService subscribers
-                    if 'SubmitCPAD' in self.path:
-                        self._dispatch_ras_cpad_events(data_received or {})
+                        # Bridge: notify core EventService subscribers only when
+                        # the CPAD was accepted for processing (2xx).
+                        if 'SubmitCPAD' in self.path and 200 <= status < 300:
+                            self._dispatch_ras_cpad_events(data_received or {})
 
-                    return
+                        return
                 except Exception as e:
                     logger.error(f"Plugin {plugin_name} POST handler error: {e}")
         

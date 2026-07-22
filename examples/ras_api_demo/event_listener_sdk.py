@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import asyncio
+import base64
 import json
 import queue
 import signal
@@ -398,6 +399,40 @@ def main() -> None:
             removed = True
         notifier.notify({"event": "unsubscribed", "bmc": bmc, "removed": removed})
 
+    def handle_store_cper(cmd: dict) -> None:
+        """Store an externally-supplied CPER as if it arrived from the host.
+
+        Used for operator-generated CPERs (e.g. a policy-rejection Platform
+        Action CPER): the bytes are written under the same cper_storage tree as
+        downloaded CPERs and the orchestrator is notified the same way.
+        """
+        try:
+            cper_bytes = base64.b64decode(cmd.get("cper_b64", ""))
+        except Exception as e:
+            print(f"   ⚠️  store_cper: invalid base64 ({e})")
+            return
+        if not cper_bytes:
+            print("   ⚠️  store_cper: empty CPER")
+            return
+        platform_id, partition_id, _ = parse_cper_header_ids(cper_bytes)
+        cper_dir = storage_dir / platform_id / partition_id
+        cper_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"cper_{ts}.cper"
+        save_path = cper_dir / filename
+        save_path.write_bytes(cper_bytes)
+        print(f"\n   📥 Stored externally-supplied CPER: {save_path}")
+        notifier.notify({
+            "event": "cper_downloaded",
+            "file": filename,
+            "path": str(save_path),
+            "platform_id": platform_id,
+            "partition_id": partition_id,
+            "size": len(cper_bytes),
+            "message_id": cmd.get("message_id", "policy.rejected"),
+            "severity": cmd.get("severity"),
+        })
+
     # --- 6. Shutdown handling ---
     def handle_signal(sig, frame):
         print(f"\n\n{'=' * 60}")
@@ -441,6 +476,8 @@ def main() -> None:
             handle_subscribe(cmd)
         elif cmd.get("command") == "unsubscribe":
             handle_unsubscribe(cmd)
+        elif cmd.get("command") == "store_cper":
+            handle_store_cper(cmd)
         else:
             print(f"   ⚠️  Ignoring unknown command: {cmd!r}")
 

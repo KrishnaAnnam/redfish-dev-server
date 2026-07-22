@@ -18,6 +18,7 @@ import json
 from pathlib import Path
 
 from ..cpad_handler import CPADHandler
+from ..discovery import PLATFORM_ID as BMC_PLATFORM_ID, RASDiscoveryHandler
 from ..message_utils import (
     cpad_received,
     cpad_validated,
@@ -357,7 +358,79 @@ class SubmitCPADActionHandler:
         print(f"           PlatformID: {metadata['platform_id']}")
         print(f"           ActionID:   {metadata['action_id']}")
         logger.info(f"CPAD validated successfully - Action: {metadata['action_id']}")
-        
+
+        # Step 4: Acceptance checks (spec §6.5) — the BMC only accepts a CPAD
+        # that targets *this* platform, names a partition it actually serves,
+        # and whose declared length matches the bytes received.  These gate the
+        # 202 (Accepted) response; they are independent of whether/when the
+        # endpoint later acts on the CPAD.
+        print(f"\n   Step 4: Acceptance checks (PlatformID / PartitionID / length)")
+
+        # 4a — PlatformID must match this BMC's platform.
+        if metadata['platform_id'] != BMC_PLATFORM_ID:
+            print(f"           ✗ PlatformID mismatch: CPAD {metadata['platform_id']} "
+                  f"≠ BMC {BMC_PLATFORM_ID}")
+            logger.warning(
+                f"CPAD rejected — PlatformID mismatch: {metadata['platform_id']}")
+            return self._error_response(
+                400,
+                'OCPRAS.1.0.PlatformIDMismatch',
+                (f"CPAD PlatformID {metadata['platform_id']} does not match this "
+                 f"platform ({BMC_PLATFORM_ID})."),
+                [metadata['platform_id'], BMC_PLATFORM_ID]
+            )
+        print(f"           ✓ PlatformID matches this BMC")
+
+        # 4b — PartitionID must match one of this BMC's RAS endpoints.
+        valid_partitions = {
+            ep['PartitionID'] for ep in RASDiscoveryHandler.ENDPOINTS
+            if ep.get('PartitionID')
+        }
+        if metadata['partition_id'] not in valid_partitions:
+            print(f"           ✗ Unknown PartitionID: {metadata['partition_id']}")
+            logger.warning(
+                f"CPAD rejected — unknown PartitionID: {metadata['partition_id']}")
+            # Spec §6.5: an unknown PartitionID is a 404 Not Found (the CPAD
+            # targets an endpoint that does not exist on this platform).
+            return self._error_response(
+                404,
+                'OCPRAS.1.0.PartitionIDUnknown',
+                (f"CPAD PartitionID {metadata['partition_id']} does not map to a "
+                 f"known RAS endpoint on this platform."),
+                [metadata['partition_id']]
+            )
+        print(f"           ✓ PartitionID matches a RAS endpoint")
+
+        # 4c — Declared recordLength must be self-consistent with the payload.
+        # Per Cpad.h the received buffer MAY be larger than the record (room to
+        # append section descriptors), so the invariant is
+        # header-minimum ≤ recordLength ≤ received-bytes.  This rejects a
+        # truncated payload (fewer bytes than the record claims) and an absurdly
+        # small recordLength, while allowing legitimate trailing buffer space.
+        declared_length = metadata['record_length']
+        if not (CPAD_HEADER_MIN_SIZE <= declared_length <= len(raw_data)):
+            print(f"           ✗ Length inconsistent: header recordLength "
+                  f"{declared_length}, {len(raw_data)} bytes received "
+                  f"(min {CPAD_HEADER_MIN_SIZE})")
+            logger.warning(
+                f"CPAD rejected — recordLength {declared_length} inconsistent with "
+                f"received {len(raw_data)} bytes")
+            return self._error_response(
+                400,
+                'OCPRAS.1.0.CPADValidationFailed',
+                (f"CPAD recordLength {declared_length} is inconsistent with the "
+                 f"received payload size ({len(raw_data)} bytes)."),
+                [str(declared_length), str(len(raw_data))]
+            )
+        print(f"           ✓ recordLength {declared_length} consistent with "
+              f"payload ({len(raw_data)} bytes)")
+
+        # ── Acceptance gate: all §6.5 checks passed → 202 (Accepted) ──────────
+        # The CPAD is now accepted for processing.  Everything below is
+        # post-acceptance action (minting CPERs); a failure there does not
+        # revoke acceptance.
+        print(f"           ✓ CPAD ACCEPTED (202) — proceeding to platform action")
+
         # Emit CPAD received event
         if self.event_handler:
             try:
@@ -369,7 +442,7 @@ class SubmitCPADActionHandler:
             except Exception as e:
                 logger.error(f"Failed to emit CPAD received event: {e}")
         
-        # Step 4: Create LogEntry from CPER (if LogService available)
+        # Step 5: Create LogEntry from CPER (if LogService available)
         log_entry_id = None
         severity = self._map_action_to_severity(metadata['action_id'])
         
@@ -382,9 +455,9 @@ class SubmitCPADActionHandler:
         
         if self.log_service_handler:
             try:
-                print(f"\n   Step 4: ActionID {metadata['action_id']} identified as: {action_desc}")
+                print(f"\n   Step 5: ActionID {metadata['action_id']} identified as: {action_desc}")
                 
-                # --- 4a: Error CPER (Corrected) — only for non-SPPR actions ---
+                # --- 5a: Error CPER (Corrected) — only for non-SPPR actions ---
                 #     SPPR (0x8001) only produces an Action Event CPER, not an
                 #     informational error CPER.
                 if metadata['action_id'] != '0x8001':
@@ -405,7 +478,7 @@ class SubmitCPADActionHandler:
                     else:
                         print(f"           ✗ {severity} CPER LogEntry status: {status}")
                 
-                # --- 4b: Action Event CPER ---
+                # --- 5b: Action Event CPER ---
                 print(f"           Creating Action Event CPER...")
                 ae_cper_json = self._create_action_event_cper(cpad_data, metadata, action_return_code=0x00)
                 ae_binary_path = self._convert_json_to_binary_cper(ae_cper_json, metadata)
@@ -424,7 +497,7 @@ class SubmitCPADActionHandler:
                 logger.error(f"Failed to create LogEntry: {e}")
                 logger.error(traceback.format_exc())
         else:
-            print(f"\n   Step 4: LogService not available, skipping CPER creation")
+            print(f"\n   Step 5: LogService not available, skipping CPER creation")
         
         # Emit CPAD approved event
         if self.event_handler:

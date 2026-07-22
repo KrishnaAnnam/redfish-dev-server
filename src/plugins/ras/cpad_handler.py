@@ -82,7 +82,9 @@ class CPADHandler:
         return {
             'creator_id': header.get('creatorID', 'Unknown'),
             'platform_id': header.get('platformID', 'Unknown'),
+            'partition_id': header.get('partitionID', 'Unknown'),
             'record_id': header.get('recordID', 0),
+            'record_length': header.get('recordLength', 0),
             'timestamp': header.get('timestamp', ''),
             'confidence': header.get('confidence', 0),
             'urgency': header.get('urgency', False),

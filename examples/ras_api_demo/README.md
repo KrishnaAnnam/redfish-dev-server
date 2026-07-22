@@ -86,7 +86,7 @@ python3 examples/ras_api_demo/reset_server.py --clean-temp && python3 examples/r
 | `analyzers/<vendor>/analyzer-<vendor>.py` | — | Vendor analyzer plugin (e.g. Contoso): decodes its own CPERs, detects repeat errors, and emits SPPR CPADs; discovered via `--discover` |
 | `event_listener_sdk.py` | — | Standalone SDK listener: subscribes on command, auto-downloads `.cper` files, notifies the orchestrator over a control socket |
 | `cper_decoder.py` | `CperDecoder` | cperlib-based CPER decode; the orchestrator reads only the header (CreatorID) to route |
-| `policy.py` | `PolicyEngine` | Evaluates CPAD files against trust/action/platform registries |
+| `policy.py` | `PolicyEngine` | Evaluates CPAD files against trust/action/platform registries (see [POLICY_ENGINE.md](POLICY_ENGINE.md)) |
 | `submit_cpad.py` | `CPADSubmitter` | Reads a binary CPAD, base64-encodes, and POSTs it as JSON to the BMC (routed by PlatformID) |
 
 ### Data Flow
@@ -110,11 +110,17 @@ python3 examples/ras_api_demo/reset_server.py --clean-temp && python3 examples/r
          │                       2nd column of the same row) emits an SPPR CPAD
          │
   PolicyEngine              ──►  Evaluates the SPPR CPAD against the operator's
-         │                       trust/action/platform policy
+         │                       table-driven policy (creators + actions tables;
+         │                       see POLICY_ENGINE.md)
          │
-  CPADSubmitter             ──►  On approval, base64 + JSON POST back to the host
-         │                       that reported the error (routed by PlatformID)
-         │
+    approved ──────────────┴────────────── denied
+       │                                     │
+  CPADSubmitter                        orchestrator mints a POLICY_REJECTED
+  POST back to the host                Platform Action CPER (create-platform-
+  (routed by PlatformID)               action-cper) and delivers it via the
+       │                               listener 'store_cper' → cper_storage/,
+       │                               where the analyzer reports the rejection
+       │
   (BMC performs the SPPR repair and emits informational Action-Event CPERs)
          │
   listener → orchestrator   ──►  Same path again: downloads, routes, and analyzes

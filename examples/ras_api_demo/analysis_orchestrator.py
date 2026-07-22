@@ -28,9 +28,11 @@ Usage (standalone):
 import sys
 import json
 import argparse
+import base64
 import subprocess
 import shutil
 import socket
+import tempfile
 import threading
 import time
 import logging
@@ -985,23 +987,29 @@ class AnalysisOrchestrator:
         print("=" * 80)
 
         print("\n   The Server Fleet Operator's policy engine decides whether a proposed action")
-        print("   is allowed. It only needs toinspect the CPAD's decoded header and section")
+        print("   is allowed. It only needs to inspect the CPAD's decoded header and section")
         print("   descriptors (IDs, action type, FRU/target, severity) — not the CPAD")
         print("   section body. Proprietary vendor data can remain opaque to the operator")
         print("   while still allowing fleet-wide policy (rate limits, maintenance windows,")
         print("   blast-radius rules) to gate the action.")
 
-        allowed = True
+        decision = None
         if self.policy_engine is not None and cpad_json is not None:
-            allowed = self.policy_engine.evaluate_cpad(str(cpad_json))
+            decision = self.policy_engine.evaluate_cpad(str(cpad_json))
+            allowed = bool(decision)
         elif self.policy_engine is not None:
             print("\n   ⚠️  No CPAD JSON available to evaluate — denying by default.")
             allowed = False
         else:
             print("\n   ⓘ No policy engine configured — skipping policy check.")
+            allowed = True
 
         if not allowed:
-            print("\n   ❌ Policy denied — the SPPR CPAD will not be submitted.")
+            reason = decision.reason if decision is not None else "no CPAD JSON to evaluate"
+            print(f"\n   ❌ Policy denied — {reason}")
+            print("   Emitting a POLICY_REJECTED Platform Action CPER and delivering it to")
+            print("   the pipeline so it is stored alongside the host's CPERs and analyzed.")
+            self._emit_policy_rejection_cper(cpad_binary, decision)
             return
 
         print("\n   ✅ Policy allowed — the SPPR CPAD may be submitted.")
@@ -1020,6 +1028,72 @@ class AnalysisOrchestrator:
         self.submitter.submit(
             str(cpad_binary), verbose_steps=True,
             source_label="Analyzer-generated SPPR CPAD")
+
+    def _emit_policy_rejection_cper(self, cpad_binary: Path, decision):
+        """Mint a POLICY_REJECTED Platform Action CPER from a denied CPAD and
+        deliver it into the CPER pipeline (via the event listener).
+
+        The rejected CPAD is fed to cperlib's ``create-platform-action-cper``
+        with return-code POLICY_REJECTED (0x03) and reason-code NONE (0x00).
+        """
+        tool = (PROJECT_ROOT / "src" / "plugins" / "ras" / "libcper" / "build"
+                / "create-platform-action-cper")
+        if not tool.exists():
+            print(f"   ⚠️  {tool.name} not found — cannot emit rejection CPER.")
+            return
+
+        return_code = getattr(decision, "return_code", 0x03)
+        reason_code = getattr(decision, "reason_code", 0x00)
+        out_path = Path(tempfile.gettempdir()) / f"policy_rejected_{cpad_binary.stem}.cper"
+        cmd = [
+            str(tool), str(cpad_binary),
+            "--return-code", f"0x{return_code:02x}",
+            "--reason-code", f"0x{reason_code:02x}",
+            "--out", str(out_path),
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except Exception as e:
+            print(f"   ⚠️  Could not run {tool.name}: {e}")
+            return
+        if proc.returncode != 0 or not out_path.exists():
+            print(f"   ⚠️  {tool.name} failed: {proc.stderr.strip() or proc.returncode}")
+            return
+
+        cper_bytes = out_path.read_bytes()
+        out_path.unlink(missing_ok=True)
+        print(f"   ✓ Generated POLICY_REJECTED Platform Action CPER ({len(cper_bytes)} bytes)")
+
+        # Prefer delivery via the event listener so the CPER is stored with the
+        # host's CPERs and comes back as a normal 'cper_downloaded' notification.
+        if self._listener_sock is not None or self.connect_listener():
+            self._send_listener_command({
+                "command": "store_cper",
+                "cper_b64": base64.b64encode(cper_bytes).decode("ascii"),
+                "message_id": "OCPRAS.1.0.0.PlatformActionEvent",
+                "severity": "Warning",
+            })
+            print("   📡 Delivered the rejection CPER to the event listener for storage.")
+        else:
+            self._store_cper_locally(cper_bytes)
+
+    def _store_cper_locally(self, cper_bytes: bytes):
+        """Fallback: store a CPER directly and queue it for analysis when the
+        event listener is unavailable."""
+        tmp = Path(tempfile.gettempdir()) / "policy_rejected_local.cper"
+        tmp.write_bytes(cper_bytes)
+        header = (self._make_decoder().extract_cper_data(str(tmp)) or {}).get("header", {})
+        tmp.unlink(missing_ok=True)
+        platform_id = normalize_guid(header.get("platformID")) or "unknown"
+        partition_id = normalize_guid(header.get("partitionID")) or "unknown"
+        dest_dir = (self.cper_storage_dir or Path(".")) / platform_id / partition_id
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / f"cper_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.cper"
+        dest.write_bytes(cper_bytes)
+        with self._pending_lock:
+            self._pending_cpers.append(str(dest))
+        print(f"   📥 Stored rejection CPER locally (listener unavailable): {dest}")
+
 
     # ─── Helpers ────────────────────────────────────────────────────────
 

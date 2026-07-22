@@ -1,0 +1,19 @@
+{
+  "11111111-2222-3333-4444-555555555555": {
+    "0x0006": {
+      "name": "Error Injection",
+      "permitted": true,
+      "supported_platforms": [
+        "990f8820-bd4d-5064-58cc-961a053dea79"
+      ]
+    },
+    "0x8001": {
+      "name": "SPPR (Soft Post Package Repair)",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": [
+        "990f8820-bd4d-5064-58cc-961a053dea79"
+      ]
+    }
+  }
+}

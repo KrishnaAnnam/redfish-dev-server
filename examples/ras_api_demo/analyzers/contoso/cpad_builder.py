@@ -33,6 +33,12 @@ from contoso_catalog import CONTOSO_CREATOR_ID, INJECT_ACTION
 # Fixed envelope geometry for a single-section CPAD.
 SINGLE_SECTION_OFFSET = 202
 
+# Confidence for an injected error is always 100: the operator explicitly ran
+# the inject command, so we are certain the action is intended.  (Confidence is
+# a section-descriptor field per the CPAD standard; cpad-convert sets its
+# validation bit automatically when the "confidence" key is present.)
+INJECTION_CONFIDENCE = 100
+
 # Project root: Demos/RasApi/analyzers/contoso/ → up 4 → repo root.
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 LIBCPER_BUILD = PROJECT_ROOT / "src" / "plugins" / "ras" / "libcper" / "build"
@@ -91,6 +97,7 @@ def build_cpad_json(spec, section_guid, body):
                 "sectionLength": body_len,
                 "revision": revision,
                 "flags": 0,
+                "confidence": INJECTION_CONFIDENCE,
                 "sectionType": {"data": section_guid, "type": "Unknown"},
                 "fruID": cpad.get("fruID", "00000000-0000-0000-0000-000000000000"),
                 "fruText": cpad.get("fruText", ""),

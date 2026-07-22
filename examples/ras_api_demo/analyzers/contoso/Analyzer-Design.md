@@ -89,6 +89,28 @@ The decoded JSON data consists of two parts:
 
 ### CPAD Output Requirements
 
+#### SPPR CPAD confidence
+
+Every CPAD the analyzer emits carries a **confidence** value (0–100) in the
+standard CPAD location: the section descriptor
+(`sectionDescriptors[0].confidence`), *not* the top-level header. `cpad-convert`
+sets the field's validation bit automatically when the key is present.
+
+For an SPPR (Soft Post Package Repair, action `0x8001`), confidence scales with
+the evidence gathered for the failing DRAM row. The key principle is: **the more
+error data we get, the higher the confidence.**
+
+- The base confidence is **80%** when two distinct column addresses have failed
+  on the same row.
+- Confidence increases by **1%** for each additional distinct column address on
+  that row.
+- Confidence is capped at **95%**, the highest value the analyzer will assign to
+  an SPPR CPAD.
+
+Formally, `confidence = min(80 + (distinct_columns - 2), 95)` for
+`distinct_columns >= 2`. The Server Fleet Operator Policy Engine gates SPPR
+CPADs at a configurable threshold (80% in this demo).
+
 
 ## Error Types
 

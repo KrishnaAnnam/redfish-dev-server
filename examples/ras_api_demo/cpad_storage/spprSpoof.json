@@ -6,7 +6,6 @@
         },
         "sectionCount": 1,
         "urgency": 0,
-        "confidence": 100,
         "recordLength": 296,
         "timestamp": "2026-01-23T12:00:00+00:00",
         "timestampIsPrecise": true,
@@ -29,6 +28,7 @@
                 "minor": 0
             },
             "flags": 0,
+            "confidence": 80,
             "sectionType": {
                 "data": "61ec04fc-48e6-d813-25c9-8daa44750b12",
                 "type": "Platform Memory 2"

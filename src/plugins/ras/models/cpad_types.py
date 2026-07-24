@@ -1,5 +1,5 @@
 """
-CPAD (Common Platform Action Document) Data Models
+CPAD (Common Platform Action Descriptor) Data Models
 
 Defines Python data structures for CPAD documents used in RAS error handling.
 Based on the OCP RAS specification.

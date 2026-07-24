@@ -219,15 +219,15 @@ python examples/ras_api_demo/ras_api_plugin_demo.py
 
 ### Features
 
-The guided OCP RAS API demo walks through the full round-trip error-handling flow. At the end of a run it shows that it:
+The guided OCP RAS API demo walks through the full round-trip error-handling flow:
 
-- Discovered RAS API endpoints via Redfish
-- Injected an error via CPADs (Common Platform Action Descriptors)
-- Collected the resulting CPERs via the Redfish RAS API interfaces
-- Analyzed the CPERs
-- Had the analyzer suggest a RAS action, which was evaluated against a data center operator policy
-- Routed an approved RAS action back to the BMC that reported the errors
-- Demonstrated the full round-trip flow: RAS API endpoint → analyzer → back to the endpoint
+- Discovers RAS API endpoints via Redfish
+- Injects an error via CPADs (Common Platform Action Descriptors)
+- Collects the resulting CPERs via the Redfish RAS API interfaces
+- Analyzes the CPERs
+- Had the analyzer suggest a RAS action, which is evaluated against a data center operator policy
+- Routes an approved RAS action back to the BMC that reported the errors
+- Demonstrates the full round-trip flow: RAS API endpoint → analyzer → back to the endpoint
 
 ### Documentation
 - [OCP RAS API Demo](examples/ras_api_demo/README.md) - End-to-end demo, setup, and documentation index

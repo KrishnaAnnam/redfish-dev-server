@@ -12,7 +12,7 @@ Usage:
     python servers/redfishMockupServer_platform.py -D mockups/public-rackmount1
 
     # Run the demo
-    python examples/ras_plugin_parity_demo.py
+    python examples/ras_api_demo/ras_api_plugin_demo.py
 """
 
 import sys

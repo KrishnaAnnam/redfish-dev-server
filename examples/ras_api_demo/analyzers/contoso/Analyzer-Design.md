@@ -9,14 +9,57 @@ Provide example code for time-series CPER analyzers intended to work with the RA
 
 The example code integrates into the RAS API demo. It supports discovery by the Analysis Orchestrator.  It takes a list of CPERs as an input.  It starts by validating and analyzing the newest CPER in the list and optionally outputs the decoded CPER in JSON format.  The details of the decoding are described below.  If the analyzer is able to infer that there is a hardware fault that could be mitigated by a RAS action such as a DDR Post Package Repair or manual intervention (part replacement, etc.), it will emit a CPAD containing the details needed to drive the action.  This CPAD will be evaluated by the Server Fleet Operator Policy Engine.  If the policy engine allows the CPAD to proceed, it will either send the CPAD back to the endpoint to trigger a RAS action on the endpoint or forward the CPAD to data center automation to trigger a manual intervention such as a part replacement.
 
-## Requirements
+> This is the **example analyzer plugin** for the RAS API demo. A real vendor
+> would ship its own `analyzer-<vendor>.py` for its own silicon; Contoso is a
+> fictional SoC used to illustrate the pattern. The implementation lives in
+> [`analyzer-contoso.py`](analyzer-contoso.py).
 
-- Inputs and outputs
+## How the analyzer is invoked
 
+The Analysis Orchestrator (AO) discovers analyzers by filename and talks to them
+over the command line. An analyzer is any script named `analyzer-<vendor>.py`
+under `analyzers/` (discovered recursively). It must support three modes:
 
-### Discovery Requirements
-- filename format
-- flag to discover analyzer characteristics
+### 1. Discovery (`--discover`)
+
+Prints a single JSON identity object on stdout and exits 0. The AO uses this to
+build a **CreatorID → analyzer** routing table:
+
+```json
+{
+  "analyzer_name":    "Contoso CPER Analyzer",
+  "analyzer_version": "1.0.0",
+  "creator_ids":      ["11111111-2222-3333-4444-555555555555"],
+  "prior_days":       30
+}
+```
+
+- `creator_ids` — the CreatorID GUID(s) this analyzer owns. CreatorIDs are
+  normalized (lowercase, whitespace/braces stripped) on both sides before
+  matching.
+- `prior_days` — the lookback window: how many days of prior CPERs the analyzer
+  wants to see alongside a new one.
+
+### 2. Run (`--input-file <path>`)
+
+The AO writes a JSON input file listing the CPERs to consider (newest first,
+plus `newest_cper`, `creator_id`, `newest_timestamp`, `prior_days`) and invokes
+the analyzer with it. The analyzer processes the CPERs and writes its outputs
+**next to the script** (the AO clears stale `.json`/`.cpad` files first, then
+collects whatever this run produced):
+
+- exactly **one `.json`** — the analysis result/report, and
+- **zero or one `.cpad`** — a remediation (e.g. SPPR), created only when the
+  evidence warrants an action.
+
+Exit code is 0 on success, non-zero on failure.
+
+### 3. Standalone developer mode (`--cper-dir <path>`)
+
+Analyze every binary `.cper` under a directory and print reports, without the
+orchestrator. Useful for iterating on the analyzer in isolation.
+
+## Analyzing CPERs
 
 ### CPER Input Requirements
 - Contract: 
@@ -43,19 +86,47 @@ The example code integrates into the RAS API demo. It supports discovery by the 
 1. decode the CPER header
 2. For each section, decode each CPER section descriptor
 3. use each section descriptor's Section Type field to determine the format of each section body
-4. 
+4. decode each section body's error banks and registers per that Section Type, and
+   record any error location (for memory errors, the DRAM coordinates) for the
+   cross-CPER analysis below
 
 NOTE: The CPER Specification defines some standard CPER sections.  These can be useful for CPER consumers that have a limited ability to process proprietary data such as operating systems that need to respond to common errors.  For the deeper, first principles analysis being implemented in the RAS API analyzers, proprietary section bodies are preferred because they can contain richer information about the error.  The CPER analyzer for a particular CreatorID is expected to know the format of all of the CPER Section Types emitted by a RAS API endpoint.
 
 
 ### Analysis Flow
-- Start with the newest CPER
-- If the newest CPER is a Platform Action Event
-    - If the action status indicates success, a previous issue has been mitigated, no further analysis is necessary
-    - If the action status indicates a failure, suggest another action, possibly an action replacing the silicon 
-- 
-- ability to use serial number ranges to recognize problems with certain serial numbers
-- example using DRAM
+
+The analyzer processes the AO's CPER list **newest first**:
+
+- **If the newest CPER is a Platform Action Event** (the result of a previously
+  submitted CPAD):
+    - If the action status indicates **success**, a previous issue has been
+      mitigated — report it; no further action is necessary.
+    - If the action status indicates a **failure** (including `POLICY_REJECTED`),
+      report it and, where appropriate, suggest another action (for example,
+      escalating to a part replacement).
+- **Otherwise it is an error CPER.** Decode it, add its error location to the
+  set of locations seen this run, and check for a **failing DRAM row** (below).
+  A single corrected error at one cell is normal wear and needs no action.
+
+#### Failing-row detection (the core algorithm)
+
+The analyzer keys each memory error by its **row coordinates** (chiplet,
+controller, channel, subchannel, DIMM, rank, bank group, bank, row) — the
+*column* is deliberately excluded from the key. It then looks for a prior error
+on the **same row** at a **different column**:
+
+- One corrected error on a single cell → normal wear → **no action**.
+- Corrected errors striking **two or more distinct columns of the same row**
+  → the row itself is failing (e.g. a wordline fault) → emit an **SPPR CPAD**
+  to repair it.
+
+The confidence stamped on that SPPR CPAD scales with the number of distinct
+failing columns on the row (see [SPPR CPAD confidence](#sppr-cpad-confidence)):
+more failing columns is stronger evidence of a bad row.
+
+> The demo drives exactly this: the first injected error establishes one column
+> on a row; the second, on the *same row* at a *different column*, triggers the
+> SPPR CPAD.
 
 ### JSON Decoding Requirements
 
@@ -111,26 +182,15 @@ Formally, `confidence = min(80 + (distinct_columns - 2), 95)` for
 `distinct_columns >= 2`. The Server Fleet Operator Policy Engine gates SPPR
 CPADs at a configurable threshold (80% in this demo).
 
+## Related documents
 
-## Error Types
-
-- Correctable
-- Non-Fatal
-- Fatal
-- Surprise Down
-
-
-## Acceptance Criteria
-
-- All errors generate telemetry
-- OFR path validated
-- Error injection tests pass
-
-## AI Instructions
-
-When generating code:
-
-- Do not invent fault codes
-- Implement the analyzer in python
-- Generate unit tests
-- Flag unresolved design questions
+- [analyzer-orchestrator.md](../../analyzer-orchestrator.md) — the orchestrator
+  that discovers this analyzer, routes CPERs to it, and handles its outputs.
+- [contoso-cper-sections.md](contoso-cper-sections.md) — the binary layout of
+  the Contoso CPER sections this analyzer decodes.
+- [error-injector-contoso.md](error-injector-contoso.md) — the vendor tool that
+  produces the error-injection CPADs the demo feeds to the endpoint.
+- [POLICY_ENGINE.md](../../POLICY_ENGINE.md) — the operator gate that approves or
+  denies the SPPR CPADs this analyzer emits.
+- [CPAD_SUBMISSION.md](../../CPAD_SUBMISSION.md) — how an approved CPAD is
+  submitted back to the endpoint.

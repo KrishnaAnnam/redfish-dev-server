@@ -379,14 +379,11 @@ schema entry rather than editing four code paths. This mirrors the existing patt
   offsets/lengths) that the SubmitCPAD pipeline and policy engine can consume unchanged.
 - `decode` on a tool-produced CPAD reconstructs the originating injection spec.
 
+## Related documents
 
-
-
-## Acceptance Criteria
-
-- Errors generate CPADs
-- CPADs are correctly formed
-- The demo generates correct CPERs from the CPADs
-- CPADs can be decoded to JSON files
-
-## AI Instructions
+- [contoso-cper-sections.md](contoso-cper-sections.md) — the binary section
+  layout this tool encodes into the CPAD body.
+- [CPAD_SUBMISSION.md](../../CPAD_SUBMISSION.md) — how the generated CPAD is
+  submitted to the endpoint and the checks it must pass.
+- [Analyzer-Design.md](Analyzer-Design.md) — the analyzer that consumes the
+  resulting CPERs and may emit a repair CPAD in response.

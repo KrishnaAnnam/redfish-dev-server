@@ -152,7 +152,7 @@ python servers/redfishMockupServer_modular.py -D mockups/my-custom-bmc
 
 > **Note**: Directory is named `mockups/` for backward compatibility with DMTF tools. These are Redfish mockup data directories.
 
-See the [mockup Data Management](training/slides/04-mockup-data.md) training module for detailed guidance on creating and customizing Redfish mockup data.
+See [Redfish-Mockup-Creator](https://github.com/DMTF/Redfish-Mockup-Creator) for detailed guidance on creating and customizing Redfish mockup data.
 
 ## 📚 Server Variants
 
@@ -200,34 +200,37 @@ Features:
 - Advanced sensor and metric emulation
 - Multi-chassis and multi-node support
 
-## 🔌 RAS Plugin (Reliability, Availability, Serviceability)
+## 🔌 OCP RAS API Plugin (Reliability, Availability, Serviceability)
 
-**New!** Complete RAS plugin for error detection, analysis, and remediation workflows.
+**New!** A complete implementation of the **OCP RAS API** as a Redfish plugin, for hardware error detection, analysis, and remediation workflows.
 
 ### Quick Start
 
 ```bash
-# Start server with RAS-enabled mockup
+# Start the server with the OCP RAS API-enabled mockup
 python servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000
 
-# Run the parity demo
-python examples/ras_plugin_parity_demo.py
+# Run the guided OCP RAS API demo (from the project root)
+python examples/ras_api_demo/ras_api_plugin_demo.py
 
-# Or use the tmux launcher for full demo
-./scripts/run_ras_demo.sh
+# Or use the tmux launcher for the full 3-pane demo
+./examples/ras_api_demo/run_ras_demo.sh
 ```
 
 ### Features
-- **CPAD Submission**: Submit Corrective Platform Action Descriptors via SubmitCPAD action
-- **CPER Generation**: Template-based Common Platform Error Record generation using libcper
-- **Policy Engine**: Trust-based validation with TRUSTED_CREATORS, KNOWN_ACTIONS, KNOWN_PLATFORMS
-- **LogService**: Redfish-compliant RAS log entries with CPER data
-- **EventService**: Event subscription and notification for RAS alerts
-- **Analytics**: Error pattern analysis and trend detection
-- **Remediation**: Policy-based automated remediation with rate limiting
+
+The guided OCP RAS API demo walks through the full round-trip error-handling flow. At the end of a run it shows that it:
+
+- Discovered RAS API endpoints via Redfish
+- Injected an error via CPADs (Common Platform Action Descriptors)
+- Collected the resulting CPERs via the Redfish RAS API interfaces
+- Analyzed the CPERs
+- Had the analyzer suggest a RAS action, which was evaluated against a data center operator policy
+- Routed an approved RAS action back to the BMC that reported the errors
+- Demonstrated the full round-trip flow: RAS API endpoint → analyzer → back to the endpoint
 
 ### Documentation
-- [RAS Plugin Documentation](docs/RAS_PLUGIN.md) - Complete plugin reference
+- [OCP RAS API Demo](examples/ras_api_demo/README.md) - End-to-end demo, setup, and documentation index
 - [Plugin SDK Guide](docs/PLUGIN_SDK.md) - How to develop plugins
 - [Documentation Index](docs/DOCUMENTATION_INDEX.md) - Navigation guide
 
@@ -416,7 +419,7 @@ redfish-dev-server/
 
 **Quick feature demo**:
 ```bash
-python examples/quick_enhanced_demo.py
+python examples/demo_working_features.py
 ```
 
 **Comprehensive system demo**:
@@ -447,9 +450,6 @@ python -m redfish_client.examples.resource_management
 ```bash
 # Run unit tests
 python -m pytest tests/
-
-# Run integration tests
-python -m pytest tests/integration/
 
 # Run with coverage
 python -m pytest --cov=src tests/
@@ -511,7 +511,7 @@ Copyright 2016-2020 DMTF. All rights reserved.
 
 - **Issues**: [GitHub Issues](https://github.com/microsoft/redfish-dev-server/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/microsoft/redfish-dev-server/discussions)
-- **Wiki**: [Project Wiki](WIKI.md)
+- **Wiki**: [Project Wiki](docs/wiki/WIKI.md)
 
 ## 🔄 Release Process
 

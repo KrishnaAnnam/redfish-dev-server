@@ -200,3 +200,14 @@ Edit the JSON files — no code changes:
 For a real deployment these files would be backed by an operator-managed policy
 source, and additional rules (rate limits, maintenance windows, blast-radius
 limits) would slot in alongside the existing ones.
+
+## Related documents
+
+- [analyzer-orchestrator.md](analyzer-orchestrator.md) — calls this engine and
+  delivers the `POLICY_REJECTED` CPER on denial.
+- [Analyzer-Design.md](analyzers/contoso/Analyzer-Design.md) — produces the SPPR
+  CPADs this engine evaluates.
+- [CPAD_SUBMISSION.md](CPAD_SUBMISSION.md) — how an **approved** CPAD is
+  submitted back to the endpoint.
+- [README.md](README.md#end-to-end-walkthrough) — where the policy gate sits in
+  the full demo flow.

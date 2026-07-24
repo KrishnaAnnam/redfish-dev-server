@@ -247,4 +247,11 @@ uint16_t OtherMeshEntity; // 2  -- ID of the other mesh entity involved in mesh 
 // Total: 8 bytes
 ```  
 
+## Related documents
+
+- [Analyzer-Design.md](Analyzer-Design.md) — how the analyzer decodes and
+  reasons about these sections.
+- [error-injector-contoso.md](error-injector-contoso.md) — the tool that encodes
+  these sections into error-injection CPADs.
+
 Future Generations of Contoso SoCs can append definitions of their CPER sections to this file.

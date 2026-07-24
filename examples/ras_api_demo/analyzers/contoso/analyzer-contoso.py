@@ -9,10 +9,11 @@ of Contoso's chip-specific CPER analysis engine (:class:`ContosoAnalyzer`).
 The analysis engine:
 - Decodes binary CPERs (via the shared :class:`CperDecoder`).
 - Generates detailed, human-readable CPER reports (decoded summary, DIMM info).
-- Tracks error locations within an analysis run and detects repeat corrected
-  memory errors at the same location.
-- Auto-creates an SPPR (Soft Post-Package Repair) CPAD when a repeat corrected
-  memory error is detected.
+- Analyzes errors from the Contoso SoC
+- For memory errors detected by the Contoso SoC, tracks error locations within an analysis run and detects repeat corrected memory errors on the same location.
+   - Tracks error locations within an analysis run and detects repeat corrected
+     memory errors on the same row, different column.
+   - Auto-creates an SPPR (Soft Post-Package Repair) CPAD when a row failure is detected.
 
 The AO interacts with this script through two command-line modes:
 
@@ -109,7 +110,8 @@ class ContosoAnalyzer:
     Key capabilities:
     - Generate detailed analysis reports (decoded summary, DIMM info)
     - Track error locations within each analysis run (stateless)
-    - Detect repeat errors at the same memory location
+    - Detect row failures from repeat corrected memory errors on the same row,
+      different column
     - Auto-create SPPR CPAD files when repeat corrected memory errors detected
     """
 
@@ -1181,8 +1183,8 @@ def run_analysis(input_file: str) -> int:
     print(f"\n{IND}   🔁 Repeat-error check")
     if is_repeat_error:
         print(f"{IND}      This location was already recorded from a prior CPER → REPEAT fault.")
-        print(f"{IND}      A single corrected error is normal wear; a repeat at the *same* cell")
-        print(f"{IND}      indicates a failing memory location worth repairing.")
+        print(f"{IND}      A single corrected error is normal wear; multiple errors on the *same* row")
+        print(f"{IND}      indicate a failing row that might be repairable with PPR.")
     elif memory_location:
         print(f"{IND}      First time this location has been seen → recorded, no repair yet.")
     else:

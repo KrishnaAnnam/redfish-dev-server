@@ -403,9 +403,6 @@ mockups/*/redfish/v1/EventService/Subscriptions/EventSubscription*/
 # Simple server test files
 simple_ras_server*.py
 
-# Temporary demo scripts
-examples/run_ras_parity_demo.sh
-
 # libcper - fetched on demand by build_libcper.sh
 src/plugins/ras/libcper/
 

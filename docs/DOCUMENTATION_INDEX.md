@@ -66,11 +66,11 @@ This directory contains comprehensive documentation for the BMC Redfish Simulato
 #### Use the RAS Plugin
 
 1. Read [RAS_PLUGIN.md](RAS_PLUGIN.md)
-2. Run the parity demo:
+2. Run the demo:
    ```bash
    ./scripts/run_ras_demo.sh
    ```
-3. Study [examples/ras_plugin_parity_demo.py](../examples/ras_plugin_parity_demo.py)
+3. Study [examples/ras_api_demo/ras_api_plugin_demo.py](../examples/ras_api_demo/ras_api_plugin_demo.py)
 
 #### Create a New Plugin
 
@@ -228,7 +228,7 @@ The **Platform Architecture** enables vendor-specific customization:
 
 | Example | Description | File |
 |---------|-------------|------|
-| **Parity Demo** | Complete CPAD/CPER workflow | [ras_plugin_parity_demo.py](../examples/ras_plugin_parity_demo.py) |
+| **OCP RAS API Demo** | Complete CPAD/CPER workflow | [ras_api_demo/ras_api_plugin_demo.py](../examples/ras_api_demo/ras_api_plugin_demo.py) |
 | **Event Listener** | HTTP server for Redfish events | [event_listener.py](../examples/event_listener.py) |
 | **Event Subscription** | Create EventService subscription | [subscribe_to_events.py](../examples/subscribe_to_events.py) |
 | **Tmux Demo** | All-in-one demo launcher | [run_ras_demo.sh](../scripts/run_ras_demo.sh) |

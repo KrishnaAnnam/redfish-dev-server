@@ -11,7 +11,6 @@
 - `docs/PLUGIN_SDK.md` - Plugin development guide
 - `docs/RAS_PLUGIN.md` - Comprehensive RAS plugin documentation
 - `docs/DOCUMENTATION_INDEX.md` - Documentation navigation
-- `examples/ras_plugin_parity_demo.py` - Full parity demonstration
 - `examples/event_listener.py` - Event listener for subscriptions
 - `examples/subscribe_to_events.py` - Event subscription helper
 - `scripts/run_ras_demo.sh` - Tmux-based demo launcher

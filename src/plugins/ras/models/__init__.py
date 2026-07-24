@@ -1,7 +1,7 @@
 """
 RAS Plugin Data Models
 
-Defines data structures for CPAD (Common Platform Action Document),
+Defines data structures for CPAD (Common Platform Action Descriptor),
 CPER (Common Platform Error Record), and related RAS entities.
 """
 

@@ -131,8 +131,8 @@ class RASDiscoveryHandler:
             "Id": "SubmitCPADActionInfo",
             "Name": "SubmitCPAD Action Info",
             "Description": (
-                "Action information for submitting a CPAD (Corrective Platform "
-                "Action Directive) to the OCP RAS Service"
+                "Action information for submitting a CPAD (Common Platform "
+                "Action Descriptor) to the OCP RAS Service"
             ),
             "Parameters": [
                 {

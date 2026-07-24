@@ -1,7 +1,7 @@
 """
 SubmitCPAD Action Handler
 
-Handles the SubmitCPAD action which processes CPAD (Common Platform Action Document)
+Handles the SubmitCPAD action which processes CPAD (Common Platform Action Descriptor)
 submissions and executes the requested actions.
 
 Endpoint: POST /redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD

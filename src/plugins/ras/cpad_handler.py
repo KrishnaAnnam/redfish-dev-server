@@ -1,7 +1,7 @@
 """
 CPAD Handler
 
-Handles CPAD (Common Platform Action Document) validation, processing,
+Handles CPAD (Common Platform Action Descriptor) validation, processing,
 and submission to the RAS Service.
 
 Extracted and adapted from RasApi-main/submit_cpad.py

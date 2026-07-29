@@ -13,7 +13,7 @@ Transport format:
 
 Usage (standalone):
     python examples/ras_api_demo/submit_cpad.py cpad_storage/memErrorSpoof.cpad
-    python examples/ras_api_demo/submit_cpad.py cpad_storage/spprSpoof.cpad --server http://localhost:8001
+    python examples/ras_api_demo/submit_cpad.py cpad_storage/spprTemplate.cpad --server http://localhost:8001
 
 Usage (from orchestrator):
     from submit_cpad import CPADSubmitter
@@ -346,7 +346,7 @@ def main():
         description='Submit binary CPAD file to BMC via Redfish (base64 + JSON)',
         epilog='Examples:\n'
                '  python examples/ras_api_demo/submit_cpad.py cpad_storage/memErrorSpoof.cpad\n'
-               '  python examples/ras_api_demo/submit_cpad.py cpad_storage/spprSpoof.cpad --server http://localhost:8001\n',
+               '  python examples/ras_api_demo/submit_cpad.py cpad_storage/spprTemplate.cpad --server http://localhost:8001\n',
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument('cpad_file', help='Path to the binary CPAD file (.cpad)')

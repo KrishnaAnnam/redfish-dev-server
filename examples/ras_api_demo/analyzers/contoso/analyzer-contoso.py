@@ -132,9 +132,9 @@ class ContosoAnalyzer:
             self.output_dir = RASAPI_DIR / "ras_demo_output" / "Analyzer_output_files"
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # SPPR template lives at Demos/RasApi/cpad_storage/spprSpoof.json
+        # SPPR template lives at Demos/RasApi/cpad_storage/spprTemplate.json
         self.cpad_storage_dir = RASAPI_DIR / "cpad_storage"
-        self.sppr_template_path = self.cpad_storage_dir / "spprSpoof.json"
+        self.sppr_template_path = self.cpad_storage_dir / "spprTemplate.json"
 
         # In-memory tracking of seen memory locations (stateless — rebuilt each run)
         self.seen_locations = []
@@ -825,11 +825,11 @@ class ContosoAnalyzer:
 
     def _build_sppr_cpad(self, cper_data: Dict[str, Any], original_file: str,
                          confidence: int) -> Dict[str, Any]:
-        """Build SPPR CPAD JSON by loading the spprSpoof.json template and
+        """Build SPPR CPAD JSON by loading the spprTemplate.json template and
         overlaying values from the source CPER.
 
         Steps:
-        1. Load the SPPR CPAD template (spprSpoof.json)
+        1. Load the SPPR CPAD template (spprTemplate.json)
         2. Copy platformID, creatorID, partitionID from the CPER header
         3. Set timestamp to CPER timestamp + 5 seconds
         4. Set a fresh recordID

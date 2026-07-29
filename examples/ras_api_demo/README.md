@@ -216,7 +216,7 @@ python examples/ras_api_demo/policy.py --creators c.json --actions a.json cpad.j
 # Submit a binary CPAD to the BMC (base64 + JSON). Default server is
 # http://localhost:8000; add --verbose for the step-by-step transcript.
 python examples/ras_api_demo/submit_cpad.py cpad_storage/memErrorSpoof.cpad
-python examples/ras_api_demo/submit_cpad.py cpad_storage/spprSpoof.cpad --server http://localhost:8000 --verbose
+python examples/ras_api_demo/submit_cpad.py cpad_storage/spprTemplate.cpad --server http://localhost:8000 --verbose
 ```
 
 ## Glossary

@@ -11,8 +11,8 @@ The analysis engine:
 - Generates detailed, human-readable CPER reports (decoded summary, DIMM info).
 - Analyzes errors from the Contoso SoC
 - For memory errors detected by the Contoso SoC, tracks error locations within an analysis run and detects repeat corrected memory errors on the same location.
-   - Tracks error locations within an analysis run and detects repeat corrected
-     memory errors on the same row, different column.
+    - Tracks error locations within an analysis run and detects repeat corrected
+        memory errors on the same device row, different column.
    - Auto-creates an SPPR (Soft Post-Package Repair) CPAD when a row failure is detected.
 
 The AO interacts with this script through two command-line modes:
@@ -110,8 +110,8 @@ class ContosoAnalyzer:
     Key capabilities:
     - Generate detailed analysis reports (decoded summary, DIMM info)
     - Track error locations within each analysis run (stateless)
-    - Detect row failures from repeat corrected memory errors on the same row,
-      different column
+        - Detect row failures from repeat corrected memory errors on the same DRAM
+            device row at different columns
     - Auto-create SPPR CPAD files when repeat corrected memory errors detected
     """
 
@@ -203,6 +203,7 @@ class ContosoAnalyzer:
                         if mask:
                             beats = [b for b in range(16) if mask & (1 << b)]
                             beat_errors.append({'dram': d, 'dq': q, 'beats': beats})
+            drams = sorted({be['dram'] for be in beat_errors})
             return {
                 'chiplet': sub.get('chiplet', 0),
                 'controller': sub.get('controller', 0),
@@ -216,17 +217,18 @@ class ContosoAnalyzer:
                 'column': add.get('column', 0),
                 'physical_address': decoded.get('error_address', 0),
                 'beat_errors': beat_errors,
-                'drams': sorted({be['dram'] for be in beat_errors}),
+                'drams': drams,
+                'device': drams[0] if len(drams) == 1 else None,
             }
         return None
 
-    # Fields that together identify a single DRAM *row* (column excluded).
+    # Fields that together identify a single DRAM device row (column excluded).
     _ROW_FIELDS = ('chiplet', 'controller', 'channel', 'subchannel',
-                   'dimm', 'rank', 'bank_group', 'bank', 'row')
+                   'dimm', 'rank', 'bank_group', 'bank', 'row', 'device')
 
     @classmethod
     def _row_key(cls, loc: Dict) -> tuple:
-        """Return the tuple of fields identifying the DRAM row (no column)."""
+        """Return fields identifying one DRAM device row (no column)."""
         return tuple(loc.get(f, 0) for f in cls._ROW_FIELDS)
 
     @classmethod
@@ -235,7 +237,7 @@ class ContosoAnalyzer:
         return (f"Chiplet {loc['chiplet']}, Controller {loc['controller']}, "
                 f"Channel {loc['channel']}, Subchannel {loc['subchannel']}, "
                 f"DIMM {loc['dimm']}, Rank {loc['rank']}, Bank Group {loc['bank_group']}, "
-                f"Bank {loc['bank']}, Row {loc['row']}")
+                f"Bank {loc['bank']}, Row {loc['row']}, Device {loc['device']}")
 
     # ── SPPR confidence ──────────────────────────────────────────────────
     # Confidence scales with evidence: 80% at two distinct column addresses on
@@ -253,9 +255,8 @@ class ContosoAnalyzer:
                    cls.SPPR_CONFIDENCE_MAX)
 
     def _distinct_columns_on_row(self, current: Optional[Dict]) -> int:
-        """Count distinct DRAM column addresses failing on the current row
-        (prior same-row errors plus the current one)."""
-        if not current:
+        """Count distinct columns failing on the current DRAM device row."""
+        if not current or current.get('device') is None:
             return 0
         same_row = [p for p in self.seen_locations
                     if self._row_key(p) == self._row_key(current)]
@@ -309,7 +310,9 @@ class ContosoAnalyzer:
             return []
         same_row = [p for p in self.seen_locations
                     if self._row_key(p) == self._row_key(current)]
-        errors = same_row + [current]         # priors first, current last
+        errors = list(same_row)
+        if current not in errors:
+            errors.append(current)
 
         lines = ["   Corrected errors observed on this row:"]
         columns, drams, dqs = [], set(), set()
@@ -339,21 +342,23 @@ class ContosoAnalyzer:
             lines.append("        with one DRAM's row being bad.")
         return lines
 
-    def _check_for_matching_error(self, memory_location: Optional[Dict]) -> bool:
-        """Detect a failing DRAM row: a prior error on the *same row* at a
-        *different column*.
+    def _has_prior_error_on_same_dram_device_row_at_different_column(
+            self, memory_location: Optional[Dict]) -> bool:
+        """Detect a failing DRAM row: a prior error on the *same device row*
+        at a *different column*.
 
-        A single corrected error at one cell is normal wear.  Corrected errors
-        striking multiple columns of the *same* row indicate the row itself is
-        failing (e.g. a wordline fault) and is worth repairing with SPPR.
+        A single corrected error at one cell is normal wear. Corrected errors
+        striking multiple columns of the same row on the same DRAM device
+        indicate the row itself is failing and is worth repairing with SPPR.
 
         Args:
             memory_location: the DRAM location of the current error.
 
         Returns:
-            True if a prior error shares this row but has a different column.
+            True if a prior error shares this device row but has a different
+            column.
         """
-        if not memory_location:
+        if not memory_location or memory_location.get('device') is None:
             return False
 
         key = self._row_key(memory_location)
@@ -416,12 +421,24 @@ class ContosoAnalyzer:
         return names
 
     @staticmethod
-    def _fmt_register(code, value) -> str:
+    def _fmt_register(name, code, value) -> str:
         """Format a Contoso register/additional value for display.
 
         64-bit registers (code 'Q') and packed arrays read better in hex; the
         logical DRAM coordinates (channel, dimm, …) read better in decimal.
         """
+        if name == 'beat_mask' and isinstance(value, list):
+            entries = []
+            for device, row in enumerate(value):
+                for dq, mask in enumerate(row):
+                    if not mask:
+                        continue
+                    beats = [beat for beat in range(16) if mask & (1 << beat)]
+                    beat_label = (f"beat {beats[0]}" if len(beats) == 1
+                                  else f"beats {', '.join(map(str, beats))}")
+                    entries.append(
+                        f"Device {device}, DQ {dq}, {beat_label} (mask {hex(mask)})")
+            return "; ".join(entries) if entries else "(all zero)"
         if isinstance(value, list):          # 2-D arrays such as beat_mask[10][4]
             nonzero = [f"[{r}][{c}]={hex(v)}"
                        for r, row in enumerate(value)
@@ -459,7 +476,7 @@ class ContosoAnalyzer:
         print(f"         Misc 1:          {hex(decoded['misc1'])}")
         print(f"         Additional Registers:")
         for name, code in bank['additional']:
-            print(f"            {name + ':':<30} {self._fmt_register(code, decoded['additional'].get(name))}")
+            print(f"            {name + ':':<30} {self._fmt_register(name, code, decoded['additional'].get(name))}")
 
     def generate_cper_report(self, cper_data: Dict[str, Any], indent: str = ""):
         """Generate a detailed analysis report from CPER JSON data.
@@ -624,7 +641,7 @@ class ContosoAnalyzer:
     def print_analysis_recommendation(self, cper_data: Dict[str, Any],
                                        sppr_created: bool = False,
                                        sppr_filename: str = None,
-                                       is_repeat_error: bool = False,
+                                       dram_row_failure_detected: bool = False,
                                        memory_location: Optional[Dict] = None):
         """Print the Analysis Recommendation section (legacy single-CPER).
         Kept for standalone CLI usage.
@@ -633,7 +650,7 @@ class ContosoAnalyzer:
             'cper_data': cper_data,
             'sppr_created': sppr_created,
             'sppr_filename': sppr_filename,
-            'is_repeat_error': is_repeat_error,
+            'dram_row_failure_detected': dram_row_failure_detected,
             'memory_location': memory_location,
         }])
 
@@ -646,7 +663,8 @@ class ContosoAnalyzer:
 
         Args:
             analysis_results: list of dicts with keys: cper_data, sppr_created,
-                              sppr_filename, is_repeat_error, memory_location
+                              sppr_filename, dram_row_failure_detected,
+                              memory_location
             successful: number of successfully analyzed files
             failed: number of failed files
             created_files: list of created JSON output filenames
@@ -657,7 +675,8 @@ class ContosoAnalyzer:
         print = _indented_print(indent)
         created_files = created_files or []
         created_sppr_files = created_sppr_files or []
-        has_repeat = any(r['is_repeat_error'] for r in analysis_results)
+        dram_row_failure_detected = any(
+            r['dram_row_failure_detected'] for r in analysis_results)
         sppr_results = [r for r in analysis_results if r['sppr_created']]
         has_sppr = len(sppr_results) > 0
 
@@ -696,7 +715,7 @@ class ContosoAnalyzer:
             if sppr_filename:
                 print(f"\n   ✅ SPPR CPAD created: {sppr_filename}")
                 print(f"   Next Step:          Submit the SPPR CPAD to the platform to execute the repair")
-        elif has_repeat:
+        elif dram_row_failure_detected:
             print(f"\n   Recommendation:     Perform SPPR (Soft Post-Package Repair) operation")
             print(f"   ⚠️  SPPR CPAD not created")
         else:
@@ -741,11 +760,11 @@ class ContosoAnalyzer:
         """Create a JSON CPAD file for SPPR action based on CPER data.
 
         Only creates an SPPR CPAD when the newest error is a REPEAT on a
-        failing DRAM row — i.e. a corrected error on the same row
-        (chiplet/controller/channel/subchannel/dimm/rank/bank_group/bank/row)
-        as a prior error but at a *different column*.  The first occurrence is
-        recorded in memory; a later hit on another column of that row triggers
-        SPPR creation.
+        failing DRAM row — i.e. a corrected error on the same device row
+        (chiplet/controller/channel/subchannel/dimm/rank/bank_group/bank/row/
+        device) as a prior error but at a *different column*. The first
+        occurrence is recorded in memory; a later hit on another column of
+        that device row triggers SPPR creation.
 
         Args:
             cper_data: Full CPER JSON data (with header, sectionDescriptors, sections)
@@ -771,9 +790,11 @@ class ContosoAnalyzer:
             memory_location = self._extract_memory_location(cper_data)
 
             # Check if this is a repeat error
-            is_repeat_error = self._check_for_matching_error(memory_location)
+            dram_row_failure_detected = (
+                self._has_prior_error_on_same_dram_device_row_at_different_column(
+                    memory_location))
 
-            if not is_repeat_error:
+            if not dram_row_failure_detected:
                 # First occurrence - record it, don't create SPPR
                 self._add_to_seen_locations(memory_location)
                 return None
@@ -1014,7 +1035,9 @@ class ContosoAnalyzer:
 
             # Step 5: Extract memory location for tracking
             memory_location = self._extract_memory_location(cper_data)
-            is_repeat_error = self._check_for_matching_error(memory_location)
+            dram_row_failure_detected = (
+                self._has_prior_error_on_same_dram_device_row_at_different_column(
+                    memory_location))
 
             # Step 6: Auto-check if SPPR CPAD should be created
             sppr_path = self.create_sppr_cpad_from_cper(cper_data, str(cper_path))
@@ -1030,7 +1053,7 @@ class ContosoAnalyzer:
                 'cper_data': cper_data,
                 'sppr_created': sppr_was_created,
                 'sppr_filename': sppr_filename,
-                'is_repeat_error': is_repeat_error,
+                'dram_row_failure_detected': dram_row_failure_detected,
                 'memory_location': memory_location,
             })
 
@@ -1178,12 +1201,14 @@ def run_analysis(input_file: str) -> int:
     # Determine repeat status before creating the SPPR (create_... re-checks
     # and records first occurrences itself).
     memory_location = analyzer._extract_memory_location(newest_data)
-    is_repeat_error = analyzer._check_for_matching_error(memory_location)
+    dram_row_failure_detected = (
+        analyzer._has_prior_error_on_same_dram_device_row_at_different_column(
+            memory_location))
 
-    print(f"\n{IND}   🔁 Repeat-error check")
-    if is_repeat_error:
-        print(f"{IND}      This location was already recorded from a prior CPER → REPEAT fault.")
-        print(f"{IND}      A single corrected error is normal wear; multiple errors on the *same* row")
+    print(f"\n{IND}   🔁 DRAM device-row failure check")
+    if dram_row_failure_detected:
+        print(f"{IND}      A prior CPER recorded a different column on this DRAM device row.")
+        print(f"{IND}      A single corrected error is normal wear; multiple errors on the same device row")
         print(f"{IND}      indicate a failing row that might be repairable with PPR.")
     elif memory_location:
         print(f"{IND}      First time this location has been seen → recorded, no repair yet.")
@@ -1202,7 +1227,7 @@ def run_analysis(input_file: str) -> int:
             'cper_data': newest_data,
             'sppr_created': sppr_path is not None,
             'sppr_filename': sppr_filename,
-            'is_repeat_error': is_repeat_error,
+            'dram_row_failure_detected': dram_row_failure_detected,
             'memory_location': memory_location,
         }],
         successful=1,

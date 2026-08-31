@@ -39,7 +39,7 @@
       "bank": 3,
       "row": 1234,
       "column": 567,
-      "syndrome": "0x00A5",
+      "reserved": 0,
       "beat_mask": [
         [0, 0, 0, 0],
         [0, 0, 0, 0],

@@ -63,7 +63,7 @@ def test_memory_location_uses_single_failing_dram_as_device():
             "bank": 1,
             "row": 42,
             "column": 10,
-            "syndrome": 0,
+            "reserved": 0,
             "beat_mask": beat_mask,
         },
     }

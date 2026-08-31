@@ -97,11 +97,23 @@ def test_header_layout_and_endianness():
         spec_model.build_template("CPU Core - First Generation", "Poison Consumption"))
     fields["subcomponent"] = {"chiplet": 0x0102, "core": 0x0304}
     body = encoder.pack_section_body("CPU Core - First Generation", "Core Errors", fields)
-    # major=1, minor=0, num_banks=1 (u16 LE), chiplet/core as little-endian u16.
-    assert body[0] == 1 and body[1] == 0
+    # major=1, minor=1, num_banks=1 (u16 LE), chiplet/core as little-endian u16.
+    assert body[0] == 1 and body[1] == 1
     assert body[2:4] == b"\x01\x00"          # num_banks = 1
     assert body[4:6] == b"\x02\x01"          # chiplet 0x0102 little-endian
     assert body[6:8] == b"\x04\x03"          # core    0x0304 little-endian
+
+
+def test_decoder_rejects_legacy_section_version():
+    fields = spec_model.to_encoder_fields(
+        spec_model.build_template("CPU Core - First Generation", "Poison Consumption"))
+    body = bytearray(encoder.pack_section_body(
+        "CPU Core - First Generation", "Core Errors", fields))
+    body[1] = 0
+
+    import pytest
+    with pytest.raises(ValueError, match="Unsupported Contoso section format 1.0"):
+        encoder.unpack_section_body("CPU Core - First Generation", bytes(body))
 
 
 # ── Full pack → unpack round-trips ──────────────────────────────────────────
@@ -125,6 +137,8 @@ def test_core_roundtrip_selects_bank_and_fields():
 def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
     spec = spec_model.build_template("Memory Controller - First Generation",
                                      "Corrected Memory ECC Error")
+    assert "syndrome" not in spec["section"]["additional"]
+    assert spec["section"]["additional"]["reserved"] == 0
     spec["section"]["subcomponent"] = {"chiplet": 1, "controller": 0}
     spec["section"]["additional"]["dimm"] = 2
     spec["section"]["additional"]["bank"] = 3
@@ -143,8 +157,18 @@ def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
     assert out["additional"]["bank"] == 3
     assert out["additional"]["row"] == 1234
     assert out["additional"]["column"] == 567
+    assert out["additional"]["reserved"] == 0
+    assert "syndrome" not in out["additional"]
     assert out["additional"]["beat_mask"][3][2] == 0xBEEF
     assert out["additional"]["beat_mask"][0][0] == 0
+
+
+def test_memory_reserved_field_must_be_zero():
+    spec = spec_model.build_template("Memory Controller - First Generation",
+                                     "Corrected Memory ECC Error")
+    spec["section"]["additional"]["reserved"] = 1
+
+    assert "section.additional.reserved must be zero." in spec_model.validate_spec(spec)
 
 
 # ── Catalog integrity ───────────────────────────────────────────────────────

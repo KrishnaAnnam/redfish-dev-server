@@ -226,6 +226,13 @@ def validate_spec(spec):
             f"Unknown severityOverride '{override}'. "
             f"Known: {', '.join(SEVERITY_VALUES)}")
 
+    reserved = spec.get("section", {}).get("additional", {}).get("reserved", 0)
+    try:
+        if as_int(reserved) != 0:
+            problems.append("section.additional.reserved must be zero.")
+    except (ValueError, TypeError):
+        problems.append("section.additional.reserved must be zero.")
+
     # Validate beat-error authoring entries (DRAM 0-9, DQ 0-3, beat 0-15).
     for entry in spec.get("section", {}).get("beatErrors", []) or []:
         try:

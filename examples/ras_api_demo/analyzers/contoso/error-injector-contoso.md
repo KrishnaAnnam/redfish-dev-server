@@ -26,7 +26,7 @@ A Contoso CPER section can log a large amount of state (see `contoso-cper-sectio
 - **Misc 1** — implementation-specific context
 - **Section-type-specific additional registers** — for example the memory controller's
   DRAM bank logs up to 94 bytes (channel, subchannel, dimm, rank, bank_group, bank,
-  row, column, syndrome, and a `beat_mask[10][4]`)
+  row, column, a reserved field, and a `beat_mask[10][4]`)
 
 Expressing all of this with flat command-line arguments (e.g. `--beat-mask-dram3-dq2=...`)
 does not scale and is not usable. Instead, the primary interface is an **editable JSON
@@ -192,7 +192,7 @@ beat mask:
     "additional": {
         "channel": 0, "subchannel": 0, "dimm": 1, "rank": 0,
         "bank_group": 2, "bank": 3, "row": 1234, "column": 567,
-        "syndrome": "0x00A5",
+        "reserved": 0,
         "beat_mask": [ /* [10][4] uint16; defaults all-zero */ ]
     },
     "beatErrors": [

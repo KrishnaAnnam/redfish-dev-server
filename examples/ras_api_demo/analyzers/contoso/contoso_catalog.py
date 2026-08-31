@@ -29,9 +29,9 @@ All Contoso structures are little-endian and packed (see the sections doc).
 # never exposes it as an input.
 CONTOSO_CREATOR_ID = "11111111-2222-3333-4444-555555555555"
 
-# Contoso CPER section format version emitted by this tool.
+# Contoso CPER section format version emitted and decoded by this tool.
 CONTOSO_SECTION_MAJOR = 1
-CONTOSO_SECTION_MINOR = 0
+CONTOSO_SECTION_MINOR = 1
 
 # The RAS API "Inject Error" action (Action Id 0x06).
 INJECT_ACTION = {"code": "0x0006", "name": "Inject Error"}
@@ -110,7 +110,7 @@ SECTION_TYPES = {
                     ("bank", "B"),
                     ("row", "I"),
                     ("column", "H"),
-                    ("syndrome", "H"),
+                    ("reserved", "H"),
                     ("beat_mask", ("array", "H", (10, 4))),
                 ],
             },

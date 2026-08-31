@@ -222,6 +222,10 @@ def unpack_section_body(section_name, body):
 
     # Section header.
     major, minor, num_banks = struct.unpack_from("<BBH", body, 0)
+    if (major, minor) != (CONTOSO_SECTION_MAJOR, CONTOSO_SECTION_MINOR):
+        raise ValueError(
+            f"Unsupported Contoso section format {major}.{minor}; "
+            f"expected {CONTOSO_SECTION_MAJOR}.{CONTOSO_SECTION_MINOR}")
     offset = 4
     subcomp = {}
     for name, code in section["subcomponent"]:

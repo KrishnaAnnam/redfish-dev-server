@@ -106,6 +106,9 @@ The Contoso CPER Section Header contains:
 | Subcomponent Instance ID | 4 bytes |
 | **Total** | **8 bytes** |
 
+The current Contoso CPER section format version is **1.1**. The decoder supports
+this version only.
+
 The subcomponent instance ID is specific to a subcomponent.  The CPER section type tells us what type of subcomponent is being logged in the section body and the subcomponent instance ID tells us which instance of that subcomponent is being logged.  For example, the section type might be for a CPU core and the subcomponent instance ID might be the core number.  Each CPER section type definition will define how these bits are defined.
 
 #### Contoso Error Bank Format
@@ -222,7 +225,7 @@ uint8_t  bank_group;       // 1
 uint8_t  bank;             // 1
 uint32_t row;              // 4
 uint16_t column;           // 2
-uint16_t syndrome;         // 2
+uint16_t reserved;         // 2  -- must be zero
 uint16_t beat_mask[10][4]; // 80  -- [DRAM][DQ]; each bit is one of 16 beats of a DQ
 // Total: 94 bytes
 ```

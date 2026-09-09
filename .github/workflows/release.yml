@@ -33,6 +33,9 @@ jobs:
   release_build:
     name: Build and publish release
     runs-on: ubuntu-latest
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -115,17 +118,17 @@ jobs:
     - name: Login to Docker Hub
       uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
       with:
-        username: ${{secrets.DOCKER_USERNAME}}
-        password: ${{secrets.DOCKER_PASSWORD}}
-      if: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != '' }}
+        username: ${{ env.DOCKER_USERNAME }}
+        password: ${{ env.DOCKER_PASSWORD }}
+      if: env.DOCKER_USERNAME != '' && env.DOCKER_PASSWORD != ''
     - name: Build and push Docker image
       id: docker_build
       uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
       with:
         context: .
-        push: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != '' }}
-        tags: ${{secrets.DOCKER_USERNAME}}/bmc-redfish-simulator:${{github.event.inputs.version}},${{secrets.DOCKER_USERNAME}}/bmc-redfish-simulator:latest
-      if: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != '' }}
+        push: true
+        tags: ${{ env.DOCKER_USERNAME }}/bmc-redfish-simulator:${{github.event.inputs.version}},${{ env.DOCKER_USERNAME }}/bmc-redfish-simulator:latest
+      if: env.DOCKER_USERNAME != '' && env.DOCKER_PASSWORD != ''
     - name: Image digest
       run: echo ${{steps.docker_build.outputs.digest}}
-      if: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != '' }}
+      if: env.DOCKER_USERNAME != '' && env.DOCKER_PASSWORD != ''

@@ -159,7 +159,8 @@ class ContosoAnalyzer:
 
         Returns:
             dict with chiplet, controller, channel, subchannel, dimm, rank,
-            bank_group, bank, row, column, physical_address — or None.
+            bank_group, bank, row, column, DIMM identity fields, and
+            physical_address — or None.
         """
         sections = cper_data.get('sections', [])
         descriptors = cper_data.get('sectionDescriptors', [])
@@ -215,6 +216,14 @@ class ContosoAnalyzer:
                 'bank': add.get('bank', 0),
                 'row': add.get('row', 0),
                 'column': add.get('column', 0),
+                'serial_number': add.get('serial_number', ''),
+                'part_number': add.get('part_number', ''),
+                'dram_manufacturer_id': add.get('dram_manufacturer_id', [0, 0]),
+                'dram_manufacturer': contoso_catalog.decode_spd_manufacturer_id(
+                    add.get('dram_manufacturer_id', [0, 0])),
+                'module_manufacturer_id': add.get('module_manufacturer_id', [0, 0]),
+                'module_manufacturer': contoso_catalog.decode_spd_manufacturer_id(
+                    add.get('module_manufacturer_id', [0, 0])),
                 'physical_address': decoded.get('error_address', 0),
                 'beat_errors': beat_errors,
                 'drams': drams,
@@ -427,6 +436,13 @@ class ContosoAnalyzer:
         64-bit registers (code 'Q') and packed arrays read better in hex; the
         logical DRAM coordinates (channel, dimm, …) read better in decimal.
         """
+        if (isinstance(code, tuple) and code[0] == 'bytes' and
+                isinstance(value, list)):
+            raw = " ".join(f"{byte:02X}" for byte in value)
+            if name in ('dram_manufacturer_id', 'module_manufacturer_id'):
+                vendor = contoso_catalog.decode_spd_manufacturer_id(value)
+                return f"{raw} ({vendor})"
+            return raw
         if name == 'beat_mask' and isinstance(value, list):
             entries = []
             for device, row in enumerate(value):

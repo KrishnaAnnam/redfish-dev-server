@@ -25,8 +25,8 @@ A Contoso CPER section can log a large amount of state (see `contoso-cper-sectio
 - **Misc 0** — Injected bit, ce_count, implementation-specific bits
 - **Misc 1** — implementation-specific context
 - **Section-type-specific additional registers** — for example the memory controller's
-  DRAM bank logs up to 94 bytes (channel, subchannel, dimm, rank, bank_group, bank,
-  row, column, a reserved field, and a `beat_mask[10][4]`)
+  DRAM bank logs 142 bytes (channel, subchannel, dimm, rank, bank_group, bank,
+  row, column, DIMM identity fields, a reserved field, and a `beat_mask[10][4]`)
 
 Expressing all of this with flat command-line arguments (e.g. `--beat-mask-dram3-dq2=...`)
 does not scale and is not usable. Instead, the primary interface is an **editable JSON
@@ -192,6 +192,10 @@ beat mask:
     "additional": {
         "channel": 0, "subchannel": 0, "dimm": 1, "rank": 0,
         "bank_group": 2, "bank": 3, "row": 1234, "column": 567,
+        "serial_number": "SN123456789",
+        "part_number": "PN-1234",
+        "module_manufacturer_id": ["0x04", "0xD5"],
+        "dram_manufacturer_id": ["0x80", "0x2C"],
         "reserved": 0,
         "beat_mask": [ /* [10][4] uint16; defaults all-zero */ ]
     },
@@ -200,6 +204,19 @@ beat mask:
     ]
 }
 ```
+
+`serial_number` and `part_number` are Contoso NUL-terminated ASCII fields with
+maximum content lengths of 18 and 24 characters. The manufacturer IDs instead
+use the exact two-byte JEP106 representation used by DDR5 SPD. In each ID, the
+first byte contains the continuation count and odd parity; the second contains
+the final manufacturer code including odd parity. Values are listed in SPD byte
+order, not as a host-endian integer.
+
+Templates default both manufacturer IDs to Microsoft (`["0x04", "0xD5"]`). The
+analyzer decodes `80 2C` as Micron, `80 AD` as SK Hynix, `80 CE` as Samsung,
+and `04 D5` as Microsoft. Other valid IDs are displayed as `Unknown`; malformed
+IDs are displayed as `Invalid`. The module ID identifies the DIMM assembler,
+while the DRAM ID identifies the vendor that fabricated the DRAM devices.
 
 #### DRAM beat errors (`beatErrors` and `--beat`)
 

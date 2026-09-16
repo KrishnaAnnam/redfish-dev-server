@@ -21,6 +21,8 @@ from contoso_catalog import (
     SEVERITY_VALUES,
     resolve_section,
     resolve_error,
+    get_bank,
+    is_valid_spd_manufacturer_id,
 )
 
 # Sensible defaults for the demo platform (user edits these).
@@ -133,9 +135,14 @@ def _default_additional(fields):
     """Build a defaulted additional-register dict that shows each field's shape."""
     out = {}
     for name, code in fields:
-        if isinstance(code, tuple):            # array, e.g. beat_mask[10][4]
+        if isinstance(code, tuple) and code[0] == "array":
             _, _elem, (rows, cols) = code
             out[name] = [[0] * cols for _ in range(rows)]
+        elif isinstance(code, tuple) and code[0] == "string":
+            out[name] = ""
+        elif isinstance(code, tuple) and code[0] == "bytes":
+            _, length = code
+            out[name] = ["0x00"] * length
         elif code == "Q":                      # 64-bit → hex string for readability
             out[name] = "0x0"
         else:
@@ -157,6 +164,9 @@ def build_template(section_name, error_name):
         "misc1": "0x0",
         "additional": _default_additional(bank["additional"]),
     }
+    for name in ("dram_manufacturer_id", "module_manufacturer_id"):
+        if name in section_block["additional"]:
+            section_block["additional"][name] = ["0x04", "0xD5"]
     # DRAM sections can author beat errors declaratively (see compile_beat_errors).
     if any(name == "beat_mask" for name, _ in bank["additional"]):
         section_block["beatErrors"] = []
@@ -208,8 +218,10 @@ def validate_spec(spec):
     bank_name = error.get("errorBank")
     error_name = error.get("errorName")
 
+    bank = None
     try:
         error_id, _severity = resolve_error(section_name, bank_name, error_name)
+        bank = get_bank(resolve_section(section_name), bank_name)
         if error_id == 0:
             problems.append("'No Error Logged' is not an injectable error.")
     except KeyError as exc:
@@ -232,6 +244,57 @@ def validate_spec(spec):
             problems.append("section.additional.reserved must be zero.")
     except (ValueError, TypeError):
         problems.append("section.additional.reserved must be zero.")
+
+    if bank:
+        additional = spec.get("section", {}).get("additional", {})
+        for name, code in bank["additional"]:
+            if not (isinstance(code, tuple) and code[0] == "string"):
+                continue
+            _, capacity = code
+            value = additional.get(name, "")
+            if not isinstance(value, str):
+                problems.append(f"section.additional.{name} must be a string.")
+                continue
+            if "\x00" in value:
+                problems.append(
+                    f"section.additional.{name} must not contain NUL characters.")
+                continue
+            try:
+                encoded = value.encode("ascii")
+            except UnicodeEncodeError:
+                problems.append(
+                    f"section.additional.{name} must contain only ASCII characters.")
+                continue
+            if len(encoded) >= capacity:
+                problems.append(
+                    f"section.additional.{name} must be at most "
+                    f"{capacity - 1} characters.")
+
+        for name, code in bank["additional"]:
+            if not (isinstance(code, tuple) and code[0] == "bytes"):
+                continue
+            _, length = code
+            value = additional.get(name)
+            if not isinstance(value, (list, tuple)) or len(value) != length:
+                problems.append(
+                    f"section.additional.{name} must contain exactly "
+                    f"{length} bytes.")
+                continue
+            try:
+                parsed = [as_int(byte) for byte in value]
+            except (ValueError, TypeError):
+                problems.append(
+                    f"section.additional.{name} values must be bytes (0..255).")
+                continue
+            if any(isinstance(byte, bool) for byte in value) or \
+                    any(not 0 <= byte <= 0xFF for byte in parsed):
+                problems.append(
+                    f"section.additional.{name} values must be bytes (0..255).")
+            elif name in ("dram_manufacturer_id", "module_manufacturer_id") and \
+                    not is_valid_spd_manufacturer_id(parsed):
+                problems.append(
+                    f"section.additional.{name} must be a valid odd-parity "
+                    "JEP106 ID in SPD byte order.")
 
     # Validate beat-error authoring entries (DRAM 0-9, DQ 0-3, beat 0-15).
     for entry in spec.get("section", {}).get("beatErrors", []) or []:
@@ -264,10 +327,17 @@ def to_encoder_fields(spec):
     status = section.get("errorStatus", {})
     misc0 = section.get("misc0", {})
 
-    # Resolve additional register values (ints; arrays stay nested int lists).
+    # Resolve additional register values (arrays stay nested int lists).
     additional = {}
-    for name, value in section.get("additional", {}).items():
-        if isinstance(value, list):
+    bank = get_bank(resolve_section(error["sectionType"]), error["errorBank"])
+    supplied = section.get("additional", {})
+    for name, code in bank["additional"]:
+        value = supplied.get(name, "" if isinstance(code, tuple) and code[0] == "string" else 0)
+        if isinstance(code, tuple) and code[0] == "string":
+            additional[name] = value
+        elif isinstance(code, tuple) and code[0] == "bytes":
+            additional[name] = [as_int(byte) for byte in value]
+        elif isinstance(value, list):
             additional[name] = [[as_int(c) for c in row] for row in value]
         else:
             additional[name] = as_int(value)

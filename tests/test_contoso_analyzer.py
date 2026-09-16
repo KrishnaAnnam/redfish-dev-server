@@ -63,6 +63,10 @@ def test_memory_location_uses_single_failing_dram_as_device():
             "bank": 1,
             "row": 42,
             "column": 10,
+            "serial_number": "SN123456789",
+            "part_number": "PN-1234",
+            "dram_manufacturer_id": [0x80, 0x2C],
+            "module_manufacturer_id": [0x04, 0xD5],
             "reserved": 0,
             "beat_mask": beat_mask,
         },
@@ -84,6 +88,20 @@ def test_memory_location_uses_single_failing_dram_as_device():
 
     assert location is not None
     assert location["device"] == 3
+    assert location["serial_number"] == "SN123456789"
+    assert location["part_number"] == "PN-1234"
+    assert location["dram_manufacturer_id"] == [0x80, 0x2C]
+    assert location["dram_manufacturer"] == "Micron"
+    assert location["module_manufacturer_id"] == [0x04, 0xD5]
+    assert location["module_manufacturer"] == "Microsoft"
+
+
+def test_manufacturer_id_format_includes_unknown_decode():
+    code = ("bytes", 2)
+    assert ContosoAnalyzer._fmt_register(
+        "dram_manufacturer_id", code, [0x80, 0xCE]) == "80 CE (Samsung)"
+    assert ContosoAnalyzer._fmt_register(
+        "module_manufacturer_id", code, [0x80, 0x01]) == "80 01 (Unknown)"
 
 
 def test_sppr_matches_different_columns_on_same_row_and_device():

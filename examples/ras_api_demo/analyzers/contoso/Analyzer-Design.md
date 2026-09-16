@@ -104,11 +104,48 @@ The analyzer processes the AO's CPER list **newest first**:
     - If the action status indicates a **failure** (including `POLICY_REJECTED`),
       report it and, where appropriate, suggest another action (for example,
       escalating to a part replacement).
-- **Otherwise it is an error CPER.** Decode it, add its error location to the
-  set of locations seen this run, and check for a **failing DRAM row** (below).
-  A single corrected error at one cell is normal wear and needs no action.
+- **Otherwise it is an error CPER.**
+  Error CPER section types are associated with a subcomponent such as a core or a memory controller.  For each error CPER section type, there is a function for decoding and analyzing the errors for that subcomponent.  These functions are described in the following section.
 
-#### Failing-row detection (the core algorithm)
+### Analyzer Functions
+  These reflect the subcomponents that make up the design of the chip.  For the Contoso chip, the currently implemented subcomponents are:
+
+  - CPU Cores
+  - Memory Controllers
+
+**Note:** Any practical SoC would also have an IO block and that may be added to the Contoso chip in the future.
+
+### Memory Error Analysis
+
+The memory error analyzer supports optional analyzer tools from memory vendors.  It will discover vendor memory analyzers when it starts, looking for files named:
+
+ - analyzer_micron.py
+ - analyzer_samsung.py
+ - analyzer_skhynix.py
+
+If any of these files are present, the contoso memory analyzer function will call them to analyze the memory error(s), capture any JSON output from them and generate CPADs when they recommend an action to be taken.
+
+If these files are not present, the memory analyzer function will default to the Failing-Row detection algorithm described below.
+
+#### Micron Analyzer Interface
+
+
+#### Samsung Analyzer Interface
+
+
+#### SKHynix Analyzer Interface
+
+
+
+
+#### Failing-row detection (the default memory analysis method when a vendor analyzer is not present)
+
+The default memory analyzer is simplified for the purpose of this demo.  It will decode
+memory controller CPERs, add the CPER's error location to the
+set of locations seen this run, and check for a **failing DRAM row** (below).
+A single corrected error at one cell is insufficent to idenitify a failure pattern
+and needs no action.
+
 
 The analyzer keys each memory error by its **row coordinates** (chiplet,
 controller, channel, subchannel, DIMM, rank, bank group, bank, row) — the
@@ -128,6 +165,36 @@ more failing columns is stronger evidence of a bad row.
 > on a row; the second, on the *same row* at a *different column*, triggers the
 > SPPR CPAD.
 
+#### SPPR CPAD confidence (in default memory analyzer)
+
+Every CPAD the analyzer emits carries a **confidence** value (0–100) in the
+standard CPAD location: the section descriptor
+(`sectionDescriptors[0].confidence`).  The confidence value is not intended to
+be used by RAS API endpoints.  It is intended to help server fleet operator
+policy tools decide whether or not to act upon the CPAD.
+
+This demo shows how the confidence might increase as the analyzer gets more data
+and as the analyzer sees stronger indications of a pattern in the failures.
+
+For an SPPR (Soft Post Package Repair, action `0x8001`), confidence scales with
+the evidence gathered for the failing DRAM row. The key principle is: **the more
+error data we get, the higher the confidence.**
+
+- The base confidence is **80%** when two distinct column addresses have failed
+  on the same row.
+- Confidence increases by **1%** for each additional distinct column address on
+  that row.
+- Confidence is capped at **95%**, the highest value the analyzer will assign to
+  an SPPR CPAD.
+
+Formally, `confidence = min(80 + (distinct_columns - 2), 95)` for
+`distinct_columns >= 2`. The Server Fleet Operator Policy Engine gates SPPR
+CPADs at a configurable threshold (80% in this demo).
+
+This is only one example of how the analyzer might set CPAD section descriptor
+confidence.  There are many ways that analyzers might infer a failure mode from
+error data and many ways to assign confidence to the inference.
+
 ### JSON Decoding Requirements
 
 The decoded JSON data consists of two parts:
@@ -144,7 +211,7 @@ The decoded JSON data consists of two parts:
         - A list of zero or more ActionIDs (numbers and string descriptions) from CPADs suggesting actions to mitigate the error(s)
         - a text message telling the user about the error
             - if the error does not represent a risk of crashing the machine or a risk of a performance problem, let the user know that no action is needed
-            - if the error is a know issue with the chip, include a bug identifier for the issue that the customer can reference
+            - if the error is a known issue with the chip, include a bug identifier for the issue that the customer can reference
     If the CPER contains a Platform Action Event:
         - the action ID and a descriptive string for that Action ID
         - the action status value and descriptive string for the value
@@ -160,27 +227,7 @@ The decoded JSON data consists of two parts:
 
 ### CPAD Output Requirements
 
-#### SPPR CPAD confidence
 
-Every CPAD the analyzer emits carries a **confidence** value (0–100) in the
-standard CPAD location: the section descriptor
-(`sectionDescriptors[0].confidence`), *not* the top-level header. `cpad-convert`
-sets the field's validation bit automatically when the key is present.
-
-For an SPPR (Soft Post Package Repair, action `0x8001`), confidence scales with
-the evidence gathered for the failing DRAM row. The key principle is: **the more
-error data we get, the higher the confidence.**
-
-- The base confidence is **80%** when two distinct column addresses have failed
-  on the same row.
-- Confidence increases by **1%** for each additional distinct column address on
-  that row.
-- Confidence is capped at **95%**, the highest value the analyzer will assign to
-  an SPPR CPAD.
-
-Formally, `confidence = min(80 + (distinct_columns - 2), 95)` for
-`distinct_columns >= 2`. The Server Fleet Operator Policy Engine gates SPPR
-CPADs at a configurable threshold (80% in this demo).
 
 ## Related documents
 

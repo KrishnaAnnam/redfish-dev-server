@@ -17,7 +17,8 @@ import sys
 from pathlib import Path
 
 # The Contoso codec lives next to the analyzer, not on the default path.
-CONTOSO_DIR = Path(__file__).resolve().parents[1] / "Demos" / "RasApi" / "analyzers" / "contoso"
+CONTOSO_DIR = (Path(__file__).resolve().parents[1] / "examples" / "ras_api_demo" /
+               "analyzers" / "contoso")
 sys.path.insert(0, str(CONTOSO_DIR))
 
 import contoso_catalog as catalog        # noqa: E402
@@ -69,7 +70,7 @@ def test_additional_block_sizes():
     dram = catalog.SECTION_TYPES["Memory Controller - First Generation"]["banks"][0]
     other = catalog.SECTION_TYPES["Memory Controller - First Generation"]["banks"][1]
     assert encoder.additional_block_size(core["additional"]) == 40
-    assert encoder.additional_block_size(dram["additional"]) == 94   # incl. beat_mask[10][4]
+    assert encoder.additional_block_size(dram["additional"]) == 142
     assert encoder.additional_block_size(other["additional"]) == 8
 
 
@@ -86,8 +87,17 @@ def test_full_body_sizes():
                                   "Corrected Memory ECC Error"))
     mem_body = encoder.pack_section_body(
         "Memory Controller - First Generation", "DRAM Errors", mem_fields)
-    # header(8) + 2 banks(80) + additional(94 + 8)
-    assert len(mem_body) == 190
+    # header(8) + 2 banks(80) + additional(142 + 8)
+    assert len(mem_body) == 238
+
+
+def test_demo_memory_injection_spec_is_valid():
+    demo_spec_path = (Path(__file__).resolve().parents[1] / "examples" /
+                      "ras_api_demo" / "cpad_storage" /
+                      "contosoMemErrorSpoof.inject.json")
+    spec = spec_model.load_spec(demo_spec_path)
+
+    assert spec_model.validate_spec(spec) == []
 
 
 # ── Header endianness spot-check ────────────────────────────────────────────
@@ -97,8 +107,8 @@ def test_header_layout_and_endianness():
         spec_model.build_template("CPU Core - First Generation", "Poison Consumption"))
     fields["subcomponent"] = {"chiplet": 0x0102, "core": 0x0304}
     body = encoder.pack_section_body("CPU Core - First Generation", "Core Errors", fields)
-    # major=1, minor=1, num_banks=1 (u16 LE), chiplet/core as little-endian u16.
-    assert body[0] == 1 and body[1] == 1
+    # major=1, minor=2, num_banks=1 (u16 LE), chiplet/core as little-endian u16.
+    assert body[0] == 1 and body[1] == 2
     assert body[2:4] == b"\x01\x00"          # num_banks = 1
     assert body[4:6] == b"\x02\x01"          # chiplet 0x0102 little-endian
     assert body[6:8] == b"\x04\x03"          # core    0x0304 little-endian
@@ -109,11 +119,14 @@ def test_decoder_rejects_legacy_section_version():
         spec_model.build_template("CPU Core - First Generation", "Poison Consumption"))
     body = bytearray(encoder.pack_section_body(
         "CPU Core - First Generation", "Core Errors", fields))
-    body[1] = 0
+    body[1] = 1
 
-    import pytest
-    with pytest.raises(ValueError, match="Unsupported Contoso section format 1.0"):
+    try:
         encoder.unpack_section_body("CPU Core - First Generation", bytes(body))
+    except ValueError as exc:
+        assert "Unsupported Contoso section format 1.1" in str(exc)
+        return
+    raise AssertionError("expected ValueError for legacy section version")
 
 
 # ── Full pack → unpack round-trips ──────────────────────────────────────────
@@ -139,11 +152,19 @@ def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
                                      "Corrected Memory ECC Error")
     assert "syndrome" not in spec["section"]["additional"]
     assert spec["section"]["additional"]["reserved"] == 0
+    assert spec["section"]["additional"]["serial_number"] == ""
+    assert spec["section"]["additional"]["part_number"] == ""
+    assert spec["section"]["additional"]["dram_manufacturer_id"] == ["0x04", "0xD5"]
+    assert spec["section"]["additional"]["module_manufacturer_id"] == ["0x04", "0xD5"]
     spec["section"]["subcomponent"] = {"chiplet": 1, "controller": 0}
     spec["section"]["additional"]["dimm"] = 2
     spec["section"]["additional"]["bank"] = 3
     spec["section"]["additional"]["row"] = 1234
     spec["section"]["additional"]["column"] = 567
+    spec["section"]["additional"]["serial_number"] = "SN123456789"
+    spec["section"]["additional"]["part_number"] = "PN-1234"
+    spec["section"]["additional"]["dram_manufacturer_id"] = ["0x80", "0x2C"]
+    spec["section"]["additional"]["module_manufacturer_id"] = ["0x80", "0xCE"]
     spec["section"]["additional"]["beat_mask"][3][2] = 0xBEEF
     fields = spec_model.to_encoder_fields(spec)
     body = encoder.pack_section_body(
@@ -157,10 +178,62 @@ def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
     assert out["additional"]["bank"] == 3
     assert out["additional"]["row"] == 1234
     assert out["additional"]["column"] == 567
+    assert out["additional"]["serial_number"] == "SN123456789"
+    assert out["additional"]["part_number"] == "PN-1234"
+    assert out["additional"]["dram_manufacturer_id"] == [0x80, 0x2C]
+    assert out["additional"]["module_manufacturer_id"] == [0x80, 0xCE]
     assert out["additional"]["reserved"] == 0
     assert "syndrome" not in out["additional"]
     assert out["additional"]["beat_mask"][3][2] == 0xBEEF
     assert out["additional"]["beat_mask"][0][0] == 0
+
+
+def test_memory_string_binary_layout_and_maximum_lengths():
+    spec = spec_model.build_template("Memory Controller - First Generation",
+                                     "Corrected Memory ECC Error")
+    spec["section"]["additional"].update({
+        "serial_number": "S" * 18,
+        "part_number": "P" * 24,
+        "dram_manufacturer_id": ["0x80", "0xAD"],
+        "module_manufacturer_id": ["0x04", "0xD5"],
+    })
+    fields = spec_model.to_encoder_fields(spec)
+    body = encoder.pack_section_body(
+        "Memory Controller - First Generation", "DRAM Errors", fields)
+
+    # DRAM additional registers start after header(8) + two banks(80). The
+    # strings follow the six u8 coordinates, row(u32), and column(u16).
+    assert body[100:119] == b"S" * 18 + b"\x00"
+    assert body[119:144] == b"P" * 24 + b"\x00"
+    assert body[144:146] == b"\x04\xD5"
+    assert body[146:148] == b"\x80\xAD"
+
+
+def test_memory_string_validation():
+    spec = spec_model.build_template("Memory Controller - First Generation",
+                                     "Corrected Memory ECC Error")
+    spec["section"]["additional"]["serial_number"] = "S" * 19
+    spec["section"]["additional"]["part_number"] = "part\x00number"
+    spec["section"]["additional"]["dram_manufacturer_id"] = ["0x00", "0x2C"]
+    spec["section"]["additional"]["module_manufacturer_id"] = ["0x80"]
+
+    problems = spec_model.validate_spec(spec)
+    assert "section.additional.serial_number must be at most 18 characters." in problems
+    assert "section.additional.part_number must not contain NUL characters." in problems
+    assert ("section.additional.dram_manufacturer_id must be a valid odd-parity "
+            "JEP106 ID in SPD byte order.") in problems
+    assert ("section.additional.module_manufacturer_id must contain exactly 2 bytes."
+            in problems)
+
+
+def test_spd_manufacturer_id_decoding():
+    assert catalog.decode_spd_manufacturer_id([0x80, 0x2C]) == "Micron"
+    assert catalog.decode_spd_manufacturer_id([0x80, 0xAD]) == "SK Hynix"
+    assert catalog.decode_spd_manufacturer_id([0x80, 0xCE]) == "Samsung"
+    assert catalog.decode_spd_manufacturer_id([0x04, 0xD5]) == "Microsoft"
+
+    assert catalog.decode_spd_manufacturer_id([0x80, 0x01]) == "Unknown"
+    assert catalog.decode_spd_manufacturer_id([0x00, 0x2C]) == "Invalid"
 
 
 def test_memory_reserved_field_must_be_zero():

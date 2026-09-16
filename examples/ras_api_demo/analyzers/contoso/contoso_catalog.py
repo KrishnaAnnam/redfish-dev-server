@@ -19,6 +19,8 @@ encoder, the spec model, or the CPAD builder.
 Field-layout codes used by the additional-register tables:
     "B" = uint8   "H" = uint16   "I" = uint32   "Q" = uint64
     ("array", <code>, (rows, cols)) = a packed array (row-major)
+    ("string", <capacity>) = fixed-capacity, NUL-terminated ASCII string
+    ("bytes", <length>) = fixed-length byte sequence in wire order
 
 All Contoso structures are little-endian and packed (see the sections doc).
 """
@@ -31,7 +33,7 @@ CONTOSO_CREATOR_ID = "11111111-2222-3333-4444-555555555555"
 
 # Contoso CPER section format version emitted and decoded by this tool.
 CONTOSO_SECTION_MAJOR = 1
-CONTOSO_SECTION_MINOR = 1
+CONTOSO_SECTION_MINOR = 2
 
 # The RAS API "Inject Error" action (Action Id 0x06).
 INJECT_ACTION = {"code": "0x0006", "name": "Inject Error"}
@@ -49,6 +51,38 @@ SEVERITY_VALUES = {
     "Deferred": 4,
     "Corrected": 5,
 }
+
+
+# ── JEP106 manufacturer IDs in DDR5 SPD format ─────────────────────────────
+# SPD stores a manufacturer ID as two bytes: the first contains the JEP106
+# continuation count in bits 6:0 plus odd parity in bit 7; the second is the
+# final JEP106 manufacturer byte, including its odd parity bit.
+JEP106_MANUFACTURERS = {
+    (0x80, 0x2C): "Micron",
+    (0x80, 0xAD): "SK Hynix",
+    (0x80, 0xCE): "Samsung",
+    (0x04, 0xD5): "Microsoft",
+}
+
+
+def is_valid_spd_manufacturer_id(value):
+    """Return whether ``value`` is a valid two-byte SPD manufacturer ID."""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return False
+    if any(not isinstance(byte, int) or isinstance(byte, bool) or
+           not 0 <= byte <= 0xFF for byte in value):
+        return False
+    continuation, manufacturer = value
+    return (continuation.bit_count() % 2 == 1 and
+            manufacturer.bit_count() % 2 == 1 and
+            manufacturer & 0x7F not in (0, 0x7F))
+
+
+def decode_spd_manufacturer_id(value):
+    """Decode a supported JEP106 ID, or return ``Unknown``/``Invalid``."""
+    if not is_valid_spd_manufacturer_id(value):
+        return "Invalid"
+    return JEP106_MANUFACTURERS.get(tuple(value), "Unknown")
 
 
 # ── Section-type definitions ────────────────────────────────────────────────
@@ -110,6 +144,10 @@ SECTION_TYPES = {
                     ("bank", "B"),
                     ("row", "I"),
                     ("column", "H"),
+                    ("serial_number", ("string", 19)),
+                    ("part_number", ("string", 25)),
+                    ("module_manufacturer_id", ("bytes", 2)),
+                    ("dram_manufacturer_id", ("bytes", 2)),
                     ("reserved", "H"),
                     ("beat_mask", ("array", "H", (10, 4))),
                 ],

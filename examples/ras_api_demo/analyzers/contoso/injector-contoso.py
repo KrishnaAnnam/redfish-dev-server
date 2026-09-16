@@ -232,6 +232,10 @@ def cmd_decode(args):
     # Present the decoded body cleanly: reverse-compile any beat_mask bits into
     # a readable beatErrors list and zero the raw grid so the spec re-injects.
     additional = dict(decoded["additional"])
+    bank = catalog.get_bank(catalog.resolve_section(section_name), decoded["bank_name"])
+    for name, code in bank["additional"]:
+        if isinstance(code, tuple) and code[0] == "bytes":
+            additional[name] = [f"0x{byte:02X}" for byte in additional[name]]
     beat_errors = []
     grid = additional.get("beat_mask")
     if isinstance(grid, list) and grid and isinstance(grid[0], list):

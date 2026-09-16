@@ -106,7 +106,7 @@ The Contoso CPER Section Header contains:
 | Subcomponent Instance ID | 4 bytes |
 | **Total** | **8 bytes** |
 
-The current Contoso CPER section format version is **1.1**. The decoder supports
+The current Contoso CPER section format version is **1.2**. The decoder supports
 this version only.
 
 The subcomponent instance ID is specific to a subcomponent.  The CPER section type tells us what type of subcomponent is being logged in the section body and the subcomponent instance ID tells us which instance of that subcomponent is being logged.  For example, the section type might be for a CPU core and the subcomponent instance ID might be the core number.  Each CPER section type definition will define how these bits are defined.
@@ -225,10 +225,40 @@ uint8_t  bank_group;       // 1
 uint8_t  bank;             // 1
 uint32_t row;              // 4
 uint16_t column;           // 2
+char     serial_number[19]; // 19 -- up to 18 ASCII characters plus NUL
+char     part_number[25];   // 25 -- up to 24 ASCII characters plus NUL
+uint8_t  module_manufacturer_id[2]; // 2 -- JEP106 ID in DDR5 SPD byte order
+uint8_t  dram_manufacturer_id[2];   // 2 -- JEP106 ID in DDR5 SPD byte order
 uint16_t reserved;         // 2  -- must be zero
 uint16_t beat_mask[10][4]; // 80  -- [DRAM][DQ]; each bit is one of 16 beats of a DQ
-// Total: 94 bytes
+// Total: 142 bytes
 ```
+
+`serial_number` and `part_number` are Contoso NUL-terminated ASCII fields. Each
+value is followed by a mandatory NUL terminator, and every byte after the
+terminator must also be zero. Their maximum content lengths are 18 and 24
+characters respectively.
+
+The manufacturer fields use the same two-byte representation as the DDR5 SPD
+module and DRAM manufacturer ID fields defined by JESD400-5D.01 sections 20.1
+and 20.7. Byte 0 contains the JEP106 continuation count in bits 6:0 and its odd
+parity bit in bit 7. Byte 1 contains the final JEP106 manufacturer code,
+including its odd parity bit. The bytes are stored in SPD order and are not
+interpreted as a host-endian `uint16_t`.
+
+The demo analyzer recognizes these IDs:
+
+| SPD Bytes | Manufacturer |
+| --- | --- |
+| `80 2C` | Micron |
+| `80 AD` | SK Hynix |
+| `80 CE` | Samsung |
+| `04 D5` | Microsoft |
+
+A valid JEP106 ID not listed above is reported as `Unknown`. An ID with invalid
+odd parity or an invalid final manufacturer code is reported as `Invalid`.
+`module_manufacturer_id` identifies the DIMM assembler;
+`dram_manufacturer_id` identifies the DRAM device vendor.
 
 
 #### Error Bank 1: Other Errors 

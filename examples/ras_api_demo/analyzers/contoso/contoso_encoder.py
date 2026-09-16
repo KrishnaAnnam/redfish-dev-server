@@ -99,9 +99,15 @@ def additional_block_size(fields):
     """Byte size of an additional-register layout from the catalog."""
     size = 0
     for _name, code in fields:
-        if isinstance(code, tuple):            # ("array", elem_code, (rows, cols))
+        if isinstance(code, tuple) and code[0] == "array":
             _, elem, (rows, cols) = code
             size += _SCALAR_SIZES[elem] * rows * cols
+        elif isinstance(code, tuple) and code[0] == "string":
+            _, capacity = code
+            size += capacity
+        elif isinstance(code, tuple) and code[0] == "bytes":
+            _, length = code
+            size += length
         else:
             size += _SCALAR_SIZES[code]
     return size
@@ -111,7 +117,7 @@ def pack_additional(fields, values):
     """Pack an additional-register block from a dict of field values."""
     out = bytearray()
     for name, code in fields:
-        if isinstance(code, tuple):            # array field, e.g. beat_mask[10][4]
+        if isinstance(code, tuple) and code[0] == "array":
             _, elem, (rows, cols) = code
             grid = values.get(name) or []
             for r in range(rows):
@@ -119,6 +125,30 @@ def pack_additional(fields, values):
                 for c in range(cols):
                     cell = row[c] if isinstance(row, (list, tuple)) and c < len(row) else 0
                     out += struct.pack("<" + elem, cell & _mask(elem))
+        elif isinstance(code, tuple) and code[0] == "string":
+            _, capacity = code
+            value = values.get(name, "")
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+            if "\x00" in value:
+                raise ValueError(f"{name} must not contain NUL characters")
+            try:
+                encoded = value.encode("ascii")
+            except UnicodeEncodeError as exc:
+                raise ValueError(f"{name} must contain only ASCII characters") from exc
+            if len(encoded) >= capacity:
+                raise ValueError(
+                    f"{name} must be at most {capacity - 1} characters")
+            out += encoded + b"\x00" * (capacity - len(encoded))
+        elif isinstance(code, tuple) and code[0] == "bytes":
+            _, length = code
+            value = values.get(name, [0] * length)
+            if not isinstance(value, (list, tuple)) or len(value) != length:
+                raise ValueError(f"{name} must contain exactly {length} bytes")
+            if any(not isinstance(byte, int) or isinstance(byte, bool) or
+                   not 0 <= byte <= 0xFF for byte in value):
+                raise ValueError(f"{name} values must be bytes (0..255)")
+            out += bytes(value)
         else:
             out += struct.pack("<" + code, int(values.get(name, 0)) & _mask(code))
     return bytes(out)
@@ -129,7 +159,7 @@ def unpack_additional(fields, data):
     values = {}
     offset = 0
     for name, code in fields:
-        if isinstance(code, tuple):
+        if isinstance(code, tuple) and code[0] == "array":
             _, elem, (rows, cols) = code
             size = _SCALAR_SIZES[elem]
             grid = []
@@ -141,6 +171,28 @@ def unpack_additional(fields, data):
                     offset += size
                 grid.append(row)
             values[name] = grid
+        elif isinstance(code, tuple) and code[0] == "string":
+            _, capacity = code
+            raw = data[offset:offset + capacity]
+            if len(raw) != capacity:
+                raise ValueError(f"{name} is truncated")
+            terminator = raw.find(b"\x00")
+            if terminator < 0:
+                raise ValueError(f"{name} is not NUL-terminated")
+            if any(raw[terminator + 1:]):
+                raise ValueError(f"{name} has non-NUL padding")
+            try:
+                values[name] = raw[:terminator].decode("ascii")
+            except UnicodeDecodeError as exc:
+                raise ValueError(f"{name} contains non-ASCII data") from exc
+            offset += capacity
+        elif isinstance(code, tuple) and code[0] == "bytes":
+            _, length = code
+            raw = data[offset:offset + length]
+            if len(raw) != length:
+                raise ValueError(f"{name} is truncated")
+            values[name] = list(raw)
+            offset += length
         else:
             size = _SCALAR_SIZES[code]
             (val,) = struct.unpack_from("<" + code, data, offset)

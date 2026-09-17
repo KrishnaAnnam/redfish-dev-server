@@ -3,7 +3,7 @@
 > **Historical record.** This document describes an earlier Manager-scoped
 > `Oem.RasProto` design. The mockup has since been realigned to the OCP RAS API
 > Redfish Specification v0.7, which places the RAS service at the service root:
-> `/redfish/v1/Oem/OCPRASAPIWS/RASService`. See `src/plugins/ras/INTEGRATION_COMPLETE.md`
+> `/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService`. See `src/plugins/ras/INTEGRATION_COMPLETE.md`
 > for the current design.
 
 ## Overview

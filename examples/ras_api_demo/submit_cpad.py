@@ -7,7 +7,7 @@ Reads binary CPAD files, validates the CPAD signature, extracts platformID,
 base64-encodes the binary, and submits as JSON to the BMC Redfish endpoint.
 
 Transport format:
-    POST /redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD
+    POST /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService.SubmitCPAD
     Content-Type: application/json
     {"CPADData": "<base64>", "EncodingType": "Base64"}
 
@@ -203,7 +203,7 @@ class CPADSubmitter:
             }
 
             # Submit CPAD to BMC as JSON
-            endpoint = (f"{target_url}/redfish/v1/Oem/OCPRASAPIWS"
+            endpoint = (f"{target_url}/redfish/v1/Oem/OpenCompute_FaultMgmt"
                         f"/RASService/Actions/RASService.SubmitCPAD")
 
             if verbose_steps:

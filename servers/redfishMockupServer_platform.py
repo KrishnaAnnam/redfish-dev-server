@@ -204,7 +204,7 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
                 severity = log_entry.get("Severity", "Warning")
                 message_id = log_entry.get("MessageId", "OCPRAS.1.0.0.CorrectedError")
                 message = log_entry.get("Message", "CPER record created.")
-                oem = log_entry.get("Oem", {}).get("OCPRASAPIWS", {})
+                oem = log_entry.get("Oem", {}).get("OpenCompute_FaultMgmt", {})
 
                 event_data = {
                     "EventType": "Alert",
@@ -228,7 +228,7 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
 
                 # Include OEM metadata
                 if oem:
-                    event_data["Oem"] = {"OCPRASAPIWS": oem}
+                    event_data["Oem"] = {"OpenCompute_FaultMgmt": oem}
 
                 self.event_service.handle_eventing(
                     "/redfish/v1/EventService/Actions/EventService.SubmitTestEvent",

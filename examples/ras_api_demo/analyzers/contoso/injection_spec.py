@@ -44,15 +44,15 @@ def as_int(value):
 
 # ── Beat-mask authoring (beatErrors → beat_mask grid) ────────────────────────
 #
-# The DRAM error bank logs a beat_mask[DRAM][DQ] where each element is a 16-bit
-# mask (one bit per beat).  Rather than hand-editing that grid, users describe
+# The DRAM error bank logs an explicit device plus beat_mask[DQ], where each
+# element is a 16-bit mask (one bit per beat). Rather than hand-editing it, users describe
 # failing beats declaratively with a ``beatErrors`` list, e.g.:
 #
 #   "beatErrors": [ { "dram": 3, "dq": 2, "beats": "0,5,15" } ]
 #
 # Each of dram / dq / beats accepts an int, a list, "all", a comma list, or a
 # "lo-hi" range (or a combination like "0,3-5").  Entries OR together onto the
-# zero-initialised grid.
+# zero-initialised vector. All entries must select the same DRAM device.
 _NUM_BEATS = 16   # bits per DQ beat_mask element (uint16), one per beat
 
 
@@ -101,22 +101,28 @@ def compile_beat_errors(section):
     entries = section.get("beatErrors")
     if not entries:
         return
-    grid = section.get("additional", {}).get("beat_mask")
-    if not isinstance(grid, list) or not grid or not isinstance(grid[0], list):
-        raise ValueError("beatErrors given but this section has no beat_mask grid")
+    additional = section.get("additional", {})
+    masks = additional.get("beat_mask")
+    if not isinstance(masks, list) or len(masks) != 4:
+        raise ValueError("beatErrors given but this section has no beat_mask vector")
 
-    num_drams = len(grid)
-    num_dqs = len(grid[0])
+    selected_device = None
     for entry in entries:
-        drams = parse_index_set(entry.get("dram", "all"), 0, num_drams - 1)
-        dqs = parse_index_set(entry.get("dq", "all"), 0, num_dqs - 1)
+        drams = parse_index_set(entry.get("dram"), 0, 9)
+        if len(drams) != 1:
+            raise ValueError("each beatErrors entry must select exactly one DRAM")
+        device = drams[0]
+        if selected_device is not None and device != selected_device:
+            raise ValueError("all beatErrors entries must select the same DRAM")
+        selected_device = device
+        dqs = parse_index_set(entry.get("dq", "all"), 0, len(masks) - 1)
         beats = parse_index_set(entry.get("beats", "all"), 0, _NUM_BEATS - 1)
         bits = 0
         for b in beats:
             bits |= (1 << b)
-        for d in drams:
-            for q in dqs:
-                grid[d][q] = as_int(grid[d][q]) | bits
+        for q in dqs:
+            masks[q] = as_int(masks[q]) | bits
+    additional["device"] = selected_device
 
 
 # ── Template generation ─────────────────────────────────────────────────────
@@ -138,6 +144,11 @@ def _default_additional(fields):
         if isinstance(code, tuple) and code[0] == "array":
             _, _elem, (rows, cols) = code
             out[name] = [[0] * cols for _ in range(rows)]
+        elif isinstance(code, tuple) and code[0] == "vector":
+            _, _elem, length = code
+            out[name] = [0] * length
+        elif isinstance(code, tuple) and code[0] == "repairs":
+            out[name] = []
         elif isinstance(code, tuple) and code[0] == "string":
             out[name] = ""
         elif isinstance(code, tuple) and code[0] == "bytes":
@@ -245,6 +256,16 @@ def validate_spec(spec):
     except (ValueError, TypeError):
         problems.append("section.additional.reserved must be zero.")
 
+    capabilities = spec.get("section", {}).get("additional", {}).get(
+        "memory_repair_capabilities", 0)
+    try:
+        if as_int(capabilities) & ~0x07:
+            problems.append(
+                "section.additional.memory_repair_capabilities has reserved bits set.")
+    except (ValueError, TypeError):
+        problems.append(
+            "section.additional.memory_repair_capabilities must be a byte.")
+
     if bank:
         additional = spec.get("section", {}).get("additional", {})
         for name, code in bank["additional"]:
@@ -296,14 +317,47 @@ def validate_spec(spec):
                     f"section.additional.{name} must be a valid odd-parity "
                     "JEP106 ID in SPD byte order.")
 
-    # Validate beat-error authoring entries (DRAM 0-9, DQ 0-3, beat 0-15).
+    # Validate beat-error authoring entries (one DRAM 0-9, DQ 0-3, beat 0-15).
+    selected_devices = set()
     for entry in spec.get("section", {}).get("beatErrors", []) or []:
         try:
-            parse_index_set(entry.get("dram", "all"), 0, 9)
+            devices = parse_index_set(entry.get("dram"), 0, 9)
+            if len(devices) != 1:
+                raise ValueError("exactly one DRAM must be selected")
+            selected_devices.update(devices)
             parse_index_set(entry.get("dq", "all"), 0, 3)
             parse_index_set(entry.get("beats", "all"), 0, _NUM_BEATS - 1)
         except (ValueError, TypeError) as exc:
             problems.append(f"Invalid beatErrors entry {entry}: {exc}")
+    if len(selected_devices) > 1:
+        problems.append("All beatErrors entries must select the same DRAM.")
+
+    repairs = spec.get("section", {}).get("additional", {}).get("repairs", [])
+    if not isinstance(repairs, list):
+        problems.append("section.additional.repairs must be a list.")
+    else:
+        seen_repairs = set()
+        required = ("subchannel", "rank", "device", "bank_group", "bank", "count")
+        for index, repair in enumerate(repairs):
+            try:
+                values = tuple(as_int(repair[name]) for name in required)
+            except (KeyError, ValueError, TypeError):
+                problems.append(
+                    f"section.additional.repairs[{index}] must contain byte values "
+                    f"for {', '.join(required)}.")
+                continue
+            if any(not 0 <= value <= 0xFF for value in values):
+                problems.append(
+                    f"section.additional.repairs[{index}] values must be bytes (0..255).")
+                continue
+            key = values[:-1]
+            if values[-1] == 0:
+                problems.append(
+                    f"section.additional.repairs[{index}].count must be 1..255.")
+            if key in seen_repairs:
+                problems.append(
+                    f"section.additional.repairs[{index}] duplicates a bank address.")
+            seen_repairs.add(key)
 
     return problems
 
@@ -321,7 +375,7 @@ def to_encoder_fields(spec):
     severity_name = error.get("severityOverride") or typical_severity
     severity_value = SEVERITY_VALUES[severity_name]
 
-    # Expand any declarative beat errors onto the beat_mask grid first.
+    # Expand any declarative beat errors onto the beat_mask vector first.
     compile_beat_errors(section)
 
     status = section.get("errorStatus", {})
@@ -332,11 +386,25 @@ def to_encoder_fields(spec):
     bank = get_bank(resolve_section(error["sectionType"]), error["errorBank"])
     supplied = section.get("additional", {})
     for name, code in bank["additional"]:
-        value = supplied.get(name, "" if isinstance(code, tuple) and code[0] == "string" else 0)
+        if isinstance(code, tuple) and code[0] in ("vector", "repairs"):
+            default = []
+        elif isinstance(code, tuple) and code[0] == "string":
+            default = ""
+        else:
+            default = 0
+        value = supplied.get(name, default)
         if isinstance(code, tuple) and code[0] == "string":
             additional[name] = value
         elif isinstance(code, tuple) and code[0] == "bytes":
             additional[name] = [as_int(byte) for byte in value]
+        elif isinstance(code, tuple) and code[0] == "repairs":
+            additional[name] = [
+                {key: as_int(entry[key]) for key in
+                 ("subchannel", "rank", "device", "bank_group", "bank", "count")}
+                for entry in value
+            ]
+        elif isinstance(code, tuple) and code[0] == "vector":
+            additional[name] = [as_int(cell) for cell in value]
         elif isinstance(value, list):
             additional[name] = [[as_int(c) for c in row] for row in value]
         else:

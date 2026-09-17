@@ -229,22 +229,22 @@ def cmd_decode(args):
     severity_name = _SEVERITY_NAMES.get(status["severity_value"], "Unknown")
     _eid, typical = catalog.resolve_error(section_name, decoded["bank_name"], error_name)
 
-    # Present the decoded body cleanly: reverse-compile any beat_mask bits into
-    # a readable beatErrors list and zero the raw grid so the spec re-injects.
+    # Present the decoded body cleanly: reverse-compile beat_mask bits into a
+    # readable beatErrors list and zero the raw vector so the spec re-injects.
     additional = dict(decoded["additional"])
     bank = catalog.get_bank(catalog.resolve_section(section_name), decoded["bank_name"])
     for name, code in bank["additional"]:
         if isinstance(code, tuple) and code[0] == "bytes":
             additional[name] = [f"0x{byte:02X}" for byte in additional[name]]
     beat_errors = []
-    grid = additional.get("beat_mask")
-    if isinstance(grid, list) and grid and isinstance(grid[0], list):
-        for d, row in enumerate(grid):
-            for q, mask in enumerate(row):
-                if mask:
-                    beats = ",".join(str(b) for b in range(16) if mask & (1 << b))
-                    beat_errors.append({"dram": d, "dq": q, "beats": beats})
-        additional["beat_mask"] = [[0] * len(grid[0]) for _ in grid]
+    masks = additional.get("beat_mask")
+    device = additional.get("device")
+    if isinstance(masks, list):
+        for q, mask in enumerate(masks):
+            if mask:
+                beats = ",".join(str(b) for b in range(16) if mask & (1 << b))
+                beat_errors.append({"dram": device, "dq": q, "beats": beats})
+        additional["beat_mask"] = [0] * len(masks)
 
     section_block = {
         "subcomponent": decoded["subcomponent"],

@@ -57,7 +57,7 @@ def main():
     # Test basic server functionality
     print("\n📋 BASIC SERVER TESTS")
     test_request("GET", "", expected_status=200)
-    test_request("GET", "/Oem/OCPRASAPIWS/RASService", expected_status=200)
+    test_request("GET", "/Oem/OpenCompute_FaultMgmt/RASService", expected_status=200)
     
     # Test UpdateService Handlers
     print("\n📦 UPDATESERVICE TESTS")

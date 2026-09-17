@@ -19,8 +19,10 @@ encoder, the spec model, or the CPAD builder.
 Field-layout codes used by the additional-register tables:
     "B" = uint8   "H" = uint16   "I" = uint32   "Q" = uint64
     ("array", <code>, (rows, cols)) = a packed array (row-major)
+    ("vector", <code>, length) = a packed one-dimensional array
     ("string", <capacity>) = fixed-capacity, NUL-terminated ASCII string
     ("bytes", <length>) = fixed-length byte sequence in wire order
+    ("repairs",) = uint8 count followed by sparse six-byte repair entries
 
 All Contoso structures are little-endian and packed (see the sections doc).
 """
@@ -33,7 +35,7 @@ CONTOSO_CREATOR_ID = "11111111-2222-3333-4444-555555555555"
 
 # Contoso CPER section format version emitted and decoded by this tool.
 CONTOSO_SECTION_MAJOR = 1
-CONTOSO_SECTION_MINOR = 2
+CONTOSO_SECTION_MINOR = 4
 
 # The RAS API "Inject Error" action (Action Id 0x06).
 INJECT_ACTION = {"code": "0x0006", "name": "Inject Error"}
@@ -134,22 +136,26 @@ SECTION_TYPES = {
                     "Uncorrected Memory ECC Error": (0x02, "Deferred"),
                     "Command/Address Parity Error": (0x03, "Uncorrected"),
                 },
-                # DDR5 10x4: 10 DRAMs, 4 DQs, 16 beats per DQ (beat_mask bits).
+                # DDR5 x4: explicit device plus 4 DQs, 16 beats per DQ.
                 "additional": [
                     ("channel", "B"),
-                    ("subchannel", "B"),
                     ("dimm", "B"),
+                    ("subchannel", "B"),
                     ("rank", "B"),
+                    ("device", "B"),
                     ("bank_group", "B"),
                     ("bank", "B"),
                     ("row", "I"),
                     ("column", "H"),
+                    ("beat_mask", ("vector", "H", 4)),
                     ("serial_number", ("string", 19)),
                     ("part_number", ("string", 25)),
                     ("module_manufacturer_id", ("bytes", 2)),
                     ("dram_manufacturer_id", ("bytes", 2)),
+                    ("total_memory_bytes", "Q"),
+                    ("memory_repair_capabilities", "B"),
                     ("reserved", "H"),
-                    ("beat_mask", ("array", "H", (10, 4))),
+                    ("repairs", ("repairs",)),
                 ],
             },
             {

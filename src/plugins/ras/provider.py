@@ -23,11 +23,11 @@ class RASHandler(BasePlatformHandler):
     Handler for RAS-specific endpoints.
 
     Handles paths:
-    - /redfish/v1/Oem/OCPRASAPIWS/RASService                      (GET, discovery)
-    - /redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints         (GET, discovery)
-    - /redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/{Id}    (GET, discovery)
-    - /redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo (GET, discovery)
-    - /redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD (POST)
+    - /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService                      (GET, discovery)
+    - /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints         (GET, discovery)
+    - /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/{Id}    (GET, discovery)
+    - /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/SubmitCPADActionInfo (GET, discovery)
+    - /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService.SubmitCPAD (POST)
     - /redfish/v1/Managers/{ManagerId}/LogServices/CPER/* (CPER LogService)
 
     The RAS discovery tree is built dynamically by the plugin (see
@@ -65,7 +65,8 @@ class RASHandler(BasePlatformHandler):
         logger.info("RAS EventService handler initialized")
 
         # Serves the RAS discovery tree (RASService, RASEndpoints, ActionInfo).
-        self.discovery_handler = RASDiscoveryHandler(self.DEFAULT_MANAGER_ID)
+        self.discovery_handler = RASDiscoveryHandler(
+            self.DEFAULT_MANAGER_ID, mockup_dir=mockup_dir)
         
         # Initialize Phase 7 services
         self.queue_manager = None
@@ -97,28 +98,28 @@ class RASHandler(BasePlatformHandler):
         
         # Compile path patterns
         self.rasservice_pattern = re.compile(
-            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/?$'
+            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/?$'
         )
         self.endpoint_collection_pattern = re.compile(
-            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/?$'
+            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/?$'
         )
         self.endpoint_pattern = re.compile(
-            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/([^/]+)/?$'
+            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/([^/]+)/?$'
         )
         self.action_info_pattern = re.compile(
-            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo/?$'
+            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/SubmitCPADActionInfo/?$'
         )
         self.submit_cpad_pattern = re.compile(
-            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService\.SubmitCPAD/?$'
+            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService\.SubmitCPAD/?$'
         )
         self.logservice_pattern = re.compile(
             r'^/redfish/v1/Managers/([^/]+)/LogServices/CPER(/.*)?$'
         )
         self.analytics_pattern = re.compile(
-            r'^/redfish/v1/Managers/([^/]+)/Oem/OCPRASAPIWS/Analytics/?$'
+            r'^/redfish/v1/Managers/([^/]+)/Oem/OpenCompute_FaultMgmt/Analytics/?$'
         )
         self.health_pattern = re.compile(
-            r'^/redfish/v1/Managers/([^/]+)/Oem/OCPRASAPIWS/Health/?$'
+            r'^/redfish/v1/Managers/([^/]+)/Oem/OpenCompute_FaultMgmt/Health/?$'
         )
         
         logger.info("RAS Handler initialized")
@@ -181,7 +182,7 @@ class RASHandler(BasePlatformHandler):
                     event_data = {
                         "Severity": queue_item.metadata.get("severity", "OK"),
                         "Oem": {
-                            "OCPRASAPIWS": queue_item.cper_data
+                            "OpenCompute_FaultMgmt": queue_item.cper_data
                         }
                     }
                     self.remediation_engine.evaluate_event(event_data)
@@ -211,16 +212,16 @@ class RASHandler(BasePlatformHandler):
     def get_supported_paths(self) -> List[str]:
         """Return list of path patterns this handler supports"""
         return [
-            '/redfish/v1/Oem/OCPRASAPIWS/RASService',
-            '/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints',
-            '/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/*',
-            '/redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo',
-            '/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD',
+            '/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService',
+            '/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints',
+            '/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/*',
+            '/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/SubmitCPADActionInfo',
+            '/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService.SubmitCPAD',
             '/redfish/v1/Managers/*/LogServices/CPER',
             '/redfish/v1/Managers/*/LogServices/CPER/Entries',
             '/redfish/v1/Managers/*/LogServices/CPER/Entries/*',
-            '/redfish/v1/Managers/*/Oem/OCPRASAPIWS/Analytics',
-            '/redfish/v1/Managers/*/Oem/OCPRASAPIWS/Health',
+            '/redfish/v1/Managers/*/Oem/OpenCompute_FaultMgmt/Analytics',
+            '/redfish/v1/Managers/*/Oem/OpenCompute_FaultMgmt/Health',
         ]
 
     def can_handle_path(self, path: str) -> bool:
@@ -386,7 +387,7 @@ class ManagerOEMInjector:
     Deprecated: retained for backward-compatible imports only.
 
     RAS discovery is advertised via a static ServiceRoot OEM link
-    (Oem.OCPRASAPIWS.RASService -> /redfish/v1/Oem/OCPRASAPIWS/RASService),
+    (Oem.OpenCompute_FaultMgmt.RASService -> /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService),
     so no dynamic Manager OEM injection is performed.
     """
     
@@ -418,7 +419,7 @@ class ManagerOEMInjector:
             # Wrap in Redfish OEM format
             response = {
                 "@odata.type": "#OCPRASAnalytics.v1_0_0.Analytics",
-                "@odata.id": f"/redfish/v1/Managers/{manager_id}/Oem/OCPRASAPIWS/Analytics",
+                "@odata.id": f"/redfish/v1/Managers/{manager_id}/Oem/OpenCompute_FaultMgmt/Analytics",
                 "Id": "Analytics",
                 "Name": "RAS Analytics",
                 "Description": "RAS analytics and trend analysis",
@@ -445,7 +446,7 @@ class ManagerOEMInjector:
             # Wrap in Redfish OEM format
             response = {
                 "@odata.type": "#OCPRASHealth.v1_0_0.Health",
-                "@odata.id": f"/redfish/v1/Managers/{manager_id}/Oem/OCPRASAPIWS/Health",
+                "@odata.id": f"/redfish/v1/Managers/{manager_id}/Oem/OpenCompute_FaultMgmt/Health",
                 "Id": "Health",
                 "Name": "RAS System Health",
                 "Description": "RAS system health monitoring",

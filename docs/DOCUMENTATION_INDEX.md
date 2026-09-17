@@ -32,6 +32,7 @@ This directory contains comprehensive documentation for the BMC Redfish Simulato
 | Document | Description | Audience |
 |----------|-------------|----------|
 | **[RAS_PLUGIN.md](RAS_PLUGIN.md)** | **RAS plugin complete documentation** | **RAS Users, Developers** |
+| [RAS Endpoint Configuration](../src/plugins/ras/RAS_ENDPOINT_CONFIGURATION.md) | Configure endpoint identity, memory, SPD data, and PPR capabilities | RAS Users, Platform Developers |
 
 ### Feature Guides
 
@@ -330,10 +331,10 @@ pytest tests/test_platform_server.py -v
 python3 servers/redfishMockupServer_platform.py -D mockups/ras_gen1
 
 # Test plugin endpoints
-curl -u demo:demo http://localhost:8000/redfish/v1/Oem/OCPRASAPIWS/RASService
+curl -u demo:demo http://localhost:8000/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService
 
 # Submit CPAD
-curl -u demo:demo -X POST http://localhost:8000/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD \
+curl -u demo:demo -X POST http://localhost:8000/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService.SubmitCPAD \
   -H "Content-Type: application/json" \
   -d @examples/ras/memErrorSpoofCpad.json
 ```

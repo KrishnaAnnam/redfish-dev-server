@@ -92,7 +92,7 @@ def validate_ras_service_resource(resource: Dict[str, Any]) -> List[str]:
 
 def validate_service_root_extension(oem_extension: Dict[str, Any]) -> List[str]:
     """
-    Validate ServiceRoot.Oem.OCPRASAPIWS extension structure
+    Validate ServiceRoot.Oem.OpenCompute_FaultMgmt extension structure
     
     Args:
         oem_extension: OEM extension dictionary
@@ -164,7 +164,7 @@ if __name__ == "__main__":
     print("-" * 60)
     service_root_oem = discovery.service_root_extension()
     errors = validate_service_root_extension(service_root_oem)
-    valid = print_validation_results("ServiceRoot.Oem.OCPRASAPIWS", errors)
+    valid = print_validation_results("ServiceRoot.Oem.OpenCompute_FaultMgmt", errors)
     
     if valid:
         print("\nGenerated Extension:")

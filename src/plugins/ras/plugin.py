@@ -63,12 +63,12 @@ class RASPlugin:
         """Get the RAS service handler instance"""
         return self._handler
     
-    def initialize(self, config: Dict[str, Any]) -> bool:
+    def initialize(self, config: Any) -> bool:
         """
         Initialize the plugin with configuration.
         
         Args:
-            config: Server/platform configuration dict
+            config: ServerConfig object or platform configuration dict
             
         Returns:
             True if initialization successful
@@ -81,8 +81,15 @@ class RASPlugin:
             from .discovery import RASDiscoveryHandler
             
             # Initialize handlers
-            self.submit_cpad_handler = SubmitCPADActionHandler()
-            self.discovery_handler = RASDiscoveryHandler()
+            if isinstance(config, dict):
+                mockup_dir = config.get('mockup_dir') or config.get('mock_dir')
+            else:
+                mockup_dir = (getattr(config, 'mockup_dir', None) or
+                              getattr(config, 'mock_dir', None))
+            self.submit_cpad_handler = SubmitCPADActionHandler(
+                mockup_dir=mockup_dir)
+            self.discovery_handler = RASDiscoveryHandler(
+                mockup_dir=mockup_dir)
             
             self._enabled = True
             
@@ -121,12 +128,12 @@ class RASPlugin:
         """
         return [
             # Service-root OEM RAS discovery tree
-            "/redfish/v1/Oem/OCPRASAPIWS/RASService",
-            "/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints",
-            "/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/{EndpointId}",
-            "/redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo",
+            "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService",
+            "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints",
+            "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/{EndpointId}",
+            "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/SubmitCPADActionInfo",
             # Service-root OEM RAS action
-            "/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD",
+            "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService.SubmitCPAD",
         ]
     
     def handles_path(self, path: str) -> bool:
@@ -141,11 +148,11 @@ class RASPlugin:
         """
         import re
         patterns = [
-            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/?$',
-            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/?$',
-            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/[^/]+/?$',
-            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo/?$',
-            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService\.SubmitCPAD/?$',
+            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/?$',
+            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/?$',
+            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/[^/]+/?$',
+            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/SubmitCPADActionInfo/?$',
+            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService\.SubmitCPAD/?$',
         ]
         return any(re.match(pattern, path) for pattern in patterns)
     
@@ -167,22 +174,22 @@ class RASPlugin:
         
         import re
         
-        if re.match(r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/?$', path):
+        if re.match(r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/?$', path):
             status, body = self.discovery_handler.ras_service()
             return status, {}, body
         
-        if re.match(r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/?$', path):
+        if re.match(r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/?$', path):
             status, body = self.discovery_handler.endpoint_collection()
             return status, {}, body
         
         endpoint_match = re.match(
-            r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/([^/]+)/?$', path
+            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/([^/]+)/?$', path
         )
         if endpoint_match:
             status, body = self.discovery_handler.endpoint(endpoint_match.group(1))
             return status, {}, body
         
-        if re.match(r'^/redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo/?$', path):
+        if re.match(r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/SubmitCPADActionInfo/?$', path):
             status, body = self.discovery_handler.submit_cpad_action_info()
             return status, {}, body
         
@@ -207,7 +214,9 @@ class RASPlugin:
         import re
         
         # SubmitCPAD action (service-root scoped, no Manager id in URL)
-        submit_cpad_match = re.match(r'/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService\.SubmitCPAD$', path)
+        submit_cpad_match = re.match(
+            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/'
+            r'RASService\.SubmitCPAD/?$', path)
         if submit_cpad_match:
             status, body = self.submit_cpad_handler.handle_submit_cpad("System", data)
             return status, {}, body

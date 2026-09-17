@@ -420,10 +420,10 @@ class AnalysisOrchestrator:
         if root is None:
             print("\n   ❌ ServiceRoot unreachable — host is not monitorable.")
             return None
-        ras_link = (root.get("Oem", {}).get("OCPRASAPIWS", {})
+        ras_link = (root.get("Oem", {}).get("OpenCompute_FaultMgmt", {})
                     .get("RASService", {}).get("@odata.id"))
         if not ras_link:
-            print("\n   ❌ ServiceRoot has no Oem.OCPRASAPIWS.RASService link — "
+            print("\n   ❌ ServiceRoot has no Oem.OpenCompute_FaultMgmt.RASService link — "
                   "host does not support the OCP RAS API.")
             return None
         print(f"   ✓ RAS API advertised at {ras_link}")

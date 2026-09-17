@@ -2,7 +2,7 @@
 """
 Schema Registry for RAS Plugin
 
-Central registry for the OCP RAS (OCPRASAPIWS) schemas. Provides schema lookup,
+Central registry for the OCP RAS (OpenCompute_FaultMgmt) schemas. Provides schema lookup,
 validation support, and metadata management.
 """
 

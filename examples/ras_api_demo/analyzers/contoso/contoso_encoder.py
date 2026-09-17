@@ -95,19 +95,25 @@ def unpack_misc0(value):
 
 # ── Additional-register block pack/unpack ───────────────────────────────────
 
-def additional_block_size(fields):
+def additional_block_size(fields, values=None):
     """Byte size of an additional-register layout from the catalog."""
+    values = values or {}
     size = 0
-    for _name, code in fields:
+    for name, code in fields:
         if isinstance(code, tuple) and code[0] == "array":
             _, elem, (rows, cols) = code
             size += _SCALAR_SIZES[elem] * rows * cols
+        elif isinstance(code, tuple) and code[0] == "vector":
+            _, elem, length = code
+            size += _SCALAR_SIZES[elem] * length
         elif isinstance(code, tuple) and code[0] == "string":
             _, capacity = code
             size += capacity
         elif isinstance(code, tuple) and code[0] == "bytes":
             _, length = code
             size += length
+        elif isinstance(code, tuple) and code[0] == "repairs":
+            size += 1 + 6 * len(values.get(name, []))
         else:
             size += _SCALAR_SIZES[code]
     return size
@@ -125,6 +131,12 @@ def pack_additional(fields, values):
                 for c in range(cols):
                     cell = row[c] if isinstance(row, (list, tuple)) and c < len(row) else 0
                     out += struct.pack("<" + elem, cell & _mask(elem))
+        elif isinstance(code, tuple) and code[0] == "vector":
+            _, elem, length = code
+            vector = values.get(name) or []
+            for index in range(length):
+                cell = vector[index] if index < len(vector) else 0
+                out += struct.pack("<" + elem, int(cell) & _mask(elem))
         elif isinstance(code, tuple) and code[0] == "string":
             _, capacity = code
             value = values.get(name, "")
@@ -149,13 +161,25 @@ def pack_additional(fields, values):
                    not 0 <= byte <= 0xFF for byte in value):
                 raise ValueError(f"{name} values must be bytes (0..255)")
             out += bytes(value)
+        elif isinstance(code, tuple) and code[0] == "repairs":
+            entries = values.get(name) or []
+            if len(entries) > 0xFF:
+                raise ValueError(f"{name} must contain at most 255 entries")
+            out += struct.pack("<B", len(entries))
+            for entry in entries:
+                out += struct.pack(
+                    "<BBBBBB",
+                    int(entry["subchannel"]), int(entry["rank"]),
+                    int(entry["device"]), int(entry["bank_group"]),
+                    int(entry["bank"]), int(entry["count"]),
+                )
         else:
             out += struct.pack("<" + code, int(values.get(name, 0)) & _mask(code))
     return bytes(out)
 
 
 def unpack_additional(fields, data):
-    """Inverse of :func:`pack_additional` → dict of field values."""
+    """Inverse of :func:`pack_additional`; return values and bytes consumed."""
     values = {}
     offset = 0
     for name, code in fields:
@@ -171,6 +195,15 @@ def unpack_additional(fields, data):
                     offset += size
                 grid.append(row)
             values[name] = grid
+        elif isinstance(code, tuple) and code[0] == "vector":
+            _, elem, length = code
+            size = _SCALAR_SIZES[elem]
+            vector = []
+            for _index in range(length):
+                (cell,) = struct.unpack_from("<" + elem, data, offset)
+                vector.append(cell)
+                offset += size
+            values[name] = vector
         elif isinstance(code, tuple) and code[0] == "string":
             _, capacity = code
             raw = data[offset:offset + capacity]
@@ -193,12 +226,29 @@ def unpack_additional(fields, data):
                 raise ValueError(f"{name} is truncated")
             values[name] = list(raw)
             offset += length
+        elif isinstance(code, tuple) and code[0] == "repairs":
+            (count,) = struct.unpack_from("<B", data, offset)
+            offset += 1
+            entries = []
+            for _index in range(count):
+                fields = struct.unpack_from("<BBBBBB", data, offset)
+                entries.append(dict(zip(
+                    ("subchannel", "rank", "device", "bank_group", "bank", "count"),
+                    fields,
+                )))
+                offset += 6
+            values[name] = entries
         else:
             size = _SCALAR_SIZES[code]
             (val,) = struct.unpack_from("<" + code, data, offset)
+            if name == "memory_repair_capabilities" and val & ~0x07:
+                raise ValueError(
+                    "memory_repair_capabilities has reserved bits set")
+            if name == "reserved" and val != 0:
+                raise ValueError("reserved field must be zero")
             values[name] = val
             offset += size
-    return values
+    return values, offset
 
 
 def _mask(code):
@@ -227,15 +277,19 @@ def pack_section_body(section_name, bank_name, fields):
     section = resolve_section(section_name)
     banks = section["banks"]
 
-    # 1. Precompute where each bank's additional block will live (offset from
-    #    the start of the section body).  Every bank's block is present; only
-    #    the selected bank's block holds real data.
+    # 1. Pack each additional block first because repair entries make the
+    #    selected DRAM block variable-length.
     addl_start = SECTION_HEADER_SIZE + ERROR_BANK_SIZE * len(banks)
+    packed_additional = []
+    for bank in banks:
+        values = fields["additional"] if bank["name"] == bank_name else {}
+        packed_additional.append(pack_additional(bank["additional"], values))
+
     addl_offsets = []
     running = addl_start
-    for bank in banks:
+    for block in packed_additional:
         addl_offsets.append(running)
-        running += additional_block_size(bank["additional"])
+        running += len(block)
 
     # 2. Section header: version, bank count, subcomponent instance ID.
     subcomp = fields.get("subcomponent", {})
@@ -246,7 +300,8 @@ def pack_section_body(section_name, bank_name, fields):
     # 3. Error banks — selected bank gets the error, others are zeroed.
     bank_records = bytearray()
     addl_blocks = bytearray()
-    for bank, addl_offset in zip(banks, addl_offsets):
+    for bank, addl_offset, addl_block in zip(
+            banks, addl_offsets, packed_additional):
         if bank["name"] == bank_name:
             addr_valid, overflow, sev_value, error_id = fields["error_status"]
             injected, ce_count = fields["misc0"]
@@ -254,10 +309,10 @@ def pack_section_body(section_name, bank_name, fields):
             address = fields["error_address"]
             misc0 = pack_misc0(injected, ce_count)
             misc1 = fields["misc1"]
-            addl_blocks += pack_additional(bank["additional"], fields["additional"])
+            addl_blocks += addl_block
         else:
             status = address = misc0 = misc1 = 0
-            addl_blocks += b"\x00" * additional_block_size(bank["additional"])
+            addl_blocks += addl_block
         bank_records += struct.pack("<QQQQII", status, address, misc0, misc1, addl_offset, 0)
 
     return bytes(header + bank_records + addl_blocks)
@@ -278,6 +333,9 @@ def unpack_section_body(section_name, body):
         raise ValueError(
             f"Unsupported Contoso section format {major}.{minor}; "
             f"expected {CONTOSO_SECTION_MAJOR}.{CONTOSO_SECTION_MINOR}")
+    if num_banks != len(banks):
+        raise ValueError(
+            f"Contoso section declares {num_banks} banks; expected {len(banks)}")
     offset = 4
     subcomp = {}
     for name, code in section["subcomponent"]:
@@ -285,26 +343,53 @@ def unpack_section_body(section_name, body):
         subcomp[name] = val
         offset += _SCALAR_SIZES[code]
 
-    # Error banks.
-    result = None
+    # Parse every Error Bank before decoding additional blocks so each block is
+    # bounded by the next bank's recorded offset.
+    bank_records = []
     bank_offset = SECTION_HEADER_SIZE
     for bank in banks:
-        status, address, misc0, misc1, addl_offset, _reserved = struct.unpack_from(
+        status, address, misc0, misc1, addl_offset, reserved = struct.unpack_from(
             "<QQQQII", body, bank_offset)
+        if reserved != 0:
+            raise ValueError(f"{bank['name']} Error Bank reserved field must be zero")
+        bank_records.append((bank, status, address, misc0, misc1, addl_offset))
+        bank_offset += ERROR_BANK_SIZE
+
+    addl_start = SECTION_HEADER_SIZE + ERROR_BANK_SIZE * len(banks)
+    offsets = [record[5] for record in bank_records]
+    if not offsets or offsets[0] != addl_start:
+        raise ValueError("first additional-register offset is invalid")
+    if any(start >= end for start, end in zip(offsets, offsets[1:])):
+        raise ValueError("additional-register offsets must be increasing")
+    if offsets[-1] >= len(body):
+        raise ValueError("additional-register offset is outside the section")
+
+    active_records = []
+    for index, record in enumerate(bank_records):
+        bank, status, address, misc0, misc1, addl_offset = record
+        addl_end = offsets[index + 1] if index + 1 < len(offsets) else len(body)
+        addl_fields = get_bank(section, bank["name"])["additional"]
+        try:
+            addl, consumed = unpack_additional(
+                addl_fields, body[addl_offset:addl_end])
+        except struct.error as exc:
+            raise ValueError(
+                f"{bank['name']} additional registers are truncated") from exc
+        if consumed != addl_end - addl_offset:
+            raise ValueError(
+                f"{bank['name']} additional-register size does not match its boundary")
         st = unpack_error_status(status)
-        if st["error_id"] != 0:                # this is the injected bank
-            m0 = unpack_misc0(misc0)
-            addl_fields = get_bank(section, bank["name"])["additional"]
-            addl = unpack_additional(addl_fields, body[addl_offset:])
-            result = {
+        if st["error_id"] != 0:
+            active_records.append({
                 "bank_name": bank["name"],
                 "subcomponent": subcomp,
                 "error_status": st,
                 "error_address": address,
-                "misc0": m0,
+                "misc0": unpack_misc0(misc0),
                 "misc1": misc1,
                 "additional": addl,
-            }
-        bank_offset += ERROR_BANK_SIZE
+            })
 
-    return result
+    if len(active_records) != 1:
+        raise ValueError("Contoso section must have exactly one active Error Bank")
+    return active_records[0]

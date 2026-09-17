@@ -172,7 +172,7 @@ class RASEvent:
         # Add OEM context if provided
         if additional_context:
             event["Events"][0]["Oem"] = {
-                "OCPRASAPIWS": additional_context
+                "OpenCompute_FaultMgmt": additional_context
             }
         
         return event
@@ -184,7 +184,7 @@ class RASEvent:
         submission_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Create event for CPAD received"""
-        origin = "/redfish/v1/Oem/OCPRASAPIWS/RASService"
+        origin = "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService"
         
         context = {
             "CPADId": cpad_id,
@@ -209,7 +209,7 @@ class RASEvent:
         log_entry_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Create event for CPAD approved"""
-        origin = "/redfish/v1/Oem/OCPRASAPIWS/RASService"
+        origin = "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService"
         
         context = {
             "CPADId": cpad_id,
@@ -236,7 +236,7 @@ class RASEvent:
         reason: str
     ) -> Dict[str, Any]:
         """Create event for CPAD denied"""
-        origin = "/redfish/v1/Oem/OCPRASAPIWS/RASService"
+        origin = "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService"
         
         context = {
             "CPADId": cpad_id,
@@ -276,7 +276,7 @@ class RASEvent:
         # Check if this is a platform action event
         queue_type = None
         if log_entry:
-            oem = log_entry.get("Oem", {}).get("OCPRASAPIWS", {})
+            oem = log_entry.get("Oem", {}).get("OpenCompute_FaultMgmt", {})
             queue_type = oem.get("QueueType")
             if queue_type == "PlatformActionStatus":
                 message_id = "OCPRAS.1.0.0.PlatformActionEvent"
@@ -317,9 +317,9 @@ class RASEvent:
                 event_record["AdditionalDataURI"] = log_entry["AdditionalDataURI"]
             
             # Include OEM metadata
-            oem = log_entry.get("Oem", {}).get("OCPRASAPIWS", {})
+            oem = log_entry.get("Oem", {}).get("OpenCompute_FaultMgmt", {})
             if oem:
-                event_record["Oem"] = {"OCPRASAPIWS": oem}
+                event_record["Oem"] = {"OpenCompute_FaultMgmt": oem}
         
         event = {
             "@odata.type": "#Event.v1_7_0.Event",
@@ -395,7 +395,7 @@ class EventSubscriptionFilter:
                 return False
         
         # Check Severity filter (OEM extension)
-        severities = subscription.get("Oem", {}).get("OCPRASAPIWS", {}).get("Severities", [])
+        severities = subscription.get("Oem", {}).get("OpenCompute_FaultMgmt", {}).get("Severities", [])
         if severities and event_detail.get("Severity") not in severities:
             return False
         

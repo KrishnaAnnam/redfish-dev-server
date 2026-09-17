@@ -4,10 +4,10 @@ RAS discovery resources.
 The RAS feature is a plugin-provided extension to the BMC simulator, so the
 plugin serves its whole discovery tree dynamically (no static mockup files):
 
-    /redfish/v1/Oem/OCPRASAPIWS/RASService                       -> ras_service()
-    /redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints          -> endpoint_collection()
-    /redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/{Id}     -> endpoint(Id)
-    /redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo  -> submit_cpad_action_info()
+    /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService                       -> ras_service()
+    /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints          -> endpoint_collection()
+    /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/{Id}     -> endpoint(Id)
+    /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/SubmitCPADActionInfo  -> submit_cpad_action_info()
 
 Every method returns an ``(http_status, body)`` tuple, matching the signature
 the plugin provider uses for GET handling.
@@ -15,10 +15,13 @@ the plugin provider uses for GET handling.
 Resource shapes follow the OCP RAS API Redfish Specification v0.7.
 """
 
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from .memory_config import RASEndpointConfiguration
+
 # Root of the RAS discovery tree (service-root OEM namespace).
-RAS_SERVICE_URI = "/redfish/v1/Oem/OCPRASAPIWS/RASService"
+RAS_SERVICE_URI = "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService"
 
 # Version of the OCP RAS API surfaced by this service.
 RAS_API_VERSION = "1.0.0"
@@ -59,11 +62,40 @@ class RASDiscoveryHandler:
         }
     ]
 
-    def __init__(self, manager_id: str = DEFAULT_MANAGER_ID):
+    def __init__(self, manager_id: str = DEFAULT_MANAGER_ID,
+                 mockup_dir: str = None):
         self.manager_id = manager_id
+        self.endpoint_configuration = None
+        if mockup_dir:
+            config_path = Path(mockup_dir) / "ras_endpoint_config.json"
+            if config_path.exists():
+                self.endpoint_configuration = RASEndpointConfiguration.load(
+                    config_path)
+
+    def _endpoints(self) -> List[Dict[str, Any]]:
+        if self.endpoint_configuration is None:
+            return self.ENDPOINTS
+        return [
+            {
+                "Id": endpoint.id,
+                "Name": endpoint.name,
+                "Description": endpoint.description,
+                "EndpointType": endpoint.endpoint_type,
+                "PartitionID": endpoint.partition_id,
+                "CreatorID": endpoint.creator_id,
+                "FRUID": endpoint.fru_id,
+                "FRUText": endpoint.fru_text,
+                "SupportedQueues": list(endpoint.supported_queues),
+            }
+            for endpoint in self.endpoint_configuration.endpoints
+        ]
 
     def ras_service(self) -> Tuple[int, Dict[str, Any]]:
         """Return the top-level RASService resource."""
+        platform_id = (
+            self.endpoint_configuration.platform_id
+            if self.endpoint_configuration is not None else PLATFORM_ID
+        )
         return 200, {
             "@odata.type": "#OCPRASService.v1_0_0.RASService",
             "@odata.id": RAS_SERVICE_URI,
@@ -71,7 +103,7 @@ class RASDiscoveryHandler:
             "Name": "OCP RAS Service",
             "Description": "OCP RAS API implementation over Redfish",
             "RASAPIVersion": RAS_API_VERSION,
-            "PlatformID": PLATFORM_ID,
+            "PlatformID": platform_id,
             "ServiceEnabled": True,
             "Status": {"State": "Enabled", "Health": "OK"},
             "Links": {
@@ -97,7 +129,7 @@ class RASDiscoveryHandler:
         """Return the collection of RAS endpoints."""
         members = [
             {"@odata.id": f"{RAS_SERVICE_URI}/RASEndpoints/{ep['Id']}"}
-            for ep in self.ENDPOINTS
+            for ep in self._endpoints()
         ]
         return 200, {
             "@odata.type": "#OCPRASEndpointCollection.OCPRASEndpointCollection",
@@ -111,7 +143,7 @@ class RASDiscoveryHandler:
     def endpoint(self, endpoint_id: str) -> Tuple[int, Dict[str, Any]]:
         """Return a single RAS endpoint, or 404 if it is not in the inventory."""
         source = next(
-            (ep for ep in self.ENDPOINTS if ep["Id"] == endpoint_id), None
+            (ep for ep in self._endpoints() if ep["Id"] == endpoint_id), None
         )
         if source is None:
             return 404, _not_found(f"RAS endpoint '{endpoint_id}' was not found.")
@@ -151,7 +183,7 @@ class RASDiscoveryHandler:
         }
 
     def service_root_extension(self) -> Dict[str, Any]:
-        """Return the ServiceRoot.Oem.OCPRASAPIWS block that points here.
+        """Return the ServiceRoot.Oem.OpenCompute_FaultMgmt block that points here.
 
         The ServiceRoot itself is a static resource; this documents the link it
         must advertise so clients can discover the plugin-served RAS service.

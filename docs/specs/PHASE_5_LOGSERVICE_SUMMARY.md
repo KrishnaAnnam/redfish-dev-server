@@ -3,7 +3,7 @@
 > **Historical record.** Resource paths, OEM keys (`Oem.RasProto`) and message IDs
 > (`RasProto.1.0.0.*`) below reflect an earlier design. The implementation has since
 > been realigned to the OCP RAS API Redfish Specification v0.7: the RAS service lives
-> at `/redfish/v1/Oem/OCPRASAPIWS/RASService`, CPER records use the `Oem.OCPRASAPIWS`
+> at `/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService`, CPER records use the `Oem.OpenCompute_FaultMgmt`
 > key, and messages use the `OCPRAS.1.0.0.*` prefix.
 
 **Status**: ✅ **COMPLETE**  

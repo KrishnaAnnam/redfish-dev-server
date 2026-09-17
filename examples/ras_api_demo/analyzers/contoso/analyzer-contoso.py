@@ -181,7 +181,7 @@ class ContosoAnalyzer:
             if not b64:
                 continue
             try:
-                body = base64.b64decode(b64)
+                body = base64.b64decode(b64, validate=True)
                 decoded = contoso_encoder.unpack_section_body(CONTOSO_MEMORY_SECTION, body)
             except Exception:
                 return None
@@ -190,21 +190,17 @@ class ContosoAnalyzer:
 
             sub = decoded['subcomponent']
             add = decoded['additional']
-            # Decode the beat_mask into the failing (DRAM, DQ, beats) it records.
-            # beat_mask[DRAM][DQ] is a 16-bit mask; a DRAM index identifies one
-            # physical DRAM chip on the DIMM.
+            # Decode the selected device's beat_mask[DQ] values.
             beat_errors = []
-            grid = add.get('beat_mask')
-            if isinstance(grid, list):
-                for d, row in enumerate(grid):
-                    if not isinstance(row, list):
-                        continue
-                    for q, mask in enumerate(row):
-                        mask = int(mask)
-                        if mask:
-                            beats = [b for b in range(16) if mask & (1 << b)]
-                            beat_errors.append({'dram': d, 'dq': q, 'beats': beats})
-            drams = sorted({be['dram'] for be in beat_errors})
+            device = add.get('device')
+            masks = add.get('beat_mask')
+            if isinstance(masks, list):
+                for q, mask in enumerate(masks):
+                    mask = int(mask)
+                    if mask:
+                        beats = [b for b in range(16) if mask & (1 << b)]
+                        beat_errors.append(
+                            {'dram': device, 'dq': q, 'beats': beats})
             return {
                 'chiplet': sub.get('chiplet', 0),
                 'controller': sub.get('controller', 0),
@@ -226,8 +222,9 @@ class ContosoAnalyzer:
                     add.get('module_manufacturer_id', [0, 0])),
                 'physical_address': decoded.get('error_address', 0),
                 'beat_errors': beat_errors,
-                'drams': drams,
-                'device': drams[0] if len(drams) == 1 else None,
+                'drams': [device],
+                'device': device,
+                'repairs': add.get('repairs', []),
             }
         return None
 
@@ -409,7 +406,7 @@ class ContosoAnalyzer:
         if not b64:
             return None, None
         try:
-            body = base64.b64decode(b64)
+            body = base64.b64decode(b64, validate=True)
             decoded = contoso_encoder.unpack_section_body(section_name, body)
         except Exception:
             return None, None
@@ -445,17 +442,35 @@ class ContosoAnalyzer:
             return raw
         if name == 'beat_mask' and isinstance(value, list):
             entries = []
-            for device, row in enumerate(value):
-                for dq, mask in enumerate(row):
-                    if not mask:
-                        continue
-                    beats = [beat for beat in range(16) if mask & (1 << beat)]
-                    beat_label = (f"beat {beats[0]}" if len(beats) == 1
-                                  else f"beats {', '.join(map(str, beats))}")
-                    entries.append(
-                        f"Device {device}, DQ {dq}, {beat_label} (mask {hex(mask)})")
+            for dq, mask in enumerate(value):
+                if not mask:
+                    continue
+                beats = [beat for beat in range(16) if mask & (1 << beat)]
+                beat_label = (f"beat {beats[0]}" if len(beats) == 1
+                              else f"beats {', '.join(map(str, beats))}")
+                entries.append(f"DQ {dq}, {beat_label} (mask {hex(mask)})")
             return "; ".join(entries) if entries else "(all zero)"
-        if isinstance(value, list):          # 2-D arrays such as beat_mask[10][4]
+        if name == 'repairs' and isinstance(value, list):
+            if not value:
+                return "(none)"
+            return "; ".join(
+                f"SC {entry['subchannel']}, Rank {entry['rank']}, "
+                f"Device {entry['device']}, BG {entry['bank_group']}, "
+                f"Bank {entry['bank']}: {entry['count']}"
+                for entry in value)
+        if name == 'total_memory_bytes':
+            gib = value / (1024 ** 3)
+            return f"{gib:g} GiB ({value} bytes)"
+        if name == 'memory_repair_capabilities':
+            capabilities = (
+                (0, "Soft PPR at runtime"),
+                (1, "Soft PPR at boot time"),
+                (2, "Hard PPR at boot time"),
+            )
+            return "; ".join(
+                f"{label}: {'Supported' if value & (1 << bit) else 'Not supported'}"
+                for bit, label in capabilities)
+        if isinstance(value, list):          # Other packed array fields
             nonzero = [f"[{r}][{c}]={hex(v)}"
                        for r, row in enumerate(value)
                        for c, v in enumerate(row) if v]
@@ -695,6 +710,23 @@ class ContosoAnalyzer:
             r['dram_row_failure_detected'] for r in analysis_results)
         sppr_results = [r for r in analysis_results if r['sppr_created']]
         has_sppr = len(sppr_results) > 0
+        has_platform_action_event = any(
+            any(
+                'action event' in str(
+                    descriptor.get('sectionType', {}).get('type', '')
+                    if isinstance(descriptor.get('sectionType'), dict)
+                    else descriptor.get('sectionType', '')
+                ).lower()
+                for descriptor in result['cper_data'].get('sectionDescriptors', [])
+            )
+            for result in analysis_results
+        )
+        has_failed_platform_action_event = any(
+            section.get('PlatformActionEvent', {}).get('actionReturnCode') != '0x00'
+            for result in analysis_results
+            for section in result['cper_data'].get('sections', [])
+            if 'PlatformActionEvent' in section
+        )
 
         print(f"\n   💡 Analysis Summary & Recommendation")
         print(f"   {'─' * 70}")
@@ -734,6 +766,12 @@ class ContosoAnalyzer:
         elif dram_row_failure_detected:
             print(f"\n   Recommendation:     Perform SPPR (Soft Post-Package Repair) operation")
             print(f"   ⚠️  SPPR CPAD not created")
+        elif has_failed_platform_action_event:
+            print(f"\n   Recommendation:     Review Failed Platform Action")
+            print(f"   Reason:             Platform Action Failed.")
+        elif has_platform_action_event:
+            print(f"\n   Recommendation:     No Action Required")
+            print(f"   Reason:             Platform Action Completed.")
         else:
             all_informational = all(
                 (lambda s: s.get('name', 'N/A') if isinstance(s, dict) else s)(

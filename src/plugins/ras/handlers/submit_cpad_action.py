@@ -4,7 +4,7 @@ SubmitCPAD Action Handler
 Handles the SubmitCPAD action which processes CPAD (Common Platform Action Descriptor)
 submissions and executes the requested actions.
 
-Endpoint: POST /redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD
+Endpoint: POST /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService.SubmitCPAD
 """
 
 import logging
@@ -18,7 +18,14 @@ import json
 from pathlib import Path
 
 from ..cpad_handler import CPADHandler
+from ..contoso_memory import (
+    active_cpad_memory_bank,
+    decode_cpad_memory_coordinates,
+    is_contoso_memory_cpad,
+    overlay_cpad_memory_state,
+)
 from ..discovery import PLATFORM_ID as BMC_PLATFORM_ID, RASDiscoveryHandler
+from ..memory_config import MemoryRepairState, RASEndpointConfiguration
 from ..message_utils import (
     cpad_received,
     cpad_validated,
@@ -120,6 +127,30 @@ class SubmitCPADActionHandler:
         self.cpad_handler = CPADHandler()
         self.submission_history = []
         self.mockup_dir = mockup_dir
+        self.memory_repair_state = None
+        self.memory_repair_states = {}
+        self.endpoint_configuration = None
+
+        if mockup_dir:
+            endpoint_config_path = Path(mockup_dir) / "ras_endpoint_config.json"
+            if endpoint_config_path.exists():
+                endpoint_config = RASEndpointConfiguration.load(
+                    endpoint_config_path)
+                if endpoint_config.platform_id != BMC_PLATFORM_ID:
+                    raise ValueError(
+                        f"endpoint configuration platform_id {endpoint_config.platform_id} "
+                        f"does not match endpoint {BMC_PLATFORM_ID}")
+                self.endpoint_configuration = endpoint_config
+                self.memory_repair_states = {
+                    endpoint.partition_id: MemoryRepairState(
+                        endpoint.memory, endpoint.memory_repair_capabilities)
+                    for endpoint in endpoint_config.endpoints
+                }
+                if len(self.memory_repair_states) == 1:
+                    self.memory_repair_state = next(
+                        iter(self.memory_repair_states.values()))
+                logger.info("Loaded RAS endpoint configuration: %s",
+                            endpoint_config_path)
         
         # Initialize LogService handler if mockup directory provided
         self.log_service_handler = None
@@ -154,6 +185,37 @@ class SubmitCPADActionHandler:
             return self.log_service_handler.next_record_id()
         self._fallback_record_id = getattr(self, '_fallback_record_id', 0) + 1
         return self._fallback_record_id
+
+    def _memory_state(self, partition_id: str = None):
+        if partition_id:
+            if partition_id in self.memory_repair_states:
+                return self.memory_repair_states[partition_id]
+            if self.memory_repair_states:
+                raise ValueError(
+                    f"no memory configuration for partition {partition_id}")
+        if self.memory_repair_state is not None:
+            return self.memory_repair_state
+        raise ValueError(f"no memory configuration for partition {partition_id}")
+
+    def _perform_sppr(self, cpad_data: Dict[str, Any], partition_id: str = None):
+        """Apply one simulated SPPR and return (return_code, reason, count)."""
+        try:
+            if self.endpoint_configuration is not None:
+                if partition_id is None and len(
+                        self.endpoint_configuration.endpoints) == 1:
+                    endpoint = self.endpoint_configuration.endpoints[0]
+                    partition_id = endpoint.partition_id
+                else:
+                    endpoint = self.endpoint_configuration.endpoint_by_partition(
+                        partition_id)
+                if not endpoint.memory_repair_capabilities.soft_ppr_runtime_supported:
+                    raise ValueError("soft PPR is not supported at runtime")
+            state = self._memory_state(partition_id)
+            repair_target = decode_cpad_memory_coordinates(cpad_data)
+            repair_count = state.increment(repair_target)
+            return 0x00, None, repair_count
+        except ValueError as exc:
+            return 0x01, str(exc), None
     
     def _locate_cpad_convert(self):
         """
@@ -286,7 +348,8 @@ class SubmitCPADActionHandler:
         
         # Decode base64 to raw bytes
         try:
-            raw_data = b64mod.b64decode(request_body['CPADData'])
+            raw_data = b64mod.b64decode(
+                request_body['CPADData'], validate=True)
         except Exception as e:
             print(f"           ✗ Base64 decode failed: {e}")
             return self._error_response(
@@ -382,10 +445,16 @@ class SubmitCPADActionHandler:
         print(f"           ✓ PlatformID matches this BMC")
 
         # 4b — PartitionID must match one of this BMC's RAS endpoints.
-        valid_partitions = {
-            ep['PartitionID'] for ep in RASDiscoveryHandler.ENDPOINTS
-            if ep.get('PartitionID')
-        }
+        if self.endpoint_configuration is not None:
+            valid_partitions = {
+                endpoint.partition_id
+                for endpoint in self.endpoint_configuration.endpoints
+            }
+        else:
+            valid_partitions = {
+                ep['PartitionID'] for ep in RASDiscoveryHandler.ENDPOINTS
+                if ep.get('PartitionID')
+            }
         if metadata['partition_id'] not in valid_partitions:
             print(f"           ✗ Unknown PartitionID: {metadata['partition_id']}")
             logger.warning(
@@ -441,6 +510,33 @@ class SubmitCPADActionHandler:
                 )
             except Exception as e:
                 logger.error(f"Failed to emit CPAD received event: {e}")
+
+        action_return_code = 0x00
+        action_failure_reason = None
+        memory_bank = None
+        if is_contoso_memory_cpad(cpad_data):
+            try:
+                memory_bank = active_cpad_memory_bank(cpad_data)
+                if memory_bank == 'dram':
+                    state = self._memory_state(metadata['partition_id'])
+                    memory_target = decode_cpad_memory_coordinates(cpad_data)
+                    state.config.get_dimm(
+                        memory_target['chiplet'], memory_target['controller'],
+                        memory_target['channel'], memory_target['dimm'])
+                elif metadata['action_id'] == '0x8001':
+                    raise ValueError("SPPR requires the DRAM Errors bank to be active")
+            except ValueError as exc:
+                action_return_code = 0x01
+                action_failure_reason = str(exc)
+
+        if metadata['action_id'] == '0x8001' and action_return_code == 0:
+            action_return_code, action_failure_reason, repair_count = \
+                self._perform_sppr(cpad_data, metadata['partition_id'])
+            if action_return_code == 0:
+                print(f"           ✓ Bank repair count is now {repair_count}")
+            else:
+                print(f"           ✗ SPPR action failed: {action_failure_reason}")
+                logger.warning("SPPR action failed: %s", action_failure_reason)
         
         # Step 5: Create LogEntry from CPER (if LogService available)
         log_entry_id = None
@@ -460,7 +556,7 @@ class SubmitCPADActionHandler:
                 # --- 5a: Error CPER (Corrected) — only for non-SPPR actions ---
                 #     SPPR (0x8001) only produces an Action Event CPER, not an
                 #     informational error CPER.
-                if metadata['action_id'] != '0x8001':
+                if metadata['action_id'] != '0x8001' and action_return_code == 0:
                     print(f"           Creating {severity} error CPER...")
                     cper_json_data = self._convert_cpad_to_cper(cpad_data, metadata)
                     logger.debug(f"Generated CPER JSON data from template")
@@ -480,7 +576,8 @@ class SubmitCPADActionHandler:
                 
                 # --- 5b: Action Event CPER ---
                 print(f"           Creating Action Event CPER...")
-                ae_cper_json = self._create_action_event_cper(cpad_data, metadata, action_return_code=0x00)
+                ae_cper_json = self._create_action_event_cper(
+                    cpad_data, metadata, action_return_code=action_return_code)
                 ae_binary_path = self._convert_json_to_binary_cper(ae_cper_json, metadata)
                 ae_status, ae_entry_id = self.log_service_handler.add_cper_log_entry(ae_cper_json, ae_binary_path)
                 self._cleanup_temp_path(ae_binary_path)
@@ -512,12 +609,16 @@ class SubmitCPADActionHandler:
                 logger.error(f"Failed to emit CPAD approved event: {e}")
         
         # Record submission
-        self._record_submission(manager_id, metadata, 'APPROVED', log_entry_id)
+        submission_status = 'APPROVED' if action_return_code == 0 else 'ACTION_FAILED'
+        self._record_submission(manager_id, metadata, submission_status, log_entry_id)
         
         # Build success response
         response = self._build_success_response(manager_id, metadata, log_entry_id)
         print(f"\n{'=' * 80}")
-        print(f"\t\t\t\tCPAD ActionID {metadata['action_id']} -- Successful")
+        result = "Successful" if action_return_code == 0 else "Failed"
+        print(f"\t\t\t\tCPAD ActionID {metadata['action_id']} -- {result}")
+        if action_failure_reason:
+            print(f"   Reason: {action_failure_reason}")
         print(f"{'=' * 80}\n")
         return 202, response
     
@@ -570,7 +671,7 @@ class SubmitCPADActionHandler:
                     'FRU': metadata['fru_text'],
                     'Confidence': metadata['confidence']
                 }),
-                'TargetUri': '/redfish/v1/Oem/OCPRASAPIWS/RASService'
+                'TargetUri': '/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService'
             }
         }
         
@@ -679,7 +780,7 @@ class SubmitCPADActionHandler:
         """
         return {
             'POST': {
-                r'/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService\.SubmitCPAD$': self.handle_submit_cpad,
+                r'/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService\.SubmitCPAD$': self.handle_submit_cpad,
             }
         }
     
@@ -762,9 +863,18 @@ class SubmitCPADActionHandler:
         opaque = cpad_sections[0].get('Unknown', {}) if cpad_sections else {}
         section_b64 = opaque.get('data', '')
         try:
-            body = base64.b64decode(section_b64) if section_b64 else b''
-        except Exception:
-            body = b''
+            body = (base64.b64decode(section_b64, validate=True)
+                    if section_b64 else b'')
+        except Exception as exc:
+            raise ValueError("CPAD section body is not valid base64") from exc
+        if is_contoso_memory_cpad(cpad_data):
+            try:
+                state = self._memory_state(metadata['partition_id'])
+                body = overlay_cpad_memory_state(cpad_data, state)
+                section_b64 = base64.b64encode(body).decode('ascii')
+            except ValueError as exc:
+                raise ValueError(
+                    f"failed to apply authoritative memory inventory: {exc}") from exc
         cper['sections'] = [{"Unknown": {"data": section_b64}}]
         body_len = len(body)
 

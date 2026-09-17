@@ -8,7 +8,7 @@ Successfully integrated RasApi reference implementation into the BMC Redfish Sim
 
 ```
 Service-Root OEM Placement (OCP RAS API v0.7):
-/redfish/v1/Oem/OCPRASAPIWS/RASService
+/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService
 ```
 
 ## Integration Phases Completed
@@ -36,18 +36,18 @@ Service-Root OEM Placement (OCP RAS API v0.7):
 - `src/plugins/ras/handlers/submit_cpad_action.py` - SubmitCPAD action handler
 
 **Capabilities:**
-- Expose `Oem.OCPRASAPIWS.RASService` from the ServiceRoot
+- Expose `Oem.OpenCompute_FaultMgmt.RASService` from the ServiceRoot
 - Serve the RASService resource with RASEndpoints/CPERLogService/EventService links
 - Handle SubmitCPAD POST action
 - Generate OCPRAS messages for operations
 - Track submission history and statistics
 
 **Endpoints:**
-- `GET /redfish/v1/Oem/OCPRASAPIWS/RASService`
-- `GET /redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints`
-- `GET /redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints/{EndpointId}`
-- `GET /redfish/v1/Oem/OCPRASAPIWS/RASService/SubmitCPADActionInfo`
-- `POST /redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD`
+- `GET /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService`
+- `GET /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints`
+- `GET /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/{EndpointId}`
+- `GET /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/SubmitCPADActionInfo`
+- `POST /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService.SubmitCPAD`
 
 ### Phase 3: CPER Analysis (client-side)
 
@@ -88,17 +88,17 @@ python servers/redfishMockupServer_platform.py
 ### 2. Get ServiceRoot
 ```bash
 curl -u demo:demo http://localhost:8000/redfish/v1
-# Check for Oem.OCPRASAPIWS.RASService link
+# Check for Oem.OpenCompute_FaultMgmt.RASService link
 ```
 
 ### 3. Get RASService
 ```bash
-curl -u demo:demo http://localhost:8000/redfish/v1/Oem/OCPRASAPIWS/RASService
+curl -u demo:demo http://localhost:8000/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService
 ```
 
 ### 4. Submit CPAD
 ```bash
-curl -u demo:demo -X POST http://localhost:8000/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD \
+curl -u demo:demo -X POST http://localhost:8000/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService.SubmitCPAD \
   -H "Content-Type: application/json" \
   -d @examples/ras/SpprCpadExample.json
 ```

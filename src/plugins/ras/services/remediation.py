@@ -346,7 +346,7 @@ class AutomatedRemediationEngine:
     ) -> Dict[str, Any]:
         """Disable component remediation action"""
         # Extract component ID
-        component_id = event.get("Oem", {}).get("OCPRASAPIWS", {}).get("FRUId", "Unknown")
+        component_id = event.get("Oem", {}).get("OpenCompute_FaultMgmt", {}).get("FRUId", "Unknown")
         
         logger.warning(f"Would disable component: {component_id} (simulated)")
         
@@ -408,14 +408,14 @@ class AutomatedRemediationEngine:
         threshold: int = 3
     ) -> bool:
         """Check if component has repeated failures"""
-        component_id = event.get("Oem", {}).get("OCPRASAPIWS", {}).get("FRUId")
+        component_id = event.get("Oem", {}).get("OpenCompute_FaultMgmt", {}).get("FRUId")
         if not component_id:
             return False
         
         # Count recent failures for this component
         recent_failures = sum(
             1 for record in self.history[-100:]  # Last 100 records
-            if (record.trigger_event.get("Oem", {}).get("OCPRASAPIWS", {}).get("FRUId") == component_id)
+            if (record.trigger_event.get("Oem", {}).get("OpenCompute_FaultMgmt", {}).get("FRUId") == component_id)
         )
         
         return recent_failures >= threshold

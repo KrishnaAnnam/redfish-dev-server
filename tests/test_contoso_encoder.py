@@ -70,7 +70,7 @@ def test_additional_block_sizes():
     dram = catalog.SECTION_TYPES["Memory Controller - First Generation"]["banks"][0]
     other = catalog.SECTION_TYPES["Memory Controller - First Generation"]["banks"][1]
     assert encoder.additional_block_size(core["additional"]) == 40
-    assert encoder.additional_block_size(dram["additional"]) == 142
+    assert encoder.additional_block_size(dram["additional"]) == 81
     assert encoder.additional_block_size(other["additional"]) == 8
 
 
@@ -87,8 +87,8 @@ def test_full_body_sizes():
                                   "Corrected Memory ECC Error"))
     mem_body = encoder.pack_section_body(
         "Memory Controller - First Generation", "DRAM Errors", mem_fields)
-    # header(8) + 2 banks(80) + additional(142 + 8)
-    assert len(mem_body) == 238
+    # header(8) + 2 banks(80) + additional(81 + 8)
+    assert len(mem_body) == 177
 
 
 def test_demo_memory_injection_spec_is_valid():
@@ -100,6 +100,18 @@ def test_demo_memory_injection_spec_is_valid():
     assert spec_model.validate_spec(spec) == []
 
 
+def test_optional_v14_collections_default_empty():
+    spec = spec_model.build_template("Memory Controller - First Generation",
+                                     "Corrected Memory ECC Error")
+    del spec["section"]["additional"]["beat_mask"]
+    del spec["section"]["additional"]["repairs"]
+
+    fields = spec_model.to_encoder_fields(spec)
+
+    assert fields["additional"]["beat_mask"] == []
+    assert fields["additional"]["repairs"] == []
+
+
 # ── Header endianness spot-check ────────────────────────────────────────────
 
 def test_header_layout_and_endianness():
@@ -107,8 +119,8 @@ def test_header_layout_and_endianness():
         spec_model.build_template("CPU Core - First Generation", "Poison Consumption"))
     fields["subcomponent"] = {"chiplet": 0x0102, "core": 0x0304}
     body = encoder.pack_section_body("CPU Core - First Generation", "Core Errors", fields)
-    # major=1, minor=2, num_banks=1 (u16 LE), chiplet/core as little-endian u16.
-    assert body[0] == 1 and body[1] == 2
+    # major=1, minor=4, num_banks=1 (u16 LE), chiplet/core as little-endian u16.
+    assert body[0] == 1 and body[1] == 4
     assert body[2:4] == b"\x01\x00"          # num_banks = 1
     assert body[4:6] == b"\x02\x01"          # chiplet 0x0102 little-endian
     assert body[6:8] == b"\x04\x03"          # core    0x0304 little-endian
@@ -127,6 +139,41 @@ def test_decoder_rejects_legacy_section_version():
         assert "Unsupported Contoso section format 1.1" in str(exc)
         return
     raise AssertionError("expected ValueError for legacy section version")
+
+
+def _memory_body():
+    fields = spec_model.to_encoder_fields(
+        spec_model.build_template("Memory Controller - First Generation",
+                                  "Corrected Memory ECC Error"))
+    return bytearray(encoder.pack_section_body(
+        "Memory Controller - First Generation", "DRAM Errors", fields))
+
+
+def _assert_memory_decode_fails(body, expected):
+    try:
+        encoder.unpack_section_body("Memory Controller - First Generation", body)
+    except ValueError as exc:
+        assert expected in str(exc)
+        return
+    raise AssertionError("expected malformed memory section to be rejected")
+
+
+def test_decoder_rejects_invalid_bank_geometry():
+    body = _memory_body()
+    body[2:4] = (3).to_bytes(2, "little")
+    _assert_memory_decode_fails(body, "declares 3 banks; expected 2")
+
+    body = _memory_body()
+    body[44:48] = (1).to_bytes(4, "little")
+    _assert_memory_decode_fails(body, "reserved field must be zero")
+
+    body = _memory_body()
+    body[80:84] = (88).to_bytes(4, "little")
+    _assert_memory_decode_fails(body, "offsets must be increasing")
+
+    body = _memory_body()
+    body[168] = 1
+    _assert_memory_decode_fails(body, "additional registers are truncated")
 
 
 # ── Full pack → unpack round-trips ──────────────────────────────────────────
@@ -161,11 +208,14 @@ def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
     spec["section"]["additional"]["bank"] = 3
     spec["section"]["additional"]["row"] = 1234
     spec["section"]["additional"]["column"] = 567
+    spec["section"]["additional"]["device"] = 3
     spec["section"]["additional"]["serial_number"] = "SN123456789"
     spec["section"]["additional"]["part_number"] = "PN-1234"
     spec["section"]["additional"]["dram_manufacturer_id"] = ["0x80", "0x2C"]
     spec["section"]["additional"]["module_manufacturer_id"] = ["0x80", "0xCE"]
-    spec["section"]["additional"]["beat_mask"][3][2] = 0xBEEF
+    spec["section"]["additional"]["total_memory_bytes"] = "0x8000000000"
+    spec["section"]["additional"]["memory_repair_capabilities"] = 7
+    spec["section"]["additional"]["beat_mask"][2] = 0xBEEF
     fields = spec_model.to_encoder_fields(spec)
     body = encoder.pack_section_body(
         "Memory Controller - First Generation", "DRAM Errors", fields)
@@ -178,14 +228,17 @@ def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
     assert out["additional"]["bank"] == 3
     assert out["additional"]["row"] == 1234
     assert out["additional"]["column"] == 567
+    assert out["additional"]["device"] == 3
     assert out["additional"]["serial_number"] == "SN123456789"
     assert out["additional"]["part_number"] == "PN-1234"
     assert out["additional"]["dram_manufacturer_id"] == [0x80, 0x2C]
     assert out["additional"]["module_manufacturer_id"] == [0x80, 0xCE]
+    assert out["additional"]["total_memory_bytes"] == 0x8000000000
+    assert out["additional"]["memory_repair_capabilities"] == 7
     assert out["additional"]["reserved"] == 0
     assert "syndrome" not in out["additional"]
-    assert out["additional"]["beat_mask"][3][2] == 0xBEEF
-    assert out["additional"]["beat_mask"][0][0] == 0
+    assert out["additional"]["beat_mask"][2] == 0xBEEF
+    assert out["additional"]["beat_mask"][0] == 0
 
 
 def test_memory_string_binary_layout_and_maximum_lengths():
@@ -197,16 +250,45 @@ def test_memory_string_binary_layout_and_maximum_lengths():
         "dram_manufacturer_id": ["0x80", "0xAD"],
         "module_manufacturer_id": ["0x04", "0xD5"],
     })
+    spec["section"]["additional"]["device"] = 3
+    spec["section"]["additional"]["beat_mask"][0] = 0x1234
     fields = spec_model.to_encoder_fields(spec)
     body = encoder.pack_section_body(
         "Memory Controller - First Generation", "DRAM Errors", fields)
 
     # DRAM additional registers start after header(8) + two banks(80). The
-    # strings follow the six u8 coordinates, row(u32), and column(u16).
-    assert body[100:119] == b"S" * 18 + b"\x00"
-    assert body[119:144] == b"P" * 24 + b"\x00"
-    assert body[144:146] == b"\x04\xD5"
-    assert body[146:148] == b"\x80\xAD"
+    # beat mask follows the location fields, before the SPD identity fields.
+    assert body[88:95] == bytes([0, 0, 0, 0, 3, 0, 0])
+    assert body[99:101] == b"\x00\x00"
+    assert body[101:103] == b"\x34\x12"
+    assert body[109:128] == b"S" * 18 + b"\x00"
+    assert body[128:153] == b"P" * 24 + b"\x00"
+    assert body[153:155] == b"\x04\xD5"
+    assert body[155:157] == b"\x80\xAD"
+    assert body[157:165] == b"\x00" * 8
+    assert body[165] == 0
+
+
+def test_memory_sparse_repairs_roundtrip_and_layout():
+    spec = spec_model.build_template("Memory Controller - First Generation",
+                                     "Corrected Memory ECC Error")
+    repairs = [
+        {"subchannel": 0, "rank": 0, "device": 3,
+         "bank_group": 2, "bank": 3, "count": 1},
+        {"subchannel": 1, "rank": 1, "device": 7,
+         "bank_group": 4, "bank": 8, "count": 16},
+    ]
+    spec["section"]["additional"]["repairs"] = repairs
+    fields = spec_model.to_encoder_fields(spec)
+    body = encoder.pack_section_body(
+        "Memory Controller - First Generation", "DRAM Errors", fields)
+    out = encoder.unpack_section_body("Memory Controller - First Generation", body)
+
+    assert len(body) == 189
+    assert body[168] == 2
+    assert body[169:181] == bytes([0, 0, 3, 2, 3, 1,
+                                   1, 1, 7, 4, 8, 16])
+    assert out["additional"]["repairs"] == repairs
 
 
 def test_memory_string_validation():
@@ -242,6 +324,15 @@ def test_memory_reserved_field_must_be_zero():
     spec["section"]["additional"]["reserved"] = 1
 
     assert "section.additional.reserved must be zero." in spec_model.validate_spec(spec)
+
+
+def test_memory_repair_capability_reserved_bits_are_rejected():
+    spec = spec_model.build_template("Memory Controller - First Generation",
+                                     "Corrected Memory ECC Error")
+    spec["section"]["additional"]["memory_repair_capabilities"] = 0x80
+
+    assert ("section.additional.memory_repair_capabilities has reserved bits set."
+            in spec_model.validate_spec(spec))
 
 
 # ── Catalog integrity ───────────────────────────────────────────────────────
@@ -288,27 +379,30 @@ def test_parse_index_set_bounds_raise():
 def test_beat_errors_single_bit():
     spec = _mem_template_with_beats([{"dram": 3, "dq": 2, "beats": "5"}])
     fields = spec_model.to_encoder_fields(spec)
-    grid = fields["additional"]["beat_mask"]
-    assert grid[3][2] == (1 << 5)
-    assert grid[0][0] == 0
+    masks = fields["additional"]["beat_mask"]
+    assert fields["additional"]["device"] == 3
+    assert masks[2] == (1 << 5)
+    assert masks[0] == 0
 
 
 def test_beat_errors_all_dqs_and_beat_list():
     spec = _mem_template_with_beats([{"dram": 3, "dq": "all", "beats": "0,15"}])
-    grid = spec_model.to_encoder_fields(spec)["additional"]["beat_mask"]
+    additional = spec_model.to_encoder_fields(spec)["additional"]
+    masks = additional["beat_mask"]
+    assert additional["device"] == 3
     for q in range(4):
-        assert grid[3][q] == ((1 << 0) | (1 << 15))
+        assert masks[q] == ((1 << 0) | (1 << 15))
 
 
 def test_beat_errors_multiple_entries_or_together():
     spec = _mem_template_with_beats([
         {"dram": 3, "dq": 2, "beats": "5"},
         {"dram": 3, "dq": 2, "beats": "7"},
-        {"dram": "0-1", "dq": "all", "beats": "all"},
+        {"dram": 3, "dq": "all", "beats": "0"},
     ])
-    grid = spec_model.to_encoder_fields(spec)["additional"]["beat_mask"]
-    assert grid[3][2] == ((1 << 5) | (1 << 7))
-    assert grid[0][0] == 0xFFFF and grid[1][3] == 0xFFFF
+    masks = spec_model.to_encoder_fields(spec)["additional"]["beat_mask"]
+    assert masks[2] == ((1 << 0) | (1 << 5) | (1 << 7))
+    assert masks[0] == 1 and masks[3] == 1
 
 
 def test_beat_errors_roundtrip_through_encoder():
@@ -317,7 +411,8 @@ def test_beat_errors_roundtrip_through_encoder():
     body = encoder.pack_section_body(
         "Memory Controller - First Generation", "DRAM Errors", fields)
     out = encoder.unpack_section_body("Memory Controller - First Generation", body)
-    assert out["additional"]["beat_mask"][7][1] == ((1 << 2) | (1 << 9))
+    assert out["additional"]["device"] == 7
+    assert out["additional"]["beat_mask"][1] == ((1 << 2) | (1 << 9))
 
 
 if __name__ == "__main__":

@@ -178,7 +178,7 @@ class CPERToLogEntry:
         
         # §4.3 OEM metadata
         log_entry["Oem"] = {
-            "OCPRASAPIWS": {
+            "OpenCompute_FaultMgmt": {
                 "PlatformID": platform_id,
                 "PartitionID": partition_id,
                 "RecordID": record_id_value if record_id_value else int(entry_id) if entry_id.isdigit() else entry_id,

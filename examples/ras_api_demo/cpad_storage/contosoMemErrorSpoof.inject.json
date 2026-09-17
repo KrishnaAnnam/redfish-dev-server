@@ -32,28 +32,26 @@
     "misc1": "0x0",
     "additional": {
       "channel": 0,
-      "subchannel": 0,
       "dimm": 1,
+      "subchannel": 0,
       "rank": 0,
+      "device": 3,
       "bank_group": 2,
       "bank": 3,
       "row": 1234,
       "column": 567,
+      "beat_mask": [
+        0,
+        0,
+        0,
+        0
+      ],
       "module_manufacturer_id": ["0x04", "0xD5"],
       "dram_manufacturer_id": ["0x04", "0xD5"],
+      "total_memory_bytes": "0x0",
+      "memory_repair_capabilities": 0,
       "reserved": 0,
-      "beat_mask": [
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0]
-      ]
+      "repairs": []
     }
   }
 }

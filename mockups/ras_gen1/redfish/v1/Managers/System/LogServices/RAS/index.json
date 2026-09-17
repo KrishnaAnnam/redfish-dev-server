@@ -22,12 +22,12 @@
         }
     },
     "Oem": {
-        "OCPRASAPIWS": {
+        "OpenCompute_FaultMgmt": {
             "@odata.type": "#OCPRASLogService.v1_0_0.LogServiceExtension",
             "RecordFormat": "CPER",
             "SupportedSeverities": ["Informational", "Corrected", "Uncorrected", "Fatal"],
             "RelatedRASService": {
-                "@odata.id": "/redfish/v1/Oem/OCPRASAPIWS/RASService"
+                "@odata.id": "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService"
             }
         }
     }

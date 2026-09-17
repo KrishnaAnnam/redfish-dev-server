@@ -318,11 +318,11 @@ class EventServiceIntegration:
                 "OCPRAS.1.0.0.CPERRecordDeleted"
             ],
             "OriginResources": [
-                "/redfish/v1/Oem/OCPRASAPIWS/RASService",
+                "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService",
                 "/redfish/v1/Managers/*/LogServices/CPER/*"
             ],
             "Oem": {
-                "OCPRASAPIWS": {
+                "OpenCompute_FaultMgmt": {
                     "Severities": ["OK", "Warning", "Critical"],
                     "IncludeCPERData": True
                 }

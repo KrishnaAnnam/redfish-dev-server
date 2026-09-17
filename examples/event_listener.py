@@ -87,7 +87,7 @@ class EventListenerHandler(BaseHTTPRequestHandler):
             # OEM data
             oem = event.get('Oem', {})
             if oem:
-                ras_proto = oem.get('OCPRASAPIWS', {})
+                ras_proto = oem.get('OpenCompute_FaultMgmt', {})
                 if ras_proto:
                     print(f"\n   🔧 RAS Plugin Data:")
                     for key, value in ras_proto.items():

@@ -1,7 +1,7 @@
 # OCPRAS OEM Schemas
 
 This directory contains the schema definitions for the OCP RAS API OEM namespace
-(`Oem.OCPRASAPIWS`), aligned with the OCP RAS API Redfish Specification v0.7.
+(`Oem.OpenCompute_FaultMgmt`), aligned with the OCP RAS API Redfish Specification v0.7.
 
 ## Files
 
@@ -19,20 +19,20 @@ CSDL (Common Schema Definition Language) format - DMTF standard format:
 The OCPRAS schema defines:
 
 1. **RASService** - Main RAS coordination service
-   - Location: `/redfish/v1/Oem/OCPRASAPIWS/RASService`
+   - Location: `/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService`
    - Purpose: Service-root RAS orchestration and error coordination
    - Type: `#OCPRASService.v1_0_0.RASService`
 
 2. **ServiceRootExtension** - OEM extension for the ServiceRoot resource
-   - Adds the `RASService` link to `ServiceRoot.Oem.OCPRASAPIWS`
+   - Adds the `RASService` link to `ServiceRoot.Oem.OpenCompute_FaultMgmt`
    - Type: `#OCPRASServiceRoot.v1_0_0.ServiceRootExtension`
 
 3. **RASEndpoints** - Collection of RAS endpoints (error sources)
-   - Location: `/redfish/v1/Oem/OCPRASAPIWS/RASService/RASEndpoints`
+   - Location: `/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints`
    - Members type: `#OCPRASEndpoint.v1_0_0.RASEndpoint`
 
 4. **SubmitCPAD** - Action for submitting CPAD records
-   - Target: `/redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD`
+   - Target: `/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService.SubmitCPAD`
    - Converts CPAD to CPER and creates a LogEntry
 
 ## Usage
@@ -54,4 +54,4 @@ csdl_path = SchemaRegistry.get_schema_file_path('csdl')
 ## Specification
 
 Aligned with the OCP RAS API Redfish Specification v0.7. The RAS service and its
-resources live under the service-root OEM namespace `/redfish/v1/Oem/OCPRASAPIWS`.
+resources live under the service-root OEM namespace `/redfish/v1/Oem/OpenCompute_FaultMgmt`.

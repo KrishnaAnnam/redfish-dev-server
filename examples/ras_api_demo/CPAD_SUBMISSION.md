@@ -16,7 +16,7 @@ Two pieces of code implement this flow:
 ## Transport
 
 ```
-POST /redfish/v1/Oem/OCPRASAPIWS/RASService/Actions/RASService.SubmitCPAD
+POST /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService.SubmitCPAD
 Content-Type: application/json
 
 { "CPADData": "<base64 of the binary CPAD>", "EncodingType": "Base64" }

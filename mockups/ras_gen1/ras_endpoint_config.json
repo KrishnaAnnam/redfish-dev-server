@@ -1,0 +1,189 @@
+{
+   "platform_id" : "990f8820-bd4d-5064-58cc-961a053dea79",
+   "ras_endpoints" : [
+      {
+         "creator_id" : "11111111-2222-3333-4444-555555555555",
+         "name" : "Contoso CPU Socket 0 RAS Endpoint",
+         "partition_id" : "22222222-3333-4444-5555-666666666666",
+         "supported_queues" : [
+            "Fatal",
+            "Recoverable",
+            "Corrected",
+            "Informational",
+            "PlatformActionStatus"
+         ],
+         "description" : "RAS API-capable endpoint for Contoso CPU socket 0",
+         "endpoint_type" : "Processor",
+         "fru_id" : "75824856-bd36-2cc8-61f4-39bb3276da2a",
+         "fru_text" : "Contoso CPU Socket 0",
+         "id" : "Endpoint-1",
+         "memory" : {
+            "memory_repair_capabilities" : {
+               "hard_ppr_boot_time_supported" : true,
+               "soft_ppr_boot_time_supported" : true,
+               "soft_ppr_runtime_supported" : true
+            },
+            "channels_per_chiplet" : 2,
+            "dimms_per_channel" : 2,
+            "memory_controllers" : [
+               {
+                  "chiplet" : 0,
+                  "controller" : 0,
+                  "dimms" : [
+                     {
+                        "channel" : 0,
+                        "dimm" : 0,
+                        "max_repairs_per_bank" : 16,
+                        "size_bytes" : 68719476736,
+                        "spd" : {
+                           "dram_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "module_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "part_number" : "MSFT-DDR5-64GB",
+                           "serial_number" : "MSFT-C0-CH0-D0"
+                        }
+                     },
+                     {
+                        "channel" : 0,
+                        "dimm" : 1,
+                        "max_repairs_per_bank" : 16,
+                        "size_bytes" : 68719476736,
+                        "spd" : {
+                           "dram_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "module_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "part_number" : "MSFT-DDR5-64GB",
+                           "serial_number" : "MSFT-C0-CH0-D1"
+                        }
+                     },
+                     {
+                        "channel" : 1,
+                        "dimm" : 0,
+                        "max_repairs_per_bank" : 16,
+                        "size_bytes" : 68719476736,
+                        "spd" : {
+                           "dram_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "module_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "part_number" : "MSFT-DDR5-64GB",
+                           "serial_number" : "MSFT-C0-CH1-D0"
+                        }
+                     },
+                     {
+                        "channel" : 1,
+                        "dimm" : 1,
+                        "max_repairs_per_bank" : 16,
+                        "size_bytes" : 68719476736,
+                        "spd" : {
+                           "dram_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "module_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "part_number" : "MSFT-DDR5-64GB",
+                           "serial_number" : "MSFT-C0-CH1-D1"
+                        }
+                     }
+                  ]
+               },
+               {
+                  "chiplet" : 1,
+                  "controller" : 0,
+                  "dimms" : [
+                     {
+                        "channel" : 0,
+                        "dimm" : 0,
+                        "max_repairs_per_bank" : 16,
+                        "size_bytes" : 68719476736,
+                        "spd" : {
+                           "dram_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "module_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "part_number" : "MSFT-DDR5-64GB",
+                           "serial_number" : "MSFT-C1-CH0-D0"
+                        }
+                     },
+                     {
+                        "channel" : 0,
+                        "dimm" : 1,
+                        "max_repairs_per_bank" : 16,
+                        "size_bytes" : 68719476736,
+                        "spd" : {
+                           "dram_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "module_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "part_number" : "MSFT-DDR5-64GB",
+                           "serial_number" : "MSFT-C1-CH0-D1"
+                        }
+                     },
+                     {
+                        "channel" : 1,
+                        "dimm" : 0,
+                        "max_repairs_per_bank" : 16,
+                        "size_bytes" : 68719476736,
+                        "spd" : {
+                           "dram_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "module_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "part_number" : "MSFT-DDR5-64GB",
+                           "serial_number" : "MSFT-C1-CH1-D0"
+                        }
+                     },
+                     {
+                        "channel" : 1,
+                        "dimm" : 1,
+                        "max_repairs_per_bank" : 16,
+                        "size_bytes" : 68719476736,
+                        "spd" : {
+                           "dram_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "module_manufacturer_id" : [
+                              "0x04",
+                              "0xD5"
+                           ],
+                           "part_number" : "MSFT-DDR5-64GB",
+                           "serial_number" : "MSFT-C1-CH1-D1"
+                        }
+                     }
+                  ]
+               }
+            ]
+         }
+      }
+   ]
+}

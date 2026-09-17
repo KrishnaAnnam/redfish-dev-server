@@ -34,10 +34,10 @@
       "@odata.type": "#MicrosoftManagementFeatures.v1_0_0.MicrosoftManagementFeatures",
       "ManagementInterfacesSupported": "IPMI"
     },
-    "OCPRASAPIWS": {
+    "OpenCompute_FaultMgmt": {
       "@odata.type": "#OCPRASServiceRoot.v1_0_0.ServiceRootExtension",
       "RASService": {
-        "@odata.id": "/redfish/v1/Oem/OCPRASAPIWS/RASService"
+        "@odata.id": "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService"
       }
     }
   },

@@ -25,8 +25,8 @@ A Contoso CPER section can log a large amount of state (see `contoso-cper-sectio
 - **Misc 0** — Injected bit, ce_count, implementation-specific bits
 - **Misc 1** — implementation-specific context
 - **Section-type-specific additional registers** — for example the memory controller's
-  DRAM bank logs 142 bytes (channel, subchannel, dimm, rank, bank_group, bank,
-  row, column, DIMM identity fields, a reserved field, and a `beat_mask[10][4]`)
+  DRAM bank logs an 81-byte base plus sparse repair entries (hierarchical error
+  location, a per-device `beat_mask[4]`, DIMM identity, and repair history)
 
 Expressing all of this with flat command-line arguments (e.g. `--beat-mask-dram3-dq2=...`)
 does not scale and is not usable. Instead, the primary interface is an **editable JSON
@@ -190,14 +190,18 @@ beat mask:
     "misc0": { "injected": true, "ce_count": 1 },
     "misc1": "0x0",
     "additional": {
-        "channel": 0, "subchannel": 0, "dimm": 1, "rank": 0,
-        "bank_group": 2, "bank": 3, "row": 1234, "column": 567,
+        "channel": 0, "dimm": 1, "subchannel": 0, "rank": 0,
+        "device": 3, "bank_group": 2, "bank": 3,
+        "row": 1234, "column": 567,
+        "beat_mask": [0, 0, 0, 0],
         "serial_number": "SN123456789",
         "part_number": "PN-1234",
         "module_manufacturer_id": ["0x04", "0xD5"],
         "dram_manufacturer_id": ["0x80", "0x2C"],
+        "total_memory_bytes": "0x0",
+        "memory_repair_capabilities": 0,
         "reserved": 0,
-        "beat_mask": [ /* [10][4] uint16; defaults all-zero */ ]
+        "repairs": []
     },
     "beatErrors": [
         { "dram": 3, "dq": 2, "beats": "0,5,15" }   // failing beats (see below)
@@ -220,20 +224,20 @@ while the DRAM ID identifies the vendor that fabricated the DRAM devices.
 
 #### DRAM beat errors (`beatErrors` and `--beat`)
 
-The DRAM error bank logs `beat_mask[10][4]` — indexed `[DRAM][DQ]`, where each element is
-a 16-bit mask (one bit per beat). Rather than hand-editing that grid, describe the failing
+The DRAM error bank logs an explicit `device` and `beat_mask[4]`, indexed by DQ,
+where each element is a 16-bit mask (one bit per beat). Rather than hand-editing it, describe the failing
 beats declaratively with a `beatErrors` list in the `section` block:
 
 ```jsonc
 "beatErrors": [
     { "dram": 3,     "dq": 2,     "beats": "0,5,15" },  // DRAM 3, DQ 2, beats 0/5/15
-    { "dram": "3,7", "dq": "all", "beats": "4-6" }      // DRAMs 3&7, all DQs, beats 4-6
+    { "dram": 3,     "dq": "all", "beats": "4-6" }      // same DRAM, all DQs, beats 4-6
 ]
 ```
 
-- `dram` (0–9), `dq` (0–3), and `beats` (0–15) each accept an integer, a comma list, a
-  `lo-hi` range, or `"all"`.
-- Entries OR together onto the zero-initialised grid; `beat_mask` still defaults to all
+- `dram` selects exactly one device (0-9). All entries must select the same device.
+- `dq` (0-3) and `beats` (0-15) accept an integer, comma list, range, or `"all"`.
+- Entries OR together onto the zero-initialised vector; `beat_mask` still defaults to all
   zeros, so you only add the beats you want.
 
 The same thing on the command line, with a repeatable `--beat` flag (fields separated by
@@ -244,11 +248,12 @@ injector-contoso.py inject \
     --section "Memory Controller - First Generation" \
     --error "Corrected Memory ECC Error" \
     --beat "dram=3;dq=2;beats=0,5,15" \
-    --beat "dram=3,7;dq=all;beats=4-6" \
+    --beat "dram=3;dq=all;beats=4-6" \
     --out beats.cpad
 ```
 
-`decode` reverse-compiles a populated `beat_mask` back into a readable `beatErrors` list.
+`decode` reverse-compiles a populated `device` and `beat_mask` back into a readable
+`beatErrors` list.
 
 #### Severity and Notification Type (endpoint-derived)
 

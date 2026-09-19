@@ -11,6 +11,11 @@ The RAS Gen 1 platform uses
 [`mockups/ras_gen1/ras_endpoint_config.json`](../../../mockups/ras_gen1/ras_endpoint_config.json).
 Restart the server after changing this file.
 
+The generic endpoint fields identify and route RAS records. The `memory` object
+is provider-specific configuration used by the Contoso endpoint implementation.
+The plugin selects proprietary action behavior by the configured `creator_id`;
+there is no separate vendor-name field.
+
 The configuration is authoritative for:
 
 - RAS endpoint identity and supported queues
@@ -36,7 +41,7 @@ Endpoint IDs and partition IDs must be unique within the file.
 | Field | Required | Description |
 | --- | --- | --- |
 | `id` | Yes | Redfish RAS endpoint resource ID. |
-| `creator_id` | Yes | Creator ID identifying the endpoint/analyzer owner. |
+| `creator_id` | Yes | Creator ID identifying the endpoint, analyzer, and proprietary action owner. |
 | `name` | Yes | Display name. |
 | `partition_id` | Yes | Partition ID used to route CPERs and CPADs. |
 | `description` | Yes | Endpoint description. |
@@ -44,11 +49,32 @@ Endpoint IDs and partition IDs must be unique within the file.
 | `fru_id` | Yes | Field-replaceable unit ID. |
 | `fru_text` | Yes | Human-readable FRU description. |
 | `supported_queues` | Yes | CPER queues advertised by the endpoint. |
-| `memory` | Yes | Installed-memory configuration for this endpoint. |
+| `provider_config` | No | Vendor-specific settings made available to the endpoint action provider. |
+| `memory` | No | Provider-specific installed-memory configuration. Required by the Contoso provider. |
 
 Identity and queue fields are published through Redfish discovery. Memory
 repair capabilities are consumed internally and placed only in Contoso memory
 CPERs.
+
+An endpoint owned by another CreatorID may omit `memory` and place its
+vendor-specific settings in `provider_config`. The generic discovery and CPAD
+routing paths do not interpret that object or require Contoso memory topology.
+
+A submitted CPAD is routed by `partition_id`, and its CreatorID must match the
+configured `creator_id` for that endpoint. Proprietary ActionIDs are interpreted
+using the pair `(creator_id, ActionID)`, allowing other vendors to reuse numeric
+IDs without invoking Contoso behavior.
+
+## System Reset Scope
+
+The current mockup exposes one Redfish ComputerSystem. A successful `On`,
+`GracefulRestart`, `ForceRestart`, or `PowerCycle` therefore resets every
+configured SoC endpoint partition. A pending Contoso reboot-with-retraining
+action retrains all memory controllers in its target SoC partition.
+
+`ForceOff` and `GracefulShutdown` do not perform retraining. See
+[Contoso CPAD Actions](../../../examples/ras_api_demo/analyzers/contoso/contoso-cpad-actions.md)
+for the complete action lifecycle.
 
 ## Memory Repair Capabilities
 

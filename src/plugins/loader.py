@@ -259,6 +259,21 @@ class PluginLoader:
                 routes[name] = plugin.get_routes()
         return routes
 
+    def notify_system_reset(
+            self, system_id: str, reset_type: str) -> Dict[str, Any]:
+        """Notify loaded plugins after a ComputerSystem reset is accepted."""
+        results = {}
+        for name, plugin in self._loaded_plugins.items():
+            callback = getattr(plugin, "on_system_reset", None)
+            if callback is None:
+                continue
+            try:
+                results[name] = callback(system_id, reset_type)
+            except Exception:
+                logger.exception(
+                    "Plugin '%s' failed while handling system reset", name)
+        return results
+
 
 # Global plugin loader instance
 _loader_instance: Optional[PluginLoader] = None

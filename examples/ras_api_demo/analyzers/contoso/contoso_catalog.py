@@ -39,6 +39,13 @@ CONTOSO_SECTION_MINOR = 4
 
 # The RAS API "Inject Error" action (Action Id 0x06).
 INJECT_ACTION = {"code": "0x0006", "name": "Inject Error"}
+SPPR_ACTION = {"code": "0x8001", "name": "Soft Post Package Repair"}
+PAGE_OFFLINE_ACTION = {"code": "0x8002", "name": "Page Offline"}
+REBOOT_WITH_RETRAINING_ACTION = {
+    "code": "0x8003",
+    "name": "Reboot with Memory Retraining",
+}
+PAGE_SIZE_BYTES = 4096
 
 
 # ── Severity encoding (Error Status Register bits 61:59) ────────────────────

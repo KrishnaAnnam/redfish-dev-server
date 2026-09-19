@@ -282,6 +282,30 @@ def test_endpoint_ids_and_partitions_must_be_unique():
         raise AssertionError("expected duplicate partition failure")
 
 
+def test_non_contoso_endpoint_can_omit_memory_configuration():
+    config = RASEndpointConfiguration.from_dict({
+        "platform_id": "platform",
+        "ras_endpoints": [{
+            "id": "Endpoint-1",
+            "name": "Fabrikam Endpoint",
+            "description": "Endpoint owned by another vendor",
+            "endpoint_type": "Processor",
+            "partition_id": "partition",
+            "creator_id": "fabrikam",
+            "fru_id": "fru",
+            "fru_text": "Fabrikam SoC",
+            "supported_queues": ["Corrected"],
+            "provider_config": {"action_mode": "demo"},
+        }],
+    })
+
+    endpoint = config.endpoint_by_partition("partition")
+    assert endpoint.creator_id == "fabrikam"
+    assert endpoint.provider_config == {"action_mode": "demo"}
+    assert endpoint.memory is None
+    assert endpoint.memory_repair_capabilities.bitfield == 0
+
+
 if __name__ == "__main__":
     failures = 0
     for name, test in sorted(globals().items()):

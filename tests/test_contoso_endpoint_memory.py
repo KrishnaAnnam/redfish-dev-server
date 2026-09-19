@@ -3,6 +3,8 @@
 
 import base64
 import copy
+import contextlib
+import io
 import json
 import sys
 from pathlib import Path
@@ -16,9 +18,20 @@ sys.path.insert(0, str(CONTOSO_DIR))
 import contoso_catalog as catalog  # noqa: E402
 import contoso_encoder as encoder  # noqa: E402
 import injection_spec as spec_model  # noqa: E402
+from src.plugins.ras.action_provider import (  # noqa: E402
+    ACTION_COMPLETED,
+    ActionResult,
+)
 from src.plugins.ras.contoso_memory import (  # noqa: E402
     active_cpad_memory_bank,
     overlay_cpad_memory_state,
+)
+from src.plugins.ras.contoso_actions import (  # noqa: E402
+    CONTOSO_CREATOR_ID,
+    PAGE_OFFLINE_ACTION_ID,
+    REBOOT_WITH_RETRAINING_ACTION_ID,
+    RETRAINING_RESET_TYPES,
+    SPPR_ACTION_ID,
 )
 from src.plugins.ras.handlers.submit_cpad_action import SubmitCPADActionHandler  # noqa: E402
 from src.plugins.ras.memory_config import (  # noqa: E402
@@ -27,9 +40,12 @@ from src.plugins.ras.memory_config import (  # noqa: E402
 )
 from src.plugins.ras.plugin import RASPlugin  # noqa: E402
 from src.config.settings import ServerConfig  # noqa: E402
+from src.services.custom_actions_service import CustomActionsService  # noqa: E402
+from src.plugins.loader import PluginLoader  # noqa: E402
 
 
 CONFIG_PATH = ROOT / "mockups" / "ras_gen1" / "ras_endpoint_config.json"
+PARTITION_ID = "22222222-3333-4444-5555-666666666666"
 
 
 def _memory_cpad():
@@ -100,6 +116,89 @@ def _handler():
     return handler
 
 
+def _set_error_address(cpad, address, valid=True):
+    raw = bytearray(base64.b64decode(cpad["sections"][0]["Unknown"]["data"]))
+    status = int.from_bytes(raw[8:16], "little")
+    if valid:
+        status |= 1 << 63
+    else:
+        status &= ~(1 << 63)
+    raw[8:16] = status.to_bytes(8, "little")
+    raw[16:24] = address.to_bytes(8, "little")
+    cpad["sections"][0]["Unknown"]["data"] = base64.b64encode(raw).decode("ascii")
+
+
+def _submission_handler(
+        action_id, address=0x12345000,
+        creator_id=CONTOSO_CREATOR_ID):
+    handler = _handler()
+    cpad = _memory_cpad()
+    _set_error_address(cpad, address)
+    cpad["header"] = {
+        "platformID": "990f8820-bd4d-5064-58cc-961a053dea79",
+        "partitionID": PARTITION_ID,
+        "creatorID": creator_id,
+        "recordID": 42,
+    }
+    cpad["sectionDescriptors"][0].update({
+        "actionID": {"code": action_id},
+        "fruID": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fruText": "DIMM A1",
+    })
+    metadata = {
+        "record_id": 42,
+        "creator_id": creator_id,
+        "platform_id": cpad["header"]["platformID"],
+        "partition_id": PARTITION_ID,
+        "record_length": 48,
+        "action_id": action_id,
+        "fru_id": cpad["sectionDescriptors"][0]["fruID"],
+        "fru_text": "DIMM A1",
+        "confidence": 80,
+    }
+
+    class StubCpadHandler:
+        @staticmethod
+        def validate_and_extract(_cpad):
+            return True, metadata, None
+
+    class StubLogService:
+        def __init__(self):
+            self.records = []
+
+        def next_record_id(self):
+            return len(self.records) + 1
+
+        def add_cper_log_entry(self, cper, _binary_path):
+            self.records.append(cper)
+            return 201, str(len(self.records))
+
+    handler.cpad_handler = StubCpadHandler()
+    handler.log_service_handler = StubLogService()
+    handler.event_handler = None
+    handler.submission_history = []
+    handler._convert_binary_cpad_to_json = lambda _raw: cpad
+    handler._convert_json_to_binary_cper = lambda _cper, _metadata: None
+    return handler, cpad
+
+
+def _submission_request():
+    return {
+        "EncodingType": "Base64",
+        "CPADData": base64.b64encode(b"CPAD" + b"\x00" * 44).decode("ascii"),
+    }
+
+
+def test_analyzer_and_endpoint_share_contoso_action_contract():
+    assert CONTOSO_CREATOR_ID == catalog.CONTOSO_CREATOR_ID
+    assert SPPR_ACTION_ID == catalog.SPPR_ACTION["code"]
+    assert PAGE_OFFLINE_ACTION_ID == catalog.PAGE_OFFLINE_ACTION["code"]
+    assert REBOOT_WITH_RETRAINING_ACTION_ID == (
+        catalog.REBOOT_WITH_RETRAINING_ACTION["code"])
+    assert RETRAINING_RESET_TYPES == {
+        "On", "GracefulRestart", "ForceRestart", "PowerCycle"}
+
+
 def test_successful_sppr_increments_target_bank():
     handler = _handler()
     cpad = _memory_cpad()
@@ -113,6 +212,250 @@ def test_successful_sppr_increments_target_bank():
         "subchannel": 0, "rank": 0, "device": 3,
         "bank_group": 2, "bank": 3, "count": 1,
     }]
+
+
+def test_successful_sppr_prints_complete_repair_target():
+    handler, _cpad = _submission_handler(SPPR_ACTION_ID)
+    output = io.StringIO()
+
+    with contextlib.redirect_stdout(output):
+        status, _response = handler.handle_submit_cpad(
+            "System", _submission_request())
+
+    assert status == 202
+    text = output.getvalue()
+    assert "           ✓ SPPR applied:" in text
+    assert "             Chiplet:      0" in text
+    assert "             Controller:   0" in text
+    assert "             Channel:      0" in text
+    assert "             DIMM:         1" in text
+    assert "             Subchannel:   0" in text
+    assert "             Rank:         0" in text
+    assert "             DRAM device:  3" in text
+    assert "             Bank group:   2" in text
+    assert "             Bank:         3" in text
+    assert "             Repair count: 1" in text
+
+
+def test_page_offline_accepts_only_aligned_valid_physical_address():
+    handler, cpad = _submission_handler(PAGE_OFFLINE_ACTION_ID)
+    endpoint = handler.endpoint_configuration.endpoint_by_partition(PARTITION_ID)
+    metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+    provider = handler._contoso_action_provider()
+
+    result = provider.execute(
+        "System", PAGE_OFFLINE_ACTION_ID, cpad, metadata, endpoint)
+
+    assert result.return_code == 0
+    assert result.details["physical_address"] == 0x12345000
+    assert "forwarded to the OS" in result.context
+
+    _set_error_address(cpad, 0x12345001)
+    result = provider.execute(
+        "System", PAGE_OFFLINE_ACTION_ID, cpad, metadata, endpoint)
+    assert result.return_code == 1
+    assert result.reason == (
+        "Page Offline physical address must be 4 KiB aligned")
+
+    _set_error_address(cpad, 0x12345000, valid=False)
+    result = provider.execute(
+        "System", PAGE_OFFLINE_ACTION_ID, cpad, metadata, endpoint)
+    assert result.return_code == 1
+    assert result.reason == "Page Offline requires a valid physical address"
+
+
+def test_page_offline_emits_action_event_without_error_cper():
+    handler, _cpad = _submission_handler(PAGE_OFFLINE_ACTION_ID)
+
+    status, response = handler.handle_submit_cpad(
+        "System", _submission_request())
+
+    assert status == 202
+    assert response["TaskState"] == "Completed"
+    assert len(handler.log_service_handler.records) == 1
+    action_event = handler.log_service_handler.records[0]["sections"][0][
+        "PlatformActionEvent"]
+    assert action_event["cpadActionId"] == PAGE_OFFLINE_ACTION_ID
+    assert base64.b64decode(action_event["additionalContext"]).decode() == (
+        "Page Offline request for physical address 0x0000000012345000 "
+        "was forwarded to the OS")
+
+
+def test_error_injection_is_the_only_action_that_emits_an_error_cper():
+    handler, _cpad = _submission_handler("0x0006")
+    handler._convert_cpad_to_cper = (
+        lambda _cpad, _metadata: {"kind": "injected-error"})
+
+    status, _response = handler.handle_submit_cpad(
+        "System", _submission_request())
+
+    assert status == 202
+    assert len(handler.log_service_handler.records) == 2
+    assert handler.log_service_handler.records[0] == {
+        "kind": "injected-error"}
+    assert "PlatformActionEvent" in (
+        handler.log_service_handler.records[1]["sections"][0])
+
+
+def test_retraining_waits_for_qualifying_whole_machine_reset():
+    handler, _cpad = _submission_handler(REBOOT_WITH_RETRAINING_ACTION_ID)
+
+    status, response = handler.handle_submit_cpad(
+        "System", _submission_request())
+
+    assert status == 202
+    assert response["TaskState"] == "Pending"
+    assert handler.submission_history[-1]["decision"] == "PENDING"
+    assert handler.log_service_handler.records == []
+    assert handler.on_system_reset("system", "GracefulShutdown") == 0
+    assert handler.log_service_handler.records == []
+
+    assert handler.on_system_reset("system", "On") == 1
+    assert len(handler.log_service_handler.records) == 1
+    action_event = handler.log_service_handler.records[0]["sections"][0][
+        "PlatformActionEvent"]
+    assert action_event["cpadActionId"] == REBOOT_WITH_RETRAINING_ACTION_ID
+    context = base64.b64decode(action_event["additionalContext"]).decode()
+    assert PARTITION_ID in context
+    assert "during On" in context
+    assert handler.on_system_reset("system", "PowerCycle") == 0
+
+
+def test_every_restart_style_reset_completes_retraining():
+    for reset_type in RETRAINING_RESET_TYPES:
+        handler, _cpad = _submission_handler(
+            REBOOT_WITH_RETRAINING_ACTION_ID)
+        handler.handle_submit_cpad("System", _submission_request())
+
+        assert handler.on_system_reset("system", reset_type) == 1
+        assert len(handler.log_service_handler.records) == 1
+
+
+def test_failed_retraining_event_storage_leaves_action_pending():
+    handler, _cpad = _submission_handler(REBOOT_WITH_RETRAINING_ACTION_ID)
+    handler.handle_submit_cpad("System", _submission_request())
+    working_log_service = handler.log_service_handler
+
+    class FailingLogService:
+        @staticmethod
+        def next_record_id():
+            return 1
+
+        @staticmethod
+        def add_cper_log_entry(_cper, _binary_path):
+            return 500, None
+
+    handler.log_service_handler = FailingLogService()
+    assert handler.on_system_reset("system", "PowerCycle") == 0
+
+    handler.log_service_handler = working_log_service
+    assert handler.on_system_reset("system", "PowerCycle") == 1
+    assert len(handler.log_service_handler.records) == 1
+
+
+def test_submit_rejects_creator_that_does_not_own_target_partition():
+    handler, _cpad = _submission_handler(
+        PAGE_OFFLINE_ACTION_ID,
+        creator_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+
+    status, response = handler.handle_submit_cpad(
+        "System", _submission_request())
+
+    assert status == 400
+    message = response["error"]["@Message.ExtendedInfo"][0]["Message"]
+    assert "does not match the owner of partition" in message
+    assert handler.log_service_handler.records == []
+
+
+def test_redfish_on_notifies_plugins_after_system_state_is_saved():
+    notifications = []
+    service = CustomActionsService.__new__(CustomActionsService)
+    service.system_reset_notifier = (
+        lambda system_id, reset_type:
+        notifications.append((system_id, reset_type)))
+    service._update_resource_data = (
+        lambda _path, _data, _cache: True)
+    service._trigger_action_event = lambda *_args: None
+    resource = {"PowerState": "Off"}
+
+    status, _headers, body = service._handle_system_reset(
+        "/redfish/v1/Systems/system/Actions/ComputerSystem.Reset",
+        "/redfish/v1/Systems/system",
+        {"ResetType": "On"},
+        resource,
+        {},
+    )
+
+    assert status == 204
+    assert body == {}
+    assert resource["PowerState"] == "On"
+    assert notifications == [("system", "On")]
+
+
+def test_plugin_loader_notifies_only_plugins_with_reset_callbacks():
+    calls = []
+
+    class ResetAwarePlugin:
+        @staticmethod
+        def on_system_reset(system_id, reset_type):
+            calls.append((system_id, reset_type))
+            return 2
+
+    loader = PluginLoader()
+    loader._loaded_plugins = {
+        "ras": ResetAwarePlugin(),
+        "telemetry": object(),
+    }
+
+    results = loader.notify_system_reset("system", "PowerCycle")
+
+    assert calls == [("system", "PowerCycle")]
+    assert results == {"ras": 2}
+
+
+def test_another_vendor_can_register_same_proprietary_action_id():
+    creator_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    config = RASEndpointConfiguration.from_dict({
+        "platform_id": "990f8820-bd4d-5064-58cc-961a053dea79",
+        "ras_endpoints": [{
+            "id": "Endpoint-2",
+            "name": "Fabrikam Endpoint",
+            "description": "Second vendor endpoint",
+            "endpoint_type": "Processor",
+            "partition_id": "fabrikam-partition",
+            "creator_id": creator_id,
+            "fru_id": "fabrikam-fru",
+            "fru_text": "Fabrikam SoC",
+            "supported_queues": ["Informational"],
+        }],
+    })
+    endpoint = config.endpoint_by_id("Endpoint-2")
+    handler = SubmitCPADActionHandler.__new__(SubmitCPADActionHandler)
+    handler.action_providers = {}
+
+    class FabrikamProvider:
+        creator_ids = frozenset({creator_id})
+
+        @staticmethod
+        def execute(_manager, action_id, _cpad, _metadata, _endpoint):
+            assert action_id == PAGE_OFFLINE_ACTION_ID
+            return ActionResult(
+                status=ACTION_COMPLETED,
+                context="Fabrikam-specific 0x8002 action",
+            )
+
+    handler.register_action_provider(FabrikamProvider())
+    result = handler._execute_action(
+        "System",
+        {},
+        {
+            "action_id": PAGE_OFFLINE_ACTION_ID,
+            "creator_id": creator_id,
+        },
+        endpoint,
+    )
+
+    assert result.context == "Fabrikam-specific 0x8002 action"
 
 
 def test_sppr_at_dimm_limit_fails_without_incrementing():

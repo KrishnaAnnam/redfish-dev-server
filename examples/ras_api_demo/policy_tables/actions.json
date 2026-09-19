@@ -14,6 +14,22 @@
       "supported_platforms": [
         "990f8820-bd4d-5064-58cc-961a053dea79"
       ]
+    },
+    "0x8002": {
+      "name": "Page Offline",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": [
+        "990f8820-bd4d-5064-58cc-961a053dea79"
+      ]
+    },
+    "0x8003": {
+      "name": "Reboot with Memory Retraining",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": [
+        "990f8820-bd4d-5064-58cc-961a053dea79"
+      ]
     }
   }
 }

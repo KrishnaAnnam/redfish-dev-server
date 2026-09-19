@@ -20,7 +20,7 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Dict, Any, Tuple, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 from ..utils.file_utils import construct_path, get_cached_link
 
 logger = logging.getLogger(__name__)
@@ -29,9 +29,14 @@ logger = logging.getLogger(__name__)
 class CustomActionsService:
     """Service for handling custom Redfish actions"""
     
-    def __init__(self, server_config):
+    def __init__(
+            self,
+            server_config,
+            system_reset_notifier: Optional[
+                Callable[[str, str], Dict[str, Any]]] = None):
         self.server_config = server_config
         self.logger = logging.getLogger("CustomActions")
+        self.system_reset_notifier = system_reset_notifier
         
         # Register action handlers
         self.action_handlers = {
@@ -214,11 +219,17 @@ class CustomActionsService:
         if 'LastResetTime' in resource_data:
             resource_data['LastResetTime'] = datetime.utcnow().isoformat() + 'Z'
         
-        # Save updated resource
-        self._update_resource_data(resource_path, resource_data, cached_links)
+        # Save updated resource before reporting the reset to plugins.
+        if not self._update_resource_data(
+                resource_path, resource_data, cached_links):
+            return 500, {}, {"error": "Failed to update ComputerSystem state"}
         
         # Trigger event
         self._trigger_action_event('ComputerSystem.Reset', resource_path, data_received, 'Success')
+
+        if self.system_reset_notifier is not None:
+            system_id = resource_path.rstrip('/').split('/')[-1]
+            self.system_reset_notifier(system_id, reset_type)
         
         return 204, {}, {}  # No content response for successful action
     

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Iterable, Optional, Tuple
 
 
 DEFAULT_CHANNELS_PER_CHIPLET = 2
@@ -235,8 +235,9 @@ class EndpointConfig:
     fru_id: str
     fru_text: str
     supported_queues: Tuple[str, ...]
+    provider_config: Dict[str, Any]
     memory_repair_capabilities: MemoryRepairCapabilities
-    memory: PlatformMemoryConfig
+    memory: Optional[PlatformMemoryConfig]
 
 
 class RASEndpointConfiguration:
@@ -286,8 +287,25 @@ class RASEndpointConfiguration:
                     any(not isinstance(queue, str) or not queue for queue in queues)):
                 raise ValueError("supported_queues must be a list of strings")
             memory_data = source.get("memory")
-            if not isinstance(memory_data, dict):
-                raise ValueError(f"endpoint {endpoint_id} must contain a memory object")
+            if memory_data is not None and not isinstance(memory_data, dict):
+                raise ValueError(
+                    f"endpoint {endpoint_id} memory must be an object")
+            provider_config = source.get("provider_config", {})
+            if not isinstance(provider_config, dict):
+                raise ValueError(
+                    f"endpoint {endpoint_id} provider_config must be an object")
+            memory_capabilities = (
+                MemoryRepairCapabilities.from_dict(
+                    memory_data.get("memory_repair_capabilities", {}))
+                if memory_data is not None else MemoryRepairCapabilities()
+            )
+            memory = (
+                PlatformMemoryConfig.from_dict({
+                    "platform_id": platform_id,
+                    **memory_data,
+                })
+                if memory_data is not None else None
+            )
             endpoints.append(EndpointConfig(
                 id=endpoint_id,
                 name=_require_string(source.get("name"), "endpoint name"),
@@ -300,12 +318,9 @@ class RASEndpointConfiguration:
                 fru_id=_require_string(source.get("fru_id"), "fru_id"),
                 fru_text=_require_string(source.get("fru_text"), "fru_text"),
                 supported_queues=tuple(queues),
-                memory_repair_capabilities=MemoryRepairCapabilities.from_dict(
-                    memory_data.get("memory_repair_capabilities", {})),
-                memory=PlatformMemoryConfig.from_dict({
-                    "platform_id": platform_id,
-                    **memory_data,
-                }),
+                provider_config=provider_config,
+                memory_repair_capabilities=memory_capabilities,
+                memory=memory,
             ))
         return cls(platform_id, endpoints)
 

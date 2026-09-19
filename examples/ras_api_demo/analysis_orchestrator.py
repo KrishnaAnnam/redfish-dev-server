@@ -962,12 +962,13 @@ class AnalysisOrchestrator:
         cpad_outputs = sorted(analyzer_dir.glob("*.cpad"))
 
         print(f"\n   Step 5 — Collect and store the analyzer's outputs")
-        moved_json: Optional[Path] = None
+        moved_json = {}
         for produced in json_outputs:
             dest = dest_dir / produced.name
             shutil.move(str(produced), str(dest))
-            moved_json = dest
-            print(f"   📄 Analysis JSON → {dest}")
+            moved_json[produced.stem] = dest
+            label = "CPAD JSON" if produced.stem.endswith("_cpad") else "Analysis JSON"
+            print(f"   📄 {label} → {dest}")
 
         if not cpad_outputs:
             return
@@ -978,7 +979,10 @@ class AnalysisOrchestrator:
             print(f"   📦 CPAD         → {dest}")
             print(f"   A CPAD is a *proposed RAS action*. The analyzer recommends it, but it does")
             print(f"   not act on its own — it must clear policy before anything happens.")
-            self._policy_and_submit(cpad_binary=dest, cpad_json=moved_json)
+            paired_json = moved_json.get(produced.stem)
+            if paired_json is None:
+                print(f"   ⚠️  No matching CPAD JSON for {produced.name} — denying by default.")
+            self._policy_and_submit(cpad_binary=dest, cpad_json=paired_json)
 
     def _policy_and_submit(self, *, cpad_binary: Path, cpad_json: Optional[Path]):
         """Evaluate a CPAD against policy and, on approval, submit it."""
@@ -994,12 +998,12 @@ class AnalysisOrchestrator:
         print("   blast-radius rules) to gate the action.")
 
         decision = None
-        if self.policy_engine is not None and cpad_json is not None:
-            decision = self.policy_engine.evaluate_cpad(str(cpad_json))
-            allowed = bool(decision)
-        elif self.policy_engine is not None:
+        if cpad_json is None:
             print("\n   ⚠️  No CPAD JSON available to evaluate — denying by default.")
             allowed = False
+        elif self.policy_engine is not None:
+            decision = self.policy_engine.evaluate_cpad(str(cpad_json))
+            allowed = bool(decision)
         else:
             print("\n   ⓘ No policy engine configured — skipping policy check.")
             allowed = True

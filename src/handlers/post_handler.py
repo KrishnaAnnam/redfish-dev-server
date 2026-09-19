@@ -46,7 +46,9 @@ class PostHandler(BaseRedfishHandler):
     def custom_actions_service(self):
         """Lazy initialization of custom actions service"""
         if self._custom_actions_service is None:
-            self._custom_actions_service = CustomActionsService(self.server.config)
+            self._custom_actions_service = CustomActionsService(
+                self.server.config,
+                system_reset_notifier=self.plugin_loader.notify_system_reset)
         return self._custom_actions_service
     
     @custom_actions_service.setter

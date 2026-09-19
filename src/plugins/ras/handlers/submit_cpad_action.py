@@ -17,7 +17,21 @@ from datetime import datetime
 import json
 from pathlib import Path
 
+from ..action_provider import (
+    ACTION_COMPLETED,
+    ACTION_FAILED,
+    ACTION_PENDING,
+    ActionResult,
+)
 from ..cpad_handler import CPADHandler
+from ..contoso_actions import (
+    CONTOSO_ACTION_DESCRIPTIONS,
+    CONTOSO_CREATOR_ID,
+    ContosoActionProvider,
+    PAGE_OFFLINE_ACTION_ID,
+    REBOOT_WITH_RETRAINING_ACTION_ID,
+    SPPR_ACTION_ID,
+)
 from ..contoso_memory import (
     active_cpad_memory_bank,
     decode_cpad_memory_coordinates,
@@ -37,6 +51,11 @@ from .event_service import RASEventServiceHandler
 
 logger = logging.getLogger(__name__)
 
+ERROR_INJECTION_ACTION_ID = "0x0006"
+ACTION_DESCRIPTIONS = {
+    ERROR_INJECTION_ACTION_ID: "Injection: spoofing corrected memory error",
+    **CONTOSO_ACTION_DESCRIPTIONS,
+}
 
 # ── Contoso proprietary severity / notification decoding (endpoint role) ─────
 # The BMC simulates the Contoso RAS API endpoint, so for a Contoso error section
@@ -130,6 +149,7 @@ class SubmitCPADActionHandler:
         self.memory_repair_state = None
         self.memory_repair_states = {}
         self.endpoint_configuration = None
+        self.action_providers = {}
 
         if mockup_dir:
             endpoint_config_path = Path(mockup_dir) / "ras_endpoint_config.json"
@@ -145,12 +165,16 @@ class SubmitCPADActionHandler:
                     endpoint.partition_id: MemoryRepairState(
                         endpoint.memory, endpoint.memory_repair_capabilities)
                     for endpoint in endpoint_config.endpoints
+                    if endpoint.memory is not None
                 }
                 if len(self.memory_repair_states) == 1:
                     self.memory_repair_state = next(
                         iter(self.memory_repair_states.values()))
                 logger.info("Loaded RAS endpoint configuration: %s",
                             endpoint_config_path)
+
+        self.register_action_provider(ContosoActionProvider(
+            self.endpoint_configuration, self.memory_repair_states))
         
         # Initialize LogService handler if mockup directory provided
         self.log_service_handler = None
@@ -197,25 +221,94 @@ class SubmitCPADActionHandler:
             return self.memory_repair_state
         raise ValueError(f"no memory configuration for partition {partition_id}")
 
+    def _contoso_action_provider(self) -> ContosoActionProvider:
+        providers = getattr(self, "action_providers", None)
+        if providers is None:
+            providers = {}
+            self.action_providers = providers
+        provider = providers.get(CONTOSO_CREATOR_ID)
+        if provider is None:
+            provider = ContosoActionProvider(
+                getattr(self, "endpoint_configuration", None),
+                getattr(self, "memory_repair_states", {}))
+            providers[CONTOSO_CREATOR_ID] = provider
+        return provider
+
+    def register_action_provider(self, provider) -> None:
+        """Register one endpoint action provider for each CreatorID it owns."""
+        for creator_id in provider.creator_ids:
+            key = creator_id.lower()
+            existing = self.action_providers.get(key)
+            if existing is not None and existing is not provider:
+                raise ValueError(
+                    f"an action provider is already registered for {key}")
+            self.action_providers[key] = provider
+
     def _perform_sppr(self, cpad_data: Dict[str, Any], partition_id: str = None):
         """Apply one simulated SPPR and return (return_code, reason, count)."""
+        return self._contoso_action_provider().perform_sppr(
+            cpad_data, partition_id)
+
+    def _endpoint_for_partition(self, partition_id: str):
+        if self.endpoint_configuration is not None:
+            return self.endpoint_configuration.endpoint_by_partition(partition_id)
+        for endpoint in RASDiscoveryHandler.ENDPOINTS:
+            if endpoint.get("PartitionID") == partition_id:
+                return endpoint
+        raise ValueError(f"no RAS endpoint has partition_id {partition_id}")
+
+    @staticmethod
+    def _endpoint_creator_id(endpoint) -> str:
+        if isinstance(endpoint, dict):
+            return endpoint.get("CreatorID", "")
+        return endpoint.creator_id
+
+    def _execute_action(
+            self,
+            manager_id: str,
+            cpad_data: Dict[str, Any],
+            metadata: Dict[str, Any],
+            endpoint) -> ActionResult:
+        action_id = metadata["action_id"]
+        if action_id == ERROR_INJECTION_ACTION_ID:
+            return self._validate_error_injection(cpad_data, metadata)
+
+        creator_id = self._endpoint_creator_id(endpoint).lower()
+        provider = getattr(self, "action_providers", {}).get(creator_id)
+        if provider is None and creator_id == CONTOSO_CREATOR_ID:
+            provider = self._contoso_action_provider()
+        if provider is None:
+            return ActionResult(
+                status=ACTION_FAILED,
+                return_code=0x01,
+                reason=(
+                    f"no endpoint action provider is registered for CreatorID "
+                    f"{creator_id}"
+                ),
+            )
+        return provider.execute(
+            manager_id, action_id, cpad_data, metadata, endpoint)
+
+    def _validate_error_injection(
+            self,
+            cpad_data: Dict[str, Any],
+            metadata: Dict[str, Any]) -> ActionResult:
+        if not is_contoso_memory_cpad(cpad_data):
+            return ActionResult(status=ACTION_COMPLETED)
         try:
-            if self.endpoint_configuration is not None:
-                if partition_id is None and len(
-                        self.endpoint_configuration.endpoints) == 1:
-                    endpoint = self.endpoint_configuration.endpoints[0]
-                    partition_id = endpoint.partition_id
-                else:
-                    endpoint = self.endpoint_configuration.endpoint_by_partition(
-                        partition_id)
-                if not endpoint.memory_repair_capabilities.soft_ppr_runtime_supported:
-                    raise ValueError("soft PPR is not supported at runtime")
-            state = self._memory_state(partition_id)
-            repair_target = decode_cpad_memory_coordinates(cpad_data)
-            repair_count = state.increment(repair_target)
-            return 0x00, None, repair_count
+            if active_cpad_memory_bank(cpad_data) == "dram":
+                state = self._memory_state(metadata["partition_id"])
+                target = decode_cpad_memory_coordinates(cpad_data)
+                state.config.get_dimm(
+                    target["chiplet"], target["controller"],
+                    target["channel"], target["dimm"])
+            return ActionResult(status=ACTION_COMPLETED)
         except ValueError as exc:
-            return 0x01, str(exc), None
+            return ActionResult(
+                status=ACTION_FAILED,
+                return_code=0x01,
+                reason=str(exc),
+            )
     
     def _locate_cpad_convert(self):
         """
@@ -427,7 +520,9 @@ class SubmitCPADActionHandler:
         # and whose declared length matches the bytes received.  These gate the
         # 202 (Accepted) response; they are independent of whether/when the
         # endpoint later acts on the CPAD.
-        print(f"\n   Step 4: Acceptance checks (PlatformID / PartitionID / length)")
+        print(
+            "\n   Step 4: Acceptance checks "
+            "(PlatformID / PartitionID / CreatorID / length)")
 
         # 4a — PlatformID must match this BMC's platform.
         if metadata['platform_id'] != BMC_PLATFORM_ID:
@@ -445,17 +540,9 @@ class SubmitCPADActionHandler:
         print(f"           ✓ PlatformID matches this BMC")
 
         # 4b — PartitionID must match one of this BMC's RAS endpoints.
-        if self.endpoint_configuration is not None:
-            valid_partitions = {
-                endpoint.partition_id
-                for endpoint in self.endpoint_configuration.endpoints
-            }
-        else:
-            valid_partitions = {
-                ep['PartitionID'] for ep in RASDiscoveryHandler.ENDPOINTS
-                if ep.get('PartitionID')
-            }
-        if metadata['partition_id'] not in valid_partitions:
+        try:
+            endpoint = self._endpoint_for_partition(metadata['partition_id'])
+        except ValueError:
             print(f"           ✗ Unknown PartitionID: {metadata['partition_id']}")
             logger.warning(
                 f"CPAD rejected — unknown PartitionID: {metadata['partition_id']}")
@@ -470,7 +557,25 @@ class SubmitCPADActionHandler:
             )
         print(f"           ✓ PartitionID matches a RAS endpoint")
 
-        # 4c — Declared recordLength must be self-consistent with the payload.
+        # 4c — CreatorID must identify the owner of the target endpoint.
+        endpoint_creator_id = self._endpoint_creator_id(endpoint)
+        if metadata['creator_id'].lower() != endpoint_creator_id.lower():
+            print(f"           ✗ CreatorID mismatch: CPAD {metadata['creator_id']} "
+                  f"≠ endpoint {endpoint_creator_id}")
+            logger.warning(
+                "CPAD rejected — CreatorID %s does not own partition %s",
+                metadata['creator_id'], metadata['partition_id'])
+            return self._error_response(
+                400,
+                'OCPRAS.1.0.CPADValidationFailed',
+                (f"CPAD CreatorID {metadata['creator_id']} does not match the "
+                 f"owner of partition {metadata['partition_id']} "
+                 f"({endpoint_creator_id})."),
+                [metadata['creator_id'], endpoint_creator_id]
+            )
+        print(f"           ✓ CreatorID owns the target RAS endpoint")
+
+        # 4d — Declared recordLength must be self-consistent with the payload.
         # Per Cpad.h the received buffer MAY be larger than the record (room to
         # append section descriptors), so the invariant is
         # header-minimum ≤ recordLength ≤ received-bytes.  This rejects a
@@ -511,52 +616,38 @@ class SubmitCPADActionHandler:
             except Exception as e:
                 logger.error(f"Failed to emit CPAD received event: {e}")
 
-        action_return_code = 0x00
-        action_failure_reason = None
-        memory_bank = None
-        if is_contoso_memory_cpad(cpad_data):
-            try:
-                memory_bank = active_cpad_memory_bank(cpad_data)
-                if memory_bank == 'dram':
-                    state = self._memory_state(metadata['partition_id'])
-                    memory_target = decode_cpad_memory_coordinates(cpad_data)
-                    state.config.get_dimm(
-                        memory_target['chiplet'], memory_target['controller'],
-                        memory_target['channel'], memory_target['dimm'])
-                elif metadata['action_id'] == '0x8001':
-                    raise ValueError("SPPR requires the DRAM Errors bank to be active")
-            except ValueError as exc:
-                action_return_code = 0x01
-                action_failure_reason = str(exc)
-
-        if metadata['action_id'] == '0x8001' and action_return_code == 0:
-            action_return_code, action_failure_reason, repair_count = \
-                self._perform_sppr(cpad_data, metadata['partition_id'])
-            if action_return_code == 0:
-                print(f"           ✓ Bank repair count is now {repair_count}")
-            else:
-                print(f"           ✗ SPPR action failed: {action_failure_reason}")
-                logger.warning("SPPR action failed: %s", action_failure_reason)
+        action_result = self._execute_action(
+            manager_id, cpad_data, metadata, endpoint)
+        action_return_code = action_result.return_code
+        action_failure_reason = action_result.reason
+        if action_result.status == ACTION_FAILED:
+            print(f"           ✗ Action failed: {action_failure_reason}")
+            logger.warning(
+                "CPAD action %s failed: %s",
+                metadata['action_id'], action_failure_reason)
+        elif action_result.status == ACTION_PENDING:
+            print(f"           ✓ {action_result.context}")
+        elif action_result.display_lines:
+            first, *remaining = action_result.display_lines
+            print(f"           ✓ {first}")
+            for line in remaining:
+                print(f"             {line}")
+        elif action_result.context:
+            print(f"           ✓ {action_result.context}")
         
         # Step 5: Create LogEntry from CPER (if LogService available)
         log_entry_id = None
         severity = self._map_action_to_severity(metadata['action_id'])
-        
-        # Describe the action
-        ACTION_DESCRIPTIONS = {
-            '0x0006': 'Injection: spoofing corrected memory error',
-            '0x8001': 'SPPR: soft post package repair operation',
-        }
         action_desc = ACTION_DESCRIPTIONS.get(metadata['action_id'], f"Action {metadata['action_id']}")
         
         if self.log_service_handler:
             try:
                 print(f"\n   Step 5: ActionID {metadata['action_id']} identified as: {action_desc}")
                 
-                # --- 5a: Error CPER (Corrected) — only for non-SPPR actions ---
-                #     SPPR (0x8001) only produces an Action Event CPER, not an
-                #     informational error CPER.
-                if metadata['action_id'] != '0x8001' and action_return_code == 0:
+                # Error injection is the only action that creates an error CPER.
+                if (metadata['action_id'] == ERROR_INJECTION_ACTION_ID and
+                        action_result.status == ACTION_COMPLETED and
+                        action_return_code == 0):
                     print(f"           Creating {severity} error CPER...")
                     cper_json_data = self._convert_cpad_to_cper(cpad_data, metadata)
                     logger.debug(f"Generated CPER JSON data from template")
@@ -574,19 +665,22 @@ class SubmitCPADActionHandler:
                     else:
                         print(f"           ✗ {severity} CPER LogEntry status: {status}")
                 
-                # --- 5b: Action Event CPER ---
-                print(f"           Creating Action Event CPER...")
-                ae_cper_json = self._create_action_event_cper(
-                    cpad_data, metadata, action_return_code=action_return_code)
-                ae_binary_path = self._convert_json_to_binary_cper(ae_cper_json, metadata)
-                ae_status, ae_entry_id = self.log_service_handler.add_cper_log_entry(ae_cper_json, ae_binary_path)
-                self._cleanup_temp_path(ae_binary_path)
-                if ae_status == 201:
-                    log_entry_id = log_entry_id or ae_entry_id
-                    print(f"           ✓ Action Event CPER LogEntry: {ae_entry_id}")
-                    logger.info(f"Created Action Event LogEntry: {ae_entry_id}")
+                if action_result.status != ACTION_PENDING:
+                    print(f"           Creating Action Event CPER...")
+                    ae_entry_id = self._store_action_event(
+                        cpad_data,
+                        metadata,
+                        action_return_code,
+                        action_result.context or action_failure_reason,
+                    )
+                    if ae_entry_id:
+                        log_entry_id = log_entry_id or ae_entry_id
+                        print(f"           ✓ Action Event CPER LogEntry: {ae_entry_id}")
+                        logger.info(f"Created Action Event LogEntry: {ae_entry_id}")
+                    else:
+                        print(f"           ✗ Action Event CPER was not stored")
                 else:
-                    print(f"           ✗ Action Event CPER LogEntry status: {ae_status}")
+                    print("           Action Event CPER deferred until system reset")
                 
             except Exception as e:
                 import traceback
@@ -609,21 +703,113 @@ class SubmitCPADActionHandler:
                 logger.error(f"Failed to emit CPAD approved event: {e}")
         
         # Record submission
-        submission_status = 'APPROVED' if action_return_code == 0 else 'ACTION_FAILED'
+        if action_result.status == ACTION_PENDING:
+            submission_status = 'PENDING'
+        else:
+            submission_status = (
+                'APPROVED' if action_return_code == 0 else 'ACTION_FAILED')
         self._record_submission(manager_id, metadata, submission_status, log_entry_id)
         
         # Build success response
-        response = self._build_success_response(manager_id, metadata, log_entry_id)
+        response = self._build_success_response(
+            manager_id, metadata, log_entry_id, action_result.status)
         print(f"\n{'=' * 80}")
-        result = "Successful" if action_return_code == 0 else "Failed"
+        if action_result.status == ACTION_PENDING:
+            result = "Pending system reset"
+        else:
+            result = "Successful" if action_return_code == 0 else "Failed"
         print(f"\t\t\t\tCPAD ActionID {metadata['action_id']} -- {result}")
         if action_failure_reason:
             print(f"   Reason: {action_failure_reason}")
         print(f"{'=' * 80}\n")
         return 202, response
+
+    def _store_action_event(
+            self,
+            cpad_data: Dict[str, Any],
+            metadata: Dict[str, Any],
+            action_return_code: int,
+            additional_context: Optional[str] = None) -> Optional[str]:
+        """Create and store one Platform Action Event CPER."""
+        if self.log_service_handler is None:
+            logger.error(
+                "Cannot store Platform Action Event for CPAD %s: "
+                "LogService is unavailable",
+                metadata.get("record_id"))
+            return None
+        ae_binary_path = None
+        try:
+            ae_cper_json = self._create_action_event_cper(
+                cpad_data,
+                metadata,
+                action_return_code=action_return_code,
+                additional_context=additional_context,
+            )
+            ae_binary_path = self._convert_json_to_binary_cper(
+                ae_cper_json, metadata)
+            status, entry_id = self.log_service_handler.add_cper_log_entry(
+                ae_cper_json, ae_binary_path)
+        finally:
+            self._cleanup_temp_path(ae_binary_path)
+        if status != 201:
+            logger.error(
+                "Platform Action Event for CPAD %s returned LogService status %s",
+                metadata.get("record_id"), status)
+            return None
+        return entry_id
+
+    def on_system_reset(self, system_id: str, reset_type: str) -> int:
+        """Complete pending actions affected by a whole-machine reset."""
+        provider = self._contoso_action_provider()
+        if self.endpoint_configuration is not None:
+            partition_ids = {
+                endpoint.partition_id
+                for endpoint in self.endpoint_configuration.endpoints
+            }
+        else:
+            partition_ids = {
+                endpoint["PartitionID"]
+                for endpoint in RASDiscoveryHandler.ENDPOINTS
+                if endpoint.get("PartitionID")
+            }
+
+        completed = 0
+        for pending in provider.pending_retraining(partition_ids, reset_type):
+            context = (
+                f"All memory controllers in SoC partition "
+                f"{pending.metadata['partition_id']} were retrained during "
+                f"{reset_type} of ComputerSystem {system_id}"
+            )
+            try:
+                entry_id = self._store_action_event(
+                    pending.cpad_data,
+                    pending.metadata,
+                    action_return_code=0x00,
+                    additional_context=context,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to store retraining completion for CPAD %s",
+                    pending.metadata["record_id"])
+                continue
+            if entry_id is None:
+                logger.error(
+                    "Retraining completed for CPAD %s, but its Platform "
+                    "Action Event could not be stored; the action remains pending",
+                    pending.metadata["record_id"])
+                continue
+            provider.mark_retraining_complete(pending)
+            completed += 1
+            logger.info(
+                "Completed memory retraining CPAD %s for partition %s",
+                pending.metadata["record_id"],
+                pending.metadata["partition_id"])
+        return completed
     
-    def _build_success_response(self, manager_id: str, metadata: Dict[str, Any], 
-                               log_entry_id: Optional[str] = None) -> Dict[str, Any]:
+    def _build_success_response(
+            self, manager_id: str, metadata: Dict[str, Any],
+            log_entry_id: Optional[str] = None,
+            action_status: str = ACTION_COMPLETED) -> Dict[str, Any]:
         """
         Build success response for approved CPAD.
         
@@ -658,7 +844,7 @@ class SubmitCPADActionHandler:
             '@odata.id': f'/redfish/v1/TaskService/Tasks/{task_id}',
             'Id': task_id,
             'Name': 'Submit CPAD Task',
-            'TaskState': 'Running',
+            'TaskState': 'Pending' if action_status == ACTION_PENDING else 'Completed',
             'TaskStatus': 'OK',
             'StartTime': datetime.now().isoformat(),
             'Messages': messages,
@@ -718,7 +904,7 @@ class SubmitCPADActionHandler:
         Args:
             manager_id: Manager ID
             metadata: CPAD metadata
-            decision: Policy decision (APPROVED/DENIED)
+            decision: Accepted action execution state
             log_entry_id: Optional LogEntry ID where CPER was stored
         """
         submission = {
@@ -758,16 +944,23 @@ class SubmitCPADActionHandler:
                 'total_submissions': 0,
                 'approved': 0,
                 'denied': 0,
+                'pending': 0,
                 'approval_rate': 0.0
             }
         
-        approved = sum(1 for s in self.submission_history if s['decision'] == 'APPROVED')
-        denied = total - approved
+        pending = sum(
+            1 for submission in self.submission_history
+            if submission['decision'] == 'PENDING')
+        denied = sum(
+            1 for submission in self.submission_history
+            if submission['decision'] == 'DENIED')
+        approved = total - denied
         
         return {
             'total_submissions': total,
             'approved': approved,
             'denied': denied,
+            'pending': pending,
             'approval_rate': (approved / total) * 100 if total > 0 else 0.0
         }
     
@@ -984,7 +1177,9 @@ class SubmitCPADActionHandler:
             return None
     
     def _create_action_event_cper(self, cpad_data: Dict[str, Any], metadata: Dict[str, Any],
-                                   action_return_code: int = 0x00) -> Dict[str, Any]:
+                                   action_return_code: int = 0x00,
+                                   additional_context: Optional[str] = None
+                                   ) -> Dict[str, Any]:
         """
         Create an Action Event CPER that records which CPAD action was performed.
         
@@ -1068,11 +1263,8 @@ class SubmitCPADActionHandler:
         ae_section['cpadSectionIndex'] = 0
         
         # Additional context: base64-encode a description string
-        ACTION_DESCRIPTIONS = {
-            '0x0006': 'Memory Error Spoof injection',
-            '0x8001': 'Soft Post Package Repair (SPPR)',
-        }
-        context_str = ACTION_DESCRIPTIONS.get(metadata['action_id'], f"Action {metadata['action_id']}")
+        context_str = additional_context or ACTION_DESCRIPTIONS.get(
+            metadata['action_id'], f"Action {metadata['action_id']}")
         context_bytes = context_str.encode('utf-8')
         ae_section['additionalContext'] = base64.b64encode(context_bytes).decode('ascii')
         
@@ -1088,7 +1280,9 @@ class SubmitCPADActionHandler:
     def _map_action_to_severity(self, action_id: str) -> str:
         """Map action ID (hex code from cpad-convert) to CPER severity level"""
         SEVERITY_MAP = {
-            '0x0006': 'Corrected',       # Memory Error Spoof
-            '0x8001': 'Informational',   # SPPR
+            ERROR_INJECTION_ACTION_ID: 'Corrected',
+            SPPR_ACTION_ID: 'Informational',
+            PAGE_OFFLINE_ACTION_ID: 'Informational',
+            REBOOT_WITH_RETRAINING_ACTION_ID: 'Informational',
         }
         return SEVERITY_MAP.get(action_id, 'Informational')

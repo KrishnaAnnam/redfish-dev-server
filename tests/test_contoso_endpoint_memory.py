@@ -129,6 +129,12 @@ def _set_error_address(cpad, address, valid=True):
     cpad["sections"][0]["Unknown"]["data"] = base64.b64encode(raw).decode("ascii")
 
 
+def _set_spd_temperature(cpad, temperature):
+    raw = bytearray(base64.b64decode(cpad["sections"][0]["Unknown"]["data"]))
+    raw[157] = temperature & 0xFF
+    cpad["sections"][0]["Unknown"]["data"] = base64.b64encode(raw).decode("ascii")
+
+
 def _submission_handler(
         action_id, address=0x12345000,
         creator_id=CONTOSO_CREATOR_ID):
@@ -537,6 +543,41 @@ def test_cper_overlay_uses_configured_spd_and_authoritative_repairs():
     }])[0]
     assert event["spd_temperature"] == 40
     assert event["memory_error"]["additional"]["spd_temperature"] == 40
+
+
+def test_error_injection_can_override_configured_spd_temperature():
+    handler, cpad = _submission_handler("0x0006")
+    _set_spd_temperature(cpad, 75)
+    without_override = overlay_cpad_memory_state(
+        cpad, handler.memory_repair_state)
+    assert encoder.unpack_section_body(
+        "Memory Controller - First Generation",
+        without_override)["additional"]["spd_temperature"] == 40
+
+    handler.log_service_handler = None
+    metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+
+    cper = handler._convert_cpad_to_cper(cpad, metadata)
+    body = base64.b64decode(
+        cper["sections"][0]["Unknown"]["data"], validate=True)
+    decoded = encoder.unpack_section_body(
+        "Memory Controller - First Generation", body)
+
+    assert decoded["additional"]["spd_temperature"] == 75
+
+
+def test_unspecified_injection_temperature_uses_configured_default():
+    handler, cpad = _submission_handler("0x0006")
+    handler.log_service_handler = None
+    metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+
+    cper = handler._convert_cpad_to_cper(cpad, metadata)
+    body = base64.b64decode(
+        cper["sections"][0]["Unknown"]["data"], validate=True)
+    decoded = encoder.unpack_section_body(
+        "Memory Controller - First Generation", body)
+
+    assert decoded["additional"]["spd_temperature"] == 40
 
 
 def test_endpoint_upgrades_v14_memory_body_with_configured_temperature():

@@ -203,6 +203,7 @@ def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
     assert spec["section"]["additional"]["part_number"] == ""
     assert spec["section"]["additional"]["dram_manufacturer_id"] == ["0x04", "0xD5"]
     assert spec["section"]["additional"]["module_manufacturer_id"] == ["0x04", "0xD5"]
+    assert spec["section"]["additional"]["spd_temperature"] is None
     spec["section"]["subcomponent"] = {"chiplet": 1, "controller": 0}
     spec["section"]["additional"]["dimm"] = 2
     spec["section"]["additional"]["bank"] = 3
@@ -345,9 +346,29 @@ def test_spd_temperature_range_is_validated():
     spec["section"]["additional"]["spd_temperature"] = 128
 
     assert (
-        "section.additional.spd_temperature must be in the range "
-        "-128..127 degrees Celsius."
+        "section.additional.spd_temperature must be null or in the range "
+        "-127..127 degrees Celsius."
     ) in spec_model.validate_spec(spec)
+
+    spec["section"]["additional"]["spd_temperature"] = -128
+    assert (
+        "section.additional.spd_temperature must be null or in the range "
+        "-127..127 degrees Celsius."
+    ) in spec_model.validate_spec(spec)
+
+
+def test_unspecified_spd_temperature_roundtrips_as_none():
+    spec = spec_model.build_template(
+        "Memory Controller - First Generation",
+        "Corrected Memory ECC Error")
+    fields = spec_model.to_encoder_fields(spec)
+    body = encoder.pack_section_body(
+        "Memory Controller - First Generation", "DRAM Errors", fields)
+
+    decoded = encoder.unpack_section_body(
+        "Memory Controller - First Generation", body)
+
+    assert decoded["additional"]["spd_temperature"] is None
 
 
 def test_decoder_accepts_v14_memory_section_without_temperature():

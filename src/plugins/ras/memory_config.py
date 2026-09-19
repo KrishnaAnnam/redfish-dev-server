@@ -218,7 +218,7 @@ class PlatformMemoryConfig:
                         spd.get(
                             "spd_temperature",
                             DEFAULT_SPD_TEMPERATURE_CELSIUS),
-                        "spd_temperature", -128, 127),
+                        "spd_temperature", -127, 127),
                 ))
         return cls(platform_id, channels, dimms_per_channel, dimms)
 

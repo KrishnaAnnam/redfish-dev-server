@@ -298,9 +298,12 @@ odd parity or an invalid final manufacturer code is reported as `Invalid`.
 
 `spd_temperature` is the signed integer temperature of the SPD device on the
 identified DIMM in degrees Celsius. Real hardware would sample this value
-dynamically. For this demo, the endpoint copies the DIMM's default temperature
-from `ras_endpoint_config.json` whenever it emits a memory-controller CPER.
-Version 1.4 records do not contain this field.
+dynamically. For this demo, the endpoint normally copies the DIMM's default
+temperature from `ras_endpoint_config.json`. An error-injection CPAD may
+override it with a value from `-127` through `127` to exercise memory-vendor
+analysis. The injection value `-128` means "use the endpoint default" and is
+never emitted as a measured temperature. Version 1.4 records do not contain
+this field.
 
 The simulator loads each endpoint and its installed DIMMs from
 `mockups/<platform>/ras_endpoint_config.json`. Each endpoint configures its

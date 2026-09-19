@@ -49,6 +49,7 @@ REBOOT_WITH_RETRAINING_ACTION = {
     "name": "Reboot with Memory Retraining",
 }
 PAGE_SIZE_BYTES = 4096
+SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT = -128
 
 
 # ── Severity encoding (Error Status Register bits 61:59) ────────────────────

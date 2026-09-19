@@ -23,6 +23,7 @@ from contoso_catalog import (
     resolve_error,
     get_bank,
     is_valid_spd_manufacturer_id,
+    SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT,
 )
 
 # Sensible defaults for the demo platform (user edits these).
@@ -141,7 +142,9 @@ def _default_additional(fields):
     """Build a defaulted additional-register dict that shows each field's shape."""
     out = {}
     for name, code in fields:
-        if isinstance(code, tuple) and code[0] == "array":
+        if name == "spd_temperature":
+            out[name] = None
+        elif isinstance(code, tuple) and code[0] == "array":
             _, _elem, (rows, cols) = code
             out[name] = [[0] * cols for _ in range(rows)]
         elif isinstance(code, tuple) and code[0] == "vector":
@@ -267,16 +270,17 @@ def validate_spec(spec):
             "section.additional.memory_repair_capabilities must be a byte.")
 
     spd_temperature = spec.get("section", {}).get("additional", {}).get(
-        "spd_temperature", 0)
-    try:
-        parsed_temperature = as_int(spd_temperature)
-        if not -128 <= parsed_temperature <= 127:
+        "spd_temperature")
+    if spd_temperature is not None:
+        try:
+            parsed_temperature = as_int(spd_temperature)
+            if not SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT < parsed_temperature <= 127:
+                problems.append(
+                    "section.additional.spd_temperature must be null or in "
+                    "the range -127..127 degrees Celsius.")
+        except (ValueError, TypeError):
             problems.append(
-                "section.additional.spd_temperature must be in the range "
-                "-128..127 degrees Celsius.")
-    except (ValueError, TypeError):
-        problems.append(
-            "section.additional.spd_temperature must be an integer.")
+                "section.additional.spd_temperature must be null or an integer.")
 
     if bank:
         additional = spec.get("section", {}).get("additional", {})
@@ -419,6 +423,8 @@ def to_encoder_fields(spec):
             additional[name] = [as_int(cell) for cell in value]
         elif isinstance(value, list):
             additional[name] = [[as_int(c) for c in row] for row in value]
+        elif name == "spd_temperature" and value is None:
+            additional[name] = SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT
         else:
             additional[name] = as_int(value)
 

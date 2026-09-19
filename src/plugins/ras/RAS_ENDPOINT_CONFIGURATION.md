@@ -148,13 +148,14 @@ The `spd` object contains:
 | `part_number` | Yes | 24 ASCII characters | DIMM part number. |
 | `module_manufacturer_id` | Yes | 2 bytes | Module assembler JEP106 ID in DDR5 SPD order. |
 | `dram_manufacturer_id` | Yes | 2 bytes | DRAM manufacturer JEP106 ID in DDR5 SPD order. |
-| `spd_temperature` | No | Signed byte | Default SPD-device temperature in degrees Celsius; defaults to `40`, valid range `-128..127`. |
+| `spd_temperature` | No | Signed byte | Default SPD-device temperature in degrees Celsius; defaults to `40`, valid range `-127..127`. |
 
 On real hardware, SPD temperature is a dynamic measurement. The demo does not
-yet expose a control for changing it at runtime, so the configured value is the
-default reported in every memory-controller CPER for that DIMM. Keeping it in
-the per-DIMM SPD object allows future demos to vary temperatures and show how
-DRAM-vendor analyzers use that signal.
+yet expose a control for changing it at runtime, so this configured value is
+normally reported in each memory-controller CPER for that DIMM. A Contoso
+error-injection CPAD may override it for one injected error to demonstrate how
+DRAM-vendor analyzers use temperature. Keeping the default in the per-DIMM SPD
+object also leaves room for a future runtime temperature control.
 
 The demo uses Microsoft for both manufacturer IDs:
 
@@ -241,7 +242,7 @@ with authoritative configuration and runtime state for:
 
 - SPD serial number and part number
 - Module and DRAM manufacturer IDs
-- SPD-device temperature
+- SPD-device temperature, unless the error-injection CPAD supplies an override
 - Total endpoint memory
 - Memory-repair capability bitfield
 - Sparse per-DIMM bank repair counts

@@ -76,7 +76,7 @@ def test_defaults_topology_and_repair_limit():
     assert config.get_dimm(0, 0, 0, 0).spd_temperature == 40
 
 
-def test_spd_temperature_must_fit_signed_byte():
+def test_spd_temperature_must_not_use_injection_sentinel():
     data = {
         "platform_id": "platform",
         "memory_controllers": [{
@@ -100,9 +100,17 @@ def test_spd_temperature_must_fit_signed_byte():
     try:
         PlatformMemoryConfig.from_dict(data)
     except ValueError as exc:
-        assert "spd_temperature must be in the range -128..127" in str(exc)
+        assert "spd_temperature must be in the range -127..127" in str(exc)
     else:
         raise AssertionError("expected invalid SPD temperature failure")
+
+    data["memory_controllers"][0]["dimms"][0]["spd"]["spd_temperature"] = -128
+    try:
+        PlatformMemoryConfig.from_dict(data)
+    except ValueError as exc:
+        assert "spd_temperature must be in the range -127..127" in str(exc)
+    else:
+        raise AssertionError("expected reserved SPD temperature failure")
 
 
 def test_sparse_counts_are_scoped_to_bank_and_dimm():

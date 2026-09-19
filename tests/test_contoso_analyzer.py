@@ -279,6 +279,7 @@ def test_memory_location_uses_single_failing_dram_as_device():
             "part_number": "PN-1234",
             "dram_manufacturer_id": [0x80, 0x2C],
             "module_manufacturer_id": [0x04, 0xD5],
+            "spd_temperature": None,
             "reserved": 0,
             "beat_mask": beat_mask,
             "repairs": [],
@@ -307,7 +308,7 @@ def test_memory_location_uses_single_failing_dram_as_device():
     assert location["dram_manufacturer"] == "Micron"
     assert location["module_manufacturer_id"] == [0x04, 0xD5]
     assert location["module_manufacturer"] == "Microsoft"
-    assert location["spd_temperature"] == 0
+    assert location["spd_temperature"] is None
 
 
 def test_manufacturer_id_format_includes_unknown_decode():

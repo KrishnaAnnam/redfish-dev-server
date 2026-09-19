@@ -469,6 +469,7 @@ class ContosoAnalyzer:
             'module_manufacturer_id': add.get('module_manufacturer_id', [0, 0]),
             'module_manufacturer': contoso_catalog.decode_spd_manufacturer_id(
                 add.get('module_manufacturer_id', [0, 0])),
+            'spd_temperature': add.get('spd_temperature'),
             'physical_address': memory_error.get('error_address', 0),
             'beat_errors': beat_errors,
             'drams': [device],
@@ -742,6 +743,8 @@ class ContosoAnalyzer:
         if name == 'memory_repair_capabilities':
             return "; ".join(
                 ContosoAnalyzer._memory_repair_capability_lines(value))
+        if name == 'spd_temperature':
+            return "not recorded" if value is None else f"{value} C"
         if isinstance(value, list):          # Other packed array fields
             nonzero = [f"[{r}][{c}]={hex(v)}"
                        for r, row in enumerate(value)

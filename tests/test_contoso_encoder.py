@@ -70,7 +70,7 @@ def test_additional_block_sizes():
     dram = catalog.SECTION_TYPES["Memory Controller - First Generation"]["banks"][0]
     other = catalog.SECTION_TYPES["Memory Controller - First Generation"]["banks"][1]
     assert encoder.additional_block_size(core["additional"]) == 40
-    assert encoder.additional_block_size(dram["additional"]) == 81
+    assert encoder.additional_block_size(dram["additional"]) == 82
     assert encoder.additional_block_size(other["additional"]) == 8
 
 
@@ -87,8 +87,8 @@ def test_full_body_sizes():
                                   "Corrected Memory ECC Error"))
     mem_body = encoder.pack_section_body(
         "Memory Controller - First Generation", "DRAM Errors", mem_fields)
-    # header(8) + 2 banks(80) + additional(81 + 8)
-    assert len(mem_body) == 177
+    # header(8) + 2 banks(80) + additional(82 + 8)
+    assert len(mem_body) == 178
 
 
 def test_demo_memory_injection_spec_is_valid():
@@ -100,7 +100,7 @@ def test_demo_memory_injection_spec_is_valid():
     assert spec_model.validate_spec(spec) == []
 
 
-def test_optional_v14_collections_default_empty():
+def test_optional_collections_default_empty():
     spec = spec_model.build_template("Memory Controller - First Generation",
                                      "Corrected Memory ECC Error")
     del spec["section"]["additional"]["beat_mask"]
@@ -119,14 +119,14 @@ def test_header_layout_and_endianness():
         spec_model.build_template("CPU Core - First Generation", "Poison Consumption"))
     fields["subcomponent"] = {"chiplet": 0x0102, "core": 0x0304}
     body = encoder.pack_section_body("CPU Core - First Generation", "Core Errors", fields)
-    # major=1, minor=4, num_banks=1 (u16 LE), chiplet/core as little-endian u16.
-    assert body[0] == 1 and body[1] == 4
+    # major=1, minor=5, num_banks=1 (u16 LE), chiplet/core as little-endian u16.
+    assert body[0] == 1 and body[1] == 5
     assert body[2:4] == b"\x01\x00"          # num_banks = 1
     assert body[4:6] == b"\x02\x01"          # chiplet 0x0102 little-endian
     assert body[6:8] == b"\x04\x03"          # core    0x0304 little-endian
 
 
-def test_decoder_rejects_legacy_section_version():
+def test_decoder_rejects_unsupported_section_version():
     fields = spec_model.to_encoder_fields(
         spec_model.build_template("CPU Core - First Generation", "Poison Consumption"))
     body = bytearray(encoder.pack_section_body(
@@ -172,7 +172,7 @@ def test_decoder_rejects_invalid_bank_geometry():
     _assert_memory_decode_fails(body, "offsets must be increasing")
 
     body = _memory_body()
-    body[168] = 1
+    body[169] = 1
     _assert_memory_decode_fails(body, "additional registers are truncated")
 
 
@@ -213,6 +213,7 @@ def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
     spec["section"]["additional"]["part_number"] = "PN-1234"
     spec["section"]["additional"]["dram_manufacturer_id"] = ["0x80", "0x2C"]
     spec["section"]["additional"]["module_manufacturer_id"] = ["0x80", "0xCE"]
+    spec["section"]["additional"]["spd_temperature"] = -5
     spec["section"]["additional"]["total_memory_bytes"] = "0x8000000000"
     spec["section"]["additional"]["memory_repair_capabilities"] = 7
     spec["section"]["additional"]["beat_mask"][2] = 0xBEEF
@@ -233,6 +234,7 @@ def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
     assert out["additional"]["part_number"] == "PN-1234"
     assert out["additional"]["dram_manufacturer_id"] == [0x80, 0x2C]
     assert out["additional"]["module_manufacturer_id"] == [0x80, 0xCE]
+    assert out["additional"]["spd_temperature"] == -5
     assert out["additional"]["total_memory_bytes"] == 0x8000000000
     assert out["additional"]["memory_repair_capabilities"] == 7
     assert out["additional"]["reserved"] == 0
@@ -249,6 +251,7 @@ def test_memory_string_binary_layout_and_maximum_lengths():
         "part_number": "P" * 24,
         "dram_manufacturer_id": ["0x80", "0xAD"],
         "module_manufacturer_id": ["0x04", "0xD5"],
+        "spd_temperature": -5,
     })
     spec["section"]["additional"]["device"] = 3
     spec["section"]["additional"]["beat_mask"][0] = 0x1234
@@ -265,8 +268,9 @@ def test_memory_string_binary_layout_and_maximum_lengths():
     assert body[128:153] == b"P" * 24 + b"\x00"
     assert body[153:155] == b"\x04\xD5"
     assert body[155:157] == b"\x80\xAD"
-    assert body[157:165] == b"\x00" * 8
-    assert body[165] == 0
+    assert body[157] == 0xFB
+    assert body[158:166] == b"\x00" * 8
+    assert body[166] == 0
 
 
 def test_memory_sparse_repairs_roundtrip_and_layout():
@@ -284,9 +288,9 @@ def test_memory_sparse_repairs_roundtrip_and_layout():
         "Memory Controller - First Generation", "DRAM Errors", fields)
     out = encoder.unpack_section_body("Memory Controller - First Generation", body)
 
-    assert len(body) == 189
-    assert body[168] == 2
-    assert body[169:181] == bytes([0, 0, 3, 2, 3, 1,
+    assert len(body) == 190
+    assert body[169] == 2
+    assert body[170:182] == bytes([0, 0, 3, 2, 3, 1,
                                    1, 1, 7, 4, 8, 16])
     assert out["additional"]["repairs"] == repairs
 
@@ -333,6 +337,29 @@ def test_memory_repair_capability_reserved_bits_are_rejected():
 
     assert ("section.additional.memory_repair_capabilities has reserved bits set."
             in spec_model.validate_spec(spec))
+
+
+def test_spd_temperature_range_is_validated():
+    spec = spec_model.build_template("Memory Controller - First Generation",
+                                     "Corrected Memory ECC Error")
+    spec["section"]["additional"]["spd_temperature"] = 128
+
+    assert (
+        "section.additional.spd_temperature must be in the range "
+        "-128..127 degrees Celsius."
+    ) in spec_model.validate_spec(spec)
+
+
+def test_decoder_accepts_v14_memory_section_without_temperature():
+    body = _memory_body()
+    del body[157]
+    body[1] = 4
+    body[80:84] = (169).to_bytes(4, "little")
+
+    decoded = encoder.unpack_section_body(
+        "Memory Controller - First Generation", bytes(body))
+
+    assert decoded["additional"]["spd_temperature"] is None
 
 
 # ── Catalog integrity ───────────────────────────────────────────────────────

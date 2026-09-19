@@ -24,6 +24,7 @@ import struct
 from contoso_catalog import (
     CONTOSO_SECTION_MAJOR,
     CONTOSO_SECTION_MINOR,
+    SUPPORTED_SECTION_VERSIONS,
     SEVERITY_VALUES,
     resolve_section,
     get_bank,
@@ -33,7 +34,7 @@ from contoso_catalog import (
 SECTION_HEADER_SIZE = 8   # major, minor, num_banks, subcomponent instance ID
 ERROR_BANK_SIZE = 40      # status, address, misc0, misc1, addl_offset, reserved
 
-_SCALAR_SIZES = {"B": 1, "H": 2, "I": 4, "Q": 8}
+_SCALAR_SIZES = {"b": 1, "B": 1, "H": 2, "I": 4, "Q": 8}
 
 
 # ── Register bitfield helpers (one per Error Status / Misc table) ────────────
@@ -174,7 +175,13 @@ def pack_additional(fields, values):
                     int(entry["bank"]), int(entry["count"]),
                 )
         else:
-            out += struct.pack("<" + code, int(values.get(name, 0)) & _mask(code))
+            value = int(values.get(name, 0))
+            if code == "b":
+                if not -128 <= value <= 127:
+                    raise ValueError(f"{name} must be in the range -128..127")
+                out += struct.pack("<b", value)
+            else:
+                out += struct.pack("<" + code, value & _mask(code))
     return bytes(out)
 
 
@@ -329,10 +336,11 @@ def unpack_section_body(section_name, body):
 
     # Section header.
     major, minor, num_banks = struct.unpack_from("<BBH", body, 0)
-    if (major, minor) != (CONTOSO_SECTION_MAJOR, CONTOSO_SECTION_MINOR):
+    version = major, minor
+    if version not in SUPPORTED_SECTION_VERSIONS:
         raise ValueError(
             f"Unsupported Contoso section format {major}.{minor}; "
-            f"expected {CONTOSO_SECTION_MAJOR}.{CONTOSO_SECTION_MINOR}")
+            f"expected one of {sorted(SUPPORTED_SECTION_VERSIONS)}")
     if num_banks != len(banks):
         raise ValueError(
             f"Contoso section declares {num_banks} banks; expected {len(banks)}")
@@ -369,6 +377,16 @@ def unpack_section_body(section_name, body):
         bank, status, address, misc0, misc1, addl_offset = record
         addl_end = offsets[index + 1] if index + 1 < len(offsets) else len(body)
         addl_fields = get_bank(section, bank["name"])["additional"]
+        legacy_temperature = (
+            version == (1, 4)
+            and section_name == "Memory Controller - First Generation"
+            and bank["name"] == "DRAM Errors"
+        )
+        if legacy_temperature:
+            addl_fields = [
+                field for field in addl_fields
+                if field[0] != "spd_temperature"
+            ]
         try:
             addl, consumed = unpack_additional(
                 addl_fields, body[addl_offset:addl_end])
@@ -380,6 +398,8 @@ def unpack_section_body(section_name, body):
                 f"{bank['name']} additional-register size does not match its boundary")
         st = unpack_error_status(status)
         if st["error_id"] != 0:
+            if legacy_temperature:
+                addl["spd_temperature"] = None
             active_records.append({
                 "bank_name": bank["name"],
                 "subcomponent": subcomp,

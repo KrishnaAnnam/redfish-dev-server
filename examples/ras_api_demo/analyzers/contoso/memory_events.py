@@ -100,6 +100,7 @@ def _decode_memory_error(record: Dict[str, Any], window_index: int,
         "section_type": CONTOSO_MEMORY_SECTION,
         "fru": _fru(descriptor),
         "dram_manufacturer_id": copy.deepcopy(manufacturer_id),
+        "spd_temperature": additional.get("spd_temperature"),
         "memory_error": {
             "bank": decoded["bank_name"],
             "id": error_id,

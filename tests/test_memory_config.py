@@ -43,6 +43,8 @@ def test_loads_fully_populated_two_chiplet_inventory():
     assert config.dimms_per_channel == 2
     assert config.get_dimm(0, 0, 0, 0).serial_number == "MSFT-C0-CH0-D0"
     assert config.get_dimm(1, 0, 1, 1).serial_number == "MSFT-C1-CH1-D1"
+    assert config.get_dimm(0, 0, 0, 0).spd_temperature == 40
+    assert config.get_dimm(1, 0, 1, 1).spd_temperature == 40
     assert len(config._dimms) == 8
     assert config.total_memory_bytes == 512 * 1024 ** 3
     assert endpoint.memory_repair_capabilities.bitfield == 0b111
@@ -71,6 +73,36 @@ def test_defaults_topology_and_repair_limit():
     assert config.channels_per_chiplet == 2
     assert config.dimms_per_channel == 2
     assert config.get_dimm(0, 0, 0, 0).max_repairs_per_bank == 16
+    assert config.get_dimm(0, 0, 0, 0).spd_temperature == 40
+
+
+def test_spd_temperature_must_fit_signed_byte():
+    data = {
+        "platform_id": "platform",
+        "memory_controllers": [{
+            "chiplet": 0,
+            "controller": 0,
+            "dimms": [{
+                "channel": 0,
+                "dimm": 0,
+                "size_bytes": 1,
+                "spd": {
+                    "serial_number": "SERIAL",
+                    "part_number": "PART",
+                    "module_manufacturer_id": [4, 213],
+                    "dram_manufacturer_id": [4, 213],
+                    "spd_temperature": 128,
+                },
+            }],
+        }],
+    }
+
+    try:
+        PlatformMemoryConfig.from_dict(data)
+    except ValueError as exc:
+        assert "spd_temperature must be in the range -128..127" in str(exc)
+    else:
+        raise AssertionError("expected invalid SPD temperature failure")
 
 
 def test_sparse_counts_are_scoped_to_bank_and_dimm():

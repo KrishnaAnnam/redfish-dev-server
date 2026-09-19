@@ -17,7 +17,7 @@ Adding a future Contoso generation means adding one entry here — not editing t
 encoder, the spec model, or the CPAD builder.
 
 Field-layout codes used by the additional-register tables:
-    "B" = uint8   "H" = uint16   "I" = uint32   "Q" = uint64
+    "b" = int8    "B" = uint8   "H" = uint16   "I" = uint32   "Q" = uint64
     ("array", <code>, (rows, cols)) = a packed array (row-major)
     ("vector", <code>, length) = a packed one-dimensional array
     ("string", <capacity>) = fixed-capacity, NUL-terminated ASCII string
@@ -33,9 +33,11 @@ All Contoso structures are little-endian and packed (see the sections doc).
 # never exposes it as an input.
 CONTOSO_CREATOR_ID = "11111111-2222-3333-4444-555555555555"
 
-# Contoso CPER section format version emitted and decoded by this tool.
+# Contoso CPER section format version emitted by this tool. The decoder also
+# accepts 1.4 records created before spd_temperature was added.
 CONTOSO_SECTION_MAJOR = 1
-CONTOSO_SECTION_MINOR = 4
+CONTOSO_SECTION_MINOR = 5
+SUPPORTED_SECTION_VERSIONS = frozenset({(1, 4), (1, 5)})
 
 # The RAS API "Inject Error" action (Action Id 0x06).
 INJECT_ACTION = {"code": "0x0006", "name": "Inject Error"}
@@ -159,6 +161,7 @@ SECTION_TYPES = {
                     ("part_number", ("string", 25)),
                     ("module_manufacturer_id", ("bytes", 2)),
                     ("dram_manufacturer_id", ("bytes", 2)),
+                    ("spd_temperature", "b"),
                     ("total_memory_bytes", "Q"),
                     ("memory_repair_capabilities", "B"),
                     ("reserved", "H"),

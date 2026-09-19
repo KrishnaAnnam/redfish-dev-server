@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable, Optional, Tuple
 DEFAULT_CHANNELS_PER_CHIPLET = 2
 DEFAULT_DIMMS_PER_CHANNEL = 2
 DEFAULT_MAX_REPAIRS_PER_BANK = 16
+DEFAULT_SPD_TEMPERATURE_CELSIUS = 40
 MAX_REPAIRS_PER_BANK = 255
 MAX_TOTAL_MEMORY_BYTES = (1 << 64) - 1
 CONTOSO_CHIPLETS = 2
@@ -91,6 +92,7 @@ class DimmConfig:
     part_number: str
     module_manufacturer_id: Tuple[int, int]
     dram_manufacturer_id: Tuple[int, int]
+    spd_temperature: int
 
     @property
     def key(self) -> Tuple[int, int, int, int]:
@@ -212,6 +214,11 @@ class PlatformMemoryConfig:
                         spd.get("module_manufacturer_id"), "module_manufacturer_id"),
                     dram_manufacturer_id=_parse_manufacturer_id(
                         spd.get("dram_manufacturer_id"), "dram_manufacturer_id"),
+                    spd_temperature=_require_int(
+                        spd.get(
+                            "spd_temperature",
+                            DEFAULT_SPD_TEMPERATURE_CELSIUS),
+                        "spd_temperature", -128, 127),
                 ))
         return cls(platform_id, channels, dimms_per_channel, dimms)
 

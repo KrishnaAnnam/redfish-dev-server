@@ -125,6 +125,15 @@ subcomponent policy:
   CPU/memory/IO relationships to be added without coupling the subcomponent
   analyzers.
 
+Decoded DRAM events include the SPD-device temperature in degrees Celsius. The
+demo endpoint currently supplies a per-DIMM default from
+`ras_endpoint_config.json`; a future endpoint control can replace that default
+with a dynamic measurement without changing the memory-vendor shim event
+shape. A shim can read the value directly from `event["spd_temperature"]`; the
+same value remains available in
+`event["memory_error"]["additional"]["spd_temperature"]` with the rest of the
+decoded proprietary section.
+
 ### Contoso Actions
 
 Subcomponent analyzers own the decision to propose a CPAD. The top-level

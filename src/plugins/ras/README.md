@@ -96,7 +96,8 @@ by the generic plugin.
 
 The current configuration contains Contoso-specific memory topology because
 the Contoso provider simulates SPPR and reports authoritative memory data in
-Contoso CPERs.
+Contoso CPERs. That data includes a per-DIMM default SPD-device temperature;
+real hardware would update this measurement dynamically.
 
 ## Contoso Actions
 

@@ -198,6 +198,7 @@ beat mask:
         "part_number": "PN-1234",
         "module_manufacturer_id": ["0x04", "0xD5"],
         "dram_manufacturer_id": ["0x80", "0x2C"],
+        "spd_temperature": 0,
         "total_memory_bytes": "0x0",
         "memory_repair_capabilities": 0,
         "reserved": 0,
@@ -221,6 +222,12 @@ analyzer decodes `80 2C` as Micron, `80 AD` as SK Hynix, `80 CE` as Samsung,
 and `04 D5` as Microsoft. Other valid IDs are displayed as `Unknown`; malformed
 IDs are displayed as `Invalid`. The module ID identifies the DIMM assembler,
 while the DRAM ID identifies the vendor that fabricated the DRAM devices.
+
+`spd_temperature` is a signed integer in degrees Celsius. The injector value is
+only input for the simulated action. When the BMC emits the resulting CPER, it
+replaces this value with the default for the target DIMM from
+`ras_endpoint_config.json`. Real hardware would measure the temperature
+dynamically.
 
 #### DRAM beat errors (`beatErrors` and `--beat`)
 

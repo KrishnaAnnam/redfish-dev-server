@@ -107,6 +107,7 @@ def _memory_section(vendor=(0x80, 0x2C)):
                 "part_number": "PART",
                 "module_manufacturer_id": [0x04, 0xD5],
                 "dram_manufacturer_id": list(vendor),
+                "spd_temperature": 40,
                 "total_memory_bytes": 0,
                 "memory_repair_capabilities": 0,
                 "reserved": 0,
@@ -306,6 +307,7 @@ def test_memory_location_uses_single_failing_dram_as_device():
     assert location["dram_manufacturer"] == "Micron"
     assert location["module_manufacturer_id"] == [0x04, 0xD5]
     assert location["module_manufacturer"] == "Microsoft"
+    assert location["spd_temperature"] == 0
 
 
 def test_manufacturer_id_format_includes_unknown_decode():
@@ -324,6 +326,8 @@ def test_memory_total_and_repair_capabilities_format():
         "memory_repair_capabilities", "B", 0b101
     ) == ("Soft PPR at runtime: Supported; Soft PPR at boot time: Not supported; "
           "Hard PPR at boot time: Supported")
+    assert ContosoAnalyzer._fmt_register(
+        "spd_temperature", "b", -5) == "-5 C"
 
 
 def test_memory_repair_capabilities_print_one_per_line():
@@ -349,6 +353,7 @@ def test_memory_repair_capabilities_print_one_per_line():
             "part_number": "",
             "module_manufacturer_id": [0x04, 0xD5],
             "dram_manufacturer_id": [0x80, 0x2C],
+            "spd_temperature": 40,
             "total_memory_bytes": 0,
             "memory_repair_capabilities": 0b101,
             "reserved": 0,
@@ -382,6 +387,7 @@ def test_memory_repair_capabilities_print_one_per_line():
         "               Soft PPR at boot time: Not supported",
         "               Hard PPR at boot time: Supported",
     ]
+    assert "            spd_temperature:               40 C" in output
 
 
 def test_contoso_decoder_rejects_noncanonical_base64():

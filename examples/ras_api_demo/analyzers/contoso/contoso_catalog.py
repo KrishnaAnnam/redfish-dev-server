@@ -1,9 +1,10 @@
 """
-Contoso Error Catalog — the single source of truth for the error injector
-=========================================================================
+Contoso CPER/CPAD Catalog
+========================
 
-This module is a plain, data-driven description of everything the Contoso
-Error Injector needs to know, taken directly from ``contoso-cper-sections.md``:
+This module is the shared, data-driven protocol description used by the
+Contoso error injector, CPER analyzer, and subcomponent analyzers. It is
+defined by ``contoso-cper-sections.md`` and contains:
 
 - The fixed Contoso SoC CreatorID (never a user input).
 - The Contoso severity encoding (Error Status Register severity field ↔ name).
@@ -12,9 +13,9 @@ Error Injector needs to know, taken directly from ``contoso-cper-sections.md``:
 - For each error bank: the ErrorID ↔ name ↔ typical severity table and the
   layout of that bank's "additional registers".
 
-Every other module (list / template / inject / decode) reads from this catalog.
-Adding a future Contoso generation means adding one entry here — not editing the
-encoder, the spec model, or the CPAD builder.
+The encoder, injector, analyzer, and subcomponent analyzers read from this
+catalog. Adding a future Contoso generation means adding one entry here rather
+than duplicating the protocol definition across those components.
 
 Field-layout codes used by the additional-register tables:
     "b" = int8    "B" = uint8   "H" = uint16   "I" = uint32   "Q" = uint64

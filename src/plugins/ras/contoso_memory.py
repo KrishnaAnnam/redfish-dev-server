@@ -23,6 +23,8 @@ _DRAM_FIXED_SIZE_BY_VERSION = {
 }
 _DRAM_FIXED_SIZE = _DRAM_FIXED_SIZE_BY_VERSION[_CURRENT_SECTION_VERSION]
 _OTHER_ADDITIONAL_SIZE = 8
+_SPD_TEMPERATURE_OFFSET = 69
+_SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT = -128
 
 
 def is_contoso_memory_cpad(cpad_data: Dict[str, Any]) -> bool:
@@ -155,7 +157,10 @@ def _fixed_ascii(value: str, capacity: int) -> bytes:
     return encoded + b"\x00" * (capacity - len(encoded))
 
 
-def overlay_memory_state(body: bytes, state: MemoryRepairState) -> bytes:
+def overlay_memory_state(
+        body: bytes,
+        state: MemoryRepairState,
+        allow_spd_temperature_override: bool = False) -> bytes:
     """Overlay authoritative DIMM SPD and repair counters into a memory body."""
     active_bank = active_memory_bank(body)
     if active_bank == "other":
@@ -184,12 +189,25 @@ def overlay_memory_state(body: bytes, state: MemoryRepairState) -> bytes:
     if old_other_offset < dram_offset + _LOCATION_AND_BEATS_SIZE or old_other_offset > len(body):
         raise ValueError("Contoso memory additional-register offsets are invalid")
 
+    source_version = _section_version(body)
+    requested_temperature = None
+    if source_version == _CURRENT_SECTION_VERSION:
+        requested_temperature = struct.unpack_from(
+            "<b", body, dram_offset + _SPD_TEMPERATURE_OFFSET)[0]
+        if requested_temperature == _SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT:
+            requested_temperature = None
+    spd_temperature = (
+        requested_temperature
+        if allow_spd_temperature_override and requested_temperature is not None
+        else dimm.spd_temperature
+    )
+
     dram = bytearray(body[dram_offset:dram_offset + _LOCATION_AND_BEATS_SIZE])
     dram += _fixed_ascii(dimm.serial_number, 19)
     dram += _fixed_ascii(dimm.part_number, 25)
     dram += bytes(dimm.module_manufacturer_id)
     dram += bytes(dimm.dram_manufacturer_id)
-    dram += struct.pack("<b", dimm.spd_temperature)
+    dram += struct.pack("<b", spd_temperature)
     dram += struct.pack("<Q", state.config.total_memory_bytes)
     dram += struct.pack("<B", state.capabilities.bitfield)
     dram += b"\x00\x00"
@@ -205,5 +223,12 @@ def overlay_memory_state(body: bytes, state: MemoryRepairState) -> bytes:
     return bytes(prefix + dram + body[old_other_offset:])
 
 
-def overlay_cpad_memory_state(cpad_data: Dict[str, Any], state: MemoryRepairState) -> bytes:
-    return overlay_memory_state(_section_body(cpad_data), state)
+def overlay_cpad_memory_state(
+        cpad_data: Dict[str, Any],
+        state: MemoryRepairState,
+        allow_spd_temperature_override: bool = False) -> bytes:
+    return overlay_memory_state(
+        _section_body(cpad_data),
+        state,
+        allow_spd_temperature_override=allow_spd_temperature_override,
+    )

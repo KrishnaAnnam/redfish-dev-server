@@ -1063,7 +1063,12 @@ class SubmitCPADActionHandler:
         if is_contoso_memory_cpad(cpad_data):
             try:
                 state = self._memory_state(metadata['partition_id'])
-                body = overlay_cpad_memory_state(cpad_data, state)
+                body = overlay_cpad_memory_state(
+                    cpad_data,
+                    state,
+                    allow_spd_temperature_override=(
+                        metadata['action_id'] == ERROR_INJECTION_ACTION_ID),
+                )
                 section_b64 = base64.b64encode(body).decode('ascii')
             except ValueError as exc:
                 raise ValueError(

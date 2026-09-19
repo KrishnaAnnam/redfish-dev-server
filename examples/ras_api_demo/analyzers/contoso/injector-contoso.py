@@ -93,7 +93,9 @@ def _apply_set(spec, dotted, raw):
     for key in keys[:-1]:
         node = node.setdefault(key, {})
     low = raw.lower()
-    if low in ("true", "false"):
+    if low == "null":
+        value = None
+    elif low in ("true", "false"):
         value = (low == "true")
     else:
         value = raw

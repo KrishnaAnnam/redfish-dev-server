@@ -24,6 +24,7 @@ import struct
 from contoso_catalog import (
     CONTOSO_SECTION_MAJOR,
     CONTOSO_SECTION_MINOR,
+    SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT,
     SUPPORTED_SECTION_VERSIONS,
     SEVERITY_VALUES,
     resolve_section,
@@ -175,7 +176,10 @@ def pack_additional(fields, values):
                     int(entry["bank"]), int(entry["count"]),
                 )
         else:
-            value = int(values.get(name, 0))
+            value = values.get(name, 0)
+            if name == "spd_temperature" and value is None:
+                value = SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT
+            value = int(value)
             if code == "b":
                 if not -128 <= value <= 127:
                     raise ValueError(f"{name} must be in the range -128..127")
@@ -253,6 +257,9 @@ def unpack_additional(fields, data):
                     "memory_repair_capabilities has reserved bits set")
             if name == "reserved" and val != 0:
                 raise ValueError("reserved field must be zero")
+            if (name == "spd_temperature" and
+                    val == SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT):
+                val = None
             values[name] = val
             offset += size
     return values, offset

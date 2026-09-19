@@ -198,7 +198,7 @@ beat mask:
         "part_number": "PN-1234",
         "module_manufacturer_id": ["0x04", "0xD5"],
         "dram_manufacturer_id": ["0x80", "0x2C"],
-        "spd_temperature": 0,
+        "spd_temperature": null,
         "total_memory_bytes": "0x0",
         "memory_repair_capabilities": 0,
         "reserved": 0,
@@ -223,11 +223,19 @@ and `04 D5` as Microsoft. Other valid IDs are displayed as `Unknown`; malformed
 IDs are displayed as `Invalid`. The module ID identifies the DIMM assembler,
 while the DRAM ID identifies the vendor that fabricated the DRAM devices.
 
-`spd_temperature` is a signed integer in degrees Celsius. The injector value is
-only input for the simulated action. When the BMC emits the resulting CPER, it
-replaces this value with the default for the target DIMM from
-`ras_endpoint_config.json`. Real hardware would measure the temperature
-dynamically.
+`spd_temperature` is an optional signed integer in degrees Celsius. Its default
+value is `null`, which tells the simulated endpoint to use the target DIMM's
+default temperature from `ras_endpoint_config.json`. Set an integer from `-127`
+through `127` to override that default for one injection:
+
+```bash
+--set section.additional.spd_temperature=75
+```
+
+The binary injection CPAD encodes `null` as the reserved value `-128`. The
+endpoint resolves that sentinel before emitting the CPER, so an emitted CPER
+always contains a real temperature. Real hardware would measure the
+temperature dynamically rather than accepting an injection override.
 
 #### DRAM beat errors (`beatErrors` and `--beat`)
 

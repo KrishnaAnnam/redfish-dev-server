@@ -187,6 +187,12 @@ BMC (plugin) side, and the **listener** pane shows CPERs being downloaded.
    informational Action-Event CPERs. These flow back through the same
    download → route → analyze path so the analyzer can confirm the repair.
 
+The Contoso demo also defines Page Offline (`0x8002`) and reboot with memory
+retraining (`0x8003`). Their automatic recommendation policy is not part of the
+guided SPPR walkthrough. See
+[Contoso CPAD Actions](analyzers/contoso/contoso-cpad-actions.md) for their
+parameters and completion behavior.
+
 To reset between runs, the launcher calls
 [`reset_server.py`](reset_server.py) (BMC log/state) and
 [`init_error_pipeline.py`](init_error_pipeline.py) (client-side storage).

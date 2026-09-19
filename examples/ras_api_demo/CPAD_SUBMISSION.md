@@ -68,9 +68,11 @@ runs these stages. The first failure returns an error and stops.
    descriptors (else `400`).
 5. **Acceptance checks (spec §6.5)** — see below. These gate the `202`.
 6. **Acceptance gate** — once §6.5 passes, the CPAD is **Accepted (`202`)**.
-7. **Post-acceptance action** — mint the resulting CPER(s) (an error CPER for an
-   injection, and always a Platform Action Event CPER). A failure here does
-   **not** revoke acceptance — the CPAD was already accepted at step 6.
+7. **Post-acceptance action** — select an endpoint action provider using the
+   target endpoint's CreatorID, then execute or schedule the action. Error
+   injection is the only action that creates an error CPER. Immediate actions
+   create a Platform Action Event now; deferred actions create one when they
+   complete. A failure here does **not** revoke acceptance.
 
 ### Acceptance checks (spec §6.5)
 
@@ -78,6 +80,7 @@ runs these stages. The first failure returns an error and stops.
 |---|---|---|
 | **PlatformID** | The CPAD's `platformID` must equal the BMC's own `PlatformID`. | `400` `OCPRAS.1.0.PlatformIDMismatch` |
 | **PartitionID** | The CPAD's `partitionID` must map to a known RAS endpoint (`RASService/RASEndpoints`). | `404` `OCPRAS.1.0.PartitionIDUnknown` |
+| **CreatorID** | The CPAD's `creatorID` must match the configured owner of the target endpoint. | `400` `OCPRAS.1.0.CPADValidationFailed` |
 | **Well-formed length** | `recordLength` must be consistent with the payload: `header-min ≤ recordLength ≤ received-bytes`. | `400` `OCPRAS.1.0.CPADValidationFailed` |
 
 > **Note on the length rule.** Per `Cpad.h`, the received buffer *may be larger*
@@ -86,17 +89,18 @@ runs these stages. The first failure returns an error and stops.
 > truncated payload or an absurd `recordLength` while allowing legitimate
 > trailing buffer space.
 
-The BMC sources its own `PlatformID` and the set of valid `PartitionID`s from the
-RAS discovery tree ([`discovery.py`](../../src/plugins/ras/discovery.py)), so the
-checks stay in sync with what the service advertises.
+The BMC sources its `PlatformID`, valid `PartitionID`s, and endpoint CreatorIDs
+from [`ras_endpoint_config.json`](../../mockups/ras_gen1/ras_endpoint_config.json),
+so the checks stay in sync with what the service advertises.
 
 ### Why `202` means "Accepted", not "Done"
 
 `202 Accepted` is returned **once the acceptance checks pass** — before the
-action necessarily completes. This matches §6.5: acceptance and execution are
-separate. The Platform Action Event CPER (delivered later via the event
-listener) is what reports the actual *result* of the action. This is the same
-principle the client honors with its store-then-listen ordering (steps 6 → 7).
+action necessarily completes. Immediate actions normally emit their Platform
+Action Event during submission. Deferred actions, such as Contoso reboot with
+memory retraining, emit it after their completion condition occurs. The event
+reports the actual result. This is the same principle the client honors with
+its store-then-listen ordering (steps 6 → 7).
 
 ## Error responses
 
@@ -123,19 +127,26 @@ programmatically:
 |---|---|---|
 | `202` | *(success — Task body)* | CPAD accepted for processing |
 | `400` | `Base.1.16.ActionParameterMissing` | Missing `EncodingType`/`CPADData` |
-| `400` | `OCPRAS.1.0.CPADValidationFailed` | Bad signature/size, structure, or length |
+| `400` | `OCPRAS.1.0.CPADValidationFailed` | Bad signature/size, structure, length, or endpoint CreatorID |
 | `400` | `OCPRAS.1.0.PlatformIDMismatch` | CPAD targets a different platform |
 | `404` | `OCPRAS.1.0.PartitionIDUnknown` | PartitionID does not map to a known endpoint |
 | `500` | `OCPRAS.1.0.CPADConversionFailed` | `cpad-convert` could not decode the CPAD |
 
 ## Where submission sits in the demo
 
-In the guided demo the orchestrator submits two kinds of CPAD through this path:
+The demo supports these CPAD actions:
 
 - **Error-injection CPADs** (`0x0006`) from the Contoso injector, to create the
   corrected DRAM errors the analyzer then studies.
 - **SPPR repair CPADs** (`0x8001`) that the analyzer emits and the
   [PolicyEngine](POLICY_ENGINE.md) approves.
+- **Page Offline CPADs** (`0x8002`) that forward a 4 KiB-aligned physical page
+  address to the simulated OS.
+- **Reboot with Memory Retraining CPADs** (`0x8003`) that remain pending until
+  `On`, restart, or power-cycle resets the target SoC partition.
+
+The proprietary Contoso behavior is defined in
+[Contoso CPAD Actions](analyzers/contoso/contoso-cpad-actions.md).
 
 See the [end-to-end walkthrough](README.md#end-to-end-walkthrough) for how
 submission fits into the full inject → analyze → policy → submit → repair loop,

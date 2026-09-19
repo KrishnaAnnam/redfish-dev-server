@@ -21,7 +21,7 @@ The AO interacts with this script through two command-line modes:
    Emits a single JSON object on stdout describing this analyzer:
        {
          "analyzer_name":    "Contoso CPER Analyzer",
-         "analyzer_version": "1.0.0",
+         "analyzer_version": "1.1.0",
          "creator_ids":      ["11111111-2222-3333-4444-555555555555"],
          "prior_days":       30
        }
@@ -31,9 +31,8 @@ The AO interacts with this script through two command-line modes:
    consider (newest first) and processes them.  Outputs are written next to
    this script (the AO clears stale ``.json``/``.cpad`` files beforehand and
    collects whatever this run produces):
-       - exactly one ``.json``   — the analysis result, and
-       - zero or one ``.cpad``   — an SPPR remediation, created only when a
-                                    repeat corrected memory error is detected.
+    - exactly one analysis ``.json`` manifest, and
+    - zero or more paired ``*_cpad.json``/``*.cpad`` action outputs.
 
 A standalone developer mode is also available:
 
@@ -57,7 +56,7 @@ from typing import Any, Dict, Optional, List
 
 # ── Analyzer identity (reported via --discover) ─────────────────────────────
 ANALYZER_NAME = "Contoso CPER Analyzer"
-ANALYZER_VERSION = "1.0.0"
+ANALYZER_VERSION = "1.1.0"
 CREATOR_IDS = ["11111111-2222-3333-4444-555555555555"]
 PRIOR_DAYS = 30
 
@@ -78,6 +77,17 @@ if str(SCRIPT_DIR) not in sys.path:
 from cper_decoder import CperDecoder  # noqa: E402  (path set up above)
 import contoso_catalog            # noqa: E402  Contoso section registry
 import contoso_encoder            # noqa: E402  Contoso body pack/unpack
+from memory_events import (       # noqa: E402
+    decode_memory_events,
+    events_for_manufacturer,
+    newest_manufacturer_ids,
+)
+from memory_shims import ShimContractError  # noqa: E402
+from cpu_core_analyzer import CpuCoreAnalyzer  # noqa: E402
+from cross_subcomponent_correlator import (  # noqa: E402
+    correlate_subcomponent_results,
+)
+from memory_controller_analyzer import MemoryControllerAnalyzer  # noqa: E402
 
 # The Contoso Memory Controller proprietary CPER section-type GUID.
 CONTOSO_MEMORY_SECTION = "Memory Controller - First Generation"
@@ -98,6 +108,79 @@ def _indented_print(indent: str):
         for line in str(text).split("\n"):
             builtins.print(f"{indent}{line}" if line != "" else "", **kwargs)
     return _p
+
+
+def decode_newest_sections(analyzer: "ContosoAnalyzer",
+                           cper_data: Dict[str, Any],
+                           cper_file: str) -> Dict[str, List[Dict[str, Any]]]:
+    """Decode and group every supported section while retaining its index."""
+    grouped = {"cpu_core": [], "memory_controller": []}
+    descriptors = cper_data.get("sectionDescriptors", [])
+    for section_index in range(len(descriptors)):
+        section_name, decoded = analyzer._decode_contoso_section(
+            cper_data, section_index)
+        if section_name is None:
+            continue
+        category = contoso_catalog.SECTION_TYPES[section_name]["category"]
+        subcomponent = {
+            "core": "cpu_core",
+            "memory": "memory_controller",
+        }.get(category)
+        if subcomponent is None:
+            continue
+        descriptor = descriptors[section_index]
+        grouped[subcomponent].append({
+            "source": {
+                "cper_file": cper_file,
+                "window_index": 0,
+                "section_index": section_index,
+                "is_newest": True,
+            },
+            "section_name": section_name,
+            "decoded": decoded,
+            "section_descriptor": copy.deepcopy(descriptor),
+            "fru": {
+                "id": analyzer._normalized_id(descriptor.get("fruID")),
+                "text": str(descriptor.get("fruText", "")).strip(),
+            },
+        })
+    return grouped
+
+
+def _has_platform_action_event(cper_data: Dict[str, Any]) -> bool:
+    return any(
+        isinstance(section, dict) and "PlatformActionEvent" in section
+        for section in cper_data.get("sections", [])
+    )
+
+
+def dispatch_subcomponent_analysis(
+        analyzer: "ContosoAnalyzer", records: List[Dict[str, Any]],
+        source_stem: str,
+        grouped: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        prior_cper_count: Optional[int] = None,
+        cpu_analyzer_factory=CpuCoreAnalyzer,
+        memory_analyzer_factory=MemoryControllerAnalyzer) -> Dict[str, Any]:
+    """Invoke every analyzer applicable to the newest decoded CPER."""
+    if not records:
+        raise ValueError("decoded CPER window must not be empty")
+    newest = records[0]
+    if grouped is None:
+        grouped = decode_newest_sections(
+            analyzer, newest["cper_data"], newest["cper_file"])
+    if prior_cper_count is None:
+        prior_cper_count = max(len(records) - 1, 0)
+    results = []
+    if grouped["cpu_core"]:
+        results.append(cpu_analyzer_factory().analyze(
+            grouped["cpu_core"], prior_cper_count))
+    if (grouped["memory_controller"]
+            or _has_platform_action_event(newest["cper_data"])):
+        memory_analyzer = memory_analyzer_factory(analyzer, SCRIPT_DIR / "memory_shims")
+        results.append(memory_analyzer.analyze(
+            grouped["memory_controller"], records, source_stem,
+            prior_cper_count))
+    return correlate_subcomponent_results(results)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -132,12 +215,211 @@ class ContosoAnalyzer:
             self.output_dir = RASAPI_DIR / "ras_demo_output" / "Analyzer_output_files"
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # SPPR template lives at Demos/RasApi/cpad_storage/spprTemplate.json
+        # The memory-action template starts with the original SPPR example.
         self.cpad_storage_dir = RASAPI_DIR / "cpad_storage"
         self.sppr_template_path = self.cpad_storage_dir / "spprTemplate.json"
 
         # In-memory tracking of seen memory locations (stateless — rebuilt each run)
         self.seen_locations = []
+
+        # Memory support is initialized only when dispatch finds a memory
+        # section (or a Platform Action Event requiring memory correlation).
+        self.memory_shims = {}
+        self.memory_shim_errors = []
+
+    @staticmethod
+    def _normalized_id(value) -> str:
+        if isinstance(value, dict):
+            value = value.get('guid', value.get('data', ''))
+        return str(value or '').strip().strip('{}').lower()
+
+    @classmethod
+    def _validate_shim_cpad(cls, cpad: Dict[str, Any],
+                            events: List[Dict[str, Any]]) -> None:
+        """Validate a shim's complete CPAD against its input event context."""
+        header = cpad.get('header')
+        descriptors = cpad.get('sectionDescriptors')
+        sections = cpad.get('sections')
+        if not isinstance(header, dict):
+            raise ShimContractError("shim CPAD must contain a header object")
+        if not isinstance(descriptors, list) or not descriptors:
+            raise ShimContractError(
+                "shim CPAD must contain at least one section descriptor")
+        if not isinstance(sections, list) or len(sections) != len(descriptors):
+            raise ShimContractError(
+                "shim CPAD sections must match its section descriptors")
+        section_count = header.get('sectionCount')
+        if (not isinstance(section_count, int) or isinstance(section_count, bool)
+                or section_count != len(descriptors)):
+            raise ShimContractError(
+                "shim CPAD header.sectionCount must match its section descriptors")
+        if any(not isinstance(section, dict) for section in sections):
+            raise ShimContractError("shim CPAD sections must contain objects")
+
+        allowed_headers = {
+            (
+                cls._normalized_id(event.get('header', {}).get('platformID')),
+                cls._normalized_id(event.get('header', {}).get('partitionID')),
+                cls._normalized_id(event.get('header', {}).get('creatorID')),
+            )
+            for event in events
+        }
+        cpad_header = (
+            cls._normalized_id(header.get('platformID')),
+            cls._normalized_id(header.get('partitionID')),
+            cls._normalized_id(header.get('creatorID')),
+        )
+        if cpad_header not in allowed_headers:
+            raise ShimContractError(
+                "shim CPAD platform, partition, and creator IDs must match an input event")
+
+        input_frus = {
+            (event.get('fru', {}).get('id'), event.get('fru', {}).get('text'))
+            for event in events
+        }
+        for descriptor in descriptors:
+            if not isinstance(descriptor, dict):
+                raise ShimContractError("shim CPAD section descriptor must be an object")
+            action = descriptor.get('actionID', descriptor.get('actionId'))
+            if isinstance(action, dict):
+                action = action.get('code')
+            if action in (None, ''):
+                raise ShimContractError("shim CPAD section must contain an action ID")
+            confidence = descriptor.get('confidence')
+            if (not isinstance(confidence, int) or isinstance(confidence, bool)
+                    or not 0 <= confidence <= 100):
+                raise ShimContractError(
+                    "shim CPAD confidence must be an integer from 0 through 100")
+            fru = (
+                cls._normalized_id(descriptor.get('fruID')),
+                str(descriptor.get('fruText', '')).strip(),
+            )
+            if fru not in input_frus:
+                raise ShimContractError(
+                    "shim CPAD FRU ID and text must match an input event")
+
+    def analyze_memory_events(self, events: List[Dict[str, Any]],
+                              shims=None,
+                              newest_vendor=None):
+        """Invoke the matching shim for a pre-filtered decoded event window."""
+        active_shims = self.memory_shims if shims is None else shims
+        invocations = []
+        cpads = []
+        cpads_by_manufacturer = {}
+        handled_manufacturers = set()
+        failed_manufacturers = set()
+        vendor_ids = ([newest_vendor] if newest_vendor is not None
+                      else newest_manufacturer_ids(events))
+        for vendor_id in vendor_ids:
+            shim = active_shims.get(vendor_id)
+            if shim is None:
+                continue
+            vendor_events = events_for_manufacturer(events, vendor_id)
+            try:
+                returned = shim.analyze(vendor_events)
+                validated = []
+                pending_fingerprints = set()
+                for cpad in returned:
+                    self._validate_shim_cpad(cpad, vendor_events)
+                    fingerprint = json.dumps(cpad, sort_keys=True, separators=(',', ':'))
+                    if fingerprint not in pending_fingerprints:
+                        pending_fingerprints.add(fingerprint)
+                        validated.append((fingerprint, cpad))
+                vendor_cpads = [(shim, cpad) for _fingerprint, cpad in validated]
+                cpads.extend(vendor_cpads)
+                cpads_by_manufacturer[vendor_id] = vendor_cpads
+                handled_manufacturers.add(vendor_id)
+                invocations.append({
+                    'shim': shim.name,
+                    'manufacturer_id': list(vendor_id),
+                    'event_count': len(vendor_events),
+                    'cpad_count': len(vendor_cpads),
+                    'status': 'ok',
+                })
+            except Exception as exc:
+                failed_manufacturers.add(vendor_id)
+                invocations.append({
+                    'shim': shim.name,
+                    'manufacturer_id': list(vendor_id),
+                    'event_count': len(vendor_events),
+                    'cpad_count': 0,
+                    'status': 'failed',
+                    'error': str(exc),
+                })
+        return {
+            'events': events,
+            'invocations': invocations,
+            'cpads': cpads,
+            'cpads_by_manufacturer': cpads_by_manufacturer,
+            'handled_manufacturers': handled_manufacturers,
+            'failed_manufacturers': failed_manufacturers,
+        }
+
+    def analyze_memory_event_window(self, records: List[Dict[str, Any]]):
+        """Compatibility delegate for callers supplying a decoded CPER window."""
+        return self.analyze_memory_events(decode_memory_events(records))
+
+    def emit_shim_cpads(self, shim_cpads, source_stem: str,
+                        vendor_id=None):
+        """Write paired shim CPAD JSON/binary outputs and return binary paths."""
+        outputs = []
+        generated = []
+        try:
+            for index, (shim, cpad) in enumerate(shim_cpads, 1):
+                vendor = shim.path.stem.removeprefix('analyzer_')
+                vendor_suffix = ""
+                if vendor_id is not None:
+                    vendor_suffix = f"_{vendor_id[0]:02x}{vendor_id[1]:02x}"
+                stem = f"{source_stem}_{vendor}{vendor_suffix}_{index}_cpad"
+                json_path = self.output_dir / f"{stem}.json"
+                binary_path = self.output_dir / f"{stem}.cpad"
+                generated.extend((json_path, binary_path))
+                with open(json_path, 'w') as stream:
+                    json.dump(cpad, stream, indent=2)
+                converted = self.decoder._convert_json_to_binary_cpad(
+                    str(json_path), str(binary_path))
+                if not converted:
+                    raise ShimContractError(
+                        f"could not convert {shim.name} CPAD {index} to binary")
+                outputs.append(str(binary_path))
+            return outputs
+        except Exception:
+            for path in generated:
+                path.unlink(missing_ok=True)
+            raise
+
+    def emit_shim_cpad_groups(self, shim_result, source_stem: str):
+        """Emit each vendor's CPADs atomically without affecting other vendors."""
+        outputs = []
+        errors = []
+        for vendor_id, shim_cpads in shim_result[
+                'cpads_by_manufacturer'].items():
+            try:
+                outputs.extend(self.emit_shim_cpads(
+                    shim_cpads, source_stem, vendor_id))
+            except Exception as exc:
+                shim_result['handled_manufacturers'].discard(vendor_id)
+                shim_result['failed_manufacturers'].add(vendor_id)
+                error = str(exc)
+                errors.append((vendor_id, error))
+                for invocation in shim_result['invocations']:
+                    if tuple(invocation['manufacturer_id']) == vendor_id:
+                        invocation['status'] = 'failed'
+                        invocation['error'] = error
+                        invocation['cpad_count'] = 0
+                        break
+        return outputs, errors
+
+    def default_memory_events(self, shim_result):
+        """Return newest DRAM errors not successfully owned by a shim."""
+        return [
+            event for event in shim_result['events']
+            if event['event_type'] == 'memory_error'
+            and event['source']['is_newest']
+            and self._memory_location_from_event(event) is not None
+            and tuple(event['dram_manufacturer_id']) not in
+            shim_result['handled_manufacturers']
+        ]
 
     # ─── CPER Data Extraction ───────────────────────────────────────────
 
@@ -147,86 +429,69 @@ class ContosoAnalyzer:
 
     # ─── Error Tracking ─────────────────────────────────────────────────
 
-    def _extract_memory_location(self, cper_data: Dict[str, Any]) -> Optional[Dict]:
-        """Extract the DRAM location from a Contoso Memory Controller CPER.
-
-        Finds the section whose descriptor GUID is the Contoso Memory Controller
-        section type, decodes its proprietary opaque body via the Contoso codec,
-        and returns the DRAM coordinates logged in the DRAM error bank.
-
-        Args:
-            cper_data: Parsed CPER JSON (header/sectionDescriptors/sections).
-
-        Returns:
-            dict with chiplet, controller, channel, subchannel, dimm, rank,
-            bank_group, bank, row, column, DIMM identity fields, and
-            physical_address — or None.
-        """
-        sections = cper_data.get('sections', [])
-        descriptors = cper_data.get('sectionDescriptors', [])
-        if not sections:
+    @staticmethod
+    def _memory_location_from_event(event: Dict[str, Any]) -> Optional[Dict]:
+        """Adapt one fully decoded DRAM error event to legacy row analysis."""
+        memory_error = event.get('memory_error', {})
+        if memory_error.get('bank') != 'DRAM Errors':
             return None
+        sub = memory_error.get('subcomponent', {})
+        add = memory_error.get('additional', {})
+        device = add.get('device')
+        beat_errors = []
+        masks = add.get('beat_mask')
+        if isinstance(masks, list):
+            for dq, mask in enumerate(masks):
+                mask = int(mask)
+                if mask:
+                    beat_errors.append({
+                        'dram': device,
+                        'dq': dq,
+                        'beats': [beat for beat in range(16)
+                                  if mask & (1 << beat)],
+                    })
+        return {
+            'chiplet': sub.get('chiplet', 0),
+            'controller': sub.get('controller', 0),
+            'channel': add.get('channel', 0),
+            'subchannel': add.get('subchannel', 0),
+            'dimm': add.get('dimm', 0),
+            'rank': add.get('rank', 0),
+            'bank_group': add.get('bank_group', 0),
+            'bank': add.get('bank', 0),
+            'row': add.get('row', 0),
+            'column': add.get('column', 0),
+            'serial_number': add.get('serial_number', ''),
+            'part_number': add.get('part_number', ''),
+            'dram_manufacturer_id': add.get('dram_manufacturer_id', [0, 0]),
+            'dram_manufacturer': contoso_catalog.decode_spd_manufacturer_id(
+                add.get('dram_manufacturer_id', [0, 0])),
+            'module_manufacturer_id': add.get('module_manufacturer_id', [0, 0]),
+            'module_manufacturer': contoso_catalog.decode_spd_manufacturer_id(
+                add.get('module_manufacturer_id', [0, 0])),
+            'physical_address': memory_error.get('error_address', 0),
+            'beat_errors': beat_errors,
+            'drams': [device],
+            'device': device,
+            'repairs': add.get('repairs', []),
+        }
 
-        for idx, section in enumerate(sections):
-            # Match this section to the Contoso Memory Controller section type.
-            guid = None
-            if idx < len(descriptors):
-                st = descriptors[idx].get('sectionType', {})
-                if isinstance(st, dict):
-                    guid = st.get('data')
-            if not guid or guid.lower() != CONTOSO_MEMORY_GUID:
-                continue
+    def _extract_memory_locations(self, cper_data: Dict[str, Any]):
+        events = decode_memory_events([{
+            'cper_data': cper_data,
+            'cper_file': '',
+            'is_newest': True,
+        }])
+        return [
+            location for event in events
+            if event['event_type'] == 'memory_error'
+            for location in [self._memory_location_from_event(event)]
+            if location is not None
+        ]
 
-            b64 = section.get('Unknown', {}).get('data')
-            if not b64:
-                continue
-            try:
-                body = base64.b64decode(b64, validate=True)
-                decoded = contoso_encoder.unpack_section_body(CONTOSO_MEMORY_SECTION, body)
-            except Exception:
-                return None
-            if not decoded:
-                return None
-
-            sub = decoded['subcomponent']
-            add = decoded['additional']
-            # Decode the selected device's beat_mask[DQ] values.
-            beat_errors = []
-            device = add.get('device')
-            masks = add.get('beat_mask')
-            if isinstance(masks, list):
-                for q, mask in enumerate(masks):
-                    mask = int(mask)
-                    if mask:
-                        beats = [b for b in range(16) if mask & (1 << b)]
-                        beat_errors.append(
-                            {'dram': device, 'dq': q, 'beats': beats})
-            return {
-                'chiplet': sub.get('chiplet', 0),
-                'controller': sub.get('controller', 0),
-                'channel': add.get('channel', 0),
-                'subchannel': add.get('subchannel', 0),
-                'dimm': add.get('dimm', 0),
-                'rank': add.get('rank', 0),
-                'bank_group': add.get('bank_group', 0),
-                'bank': add.get('bank', 0),
-                'row': add.get('row', 0),
-                'column': add.get('column', 0),
-                'serial_number': add.get('serial_number', ''),
-                'part_number': add.get('part_number', ''),
-                'dram_manufacturer_id': add.get('dram_manufacturer_id', [0, 0]),
-                'dram_manufacturer': contoso_catalog.decode_spd_manufacturer_id(
-                    add.get('dram_manufacturer_id', [0, 0])),
-                'module_manufacturer_id': add.get('module_manufacturer_id', [0, 0]),
-                'module_manufacturer': contoso_catalog.decode_spd_manufacturer_id(
-                    add.get('module_manufacturer_id', [0, 0])),
-                'physical_address': decoded.get('error_address', 0),
-                'beat_errors': beat_errors,
-                'drams': [device],
-                'device': device,
-                'repairs': add.get('repairs', []),
-            }
-        return None
+    def _extract_memory_location(self, cper_data: Dict[str, Any]) -> Optional[Dict]:
+        """Return the first DRAM location for legacy single-section callers."""
+        return next(iter(self._extract_memory_locations(cper_data)), None)
 
     # Fields that together identify a single DRAM device row (column excluded).
     _ROW_FIELDS = ('chiplet', 'controller', 'channel', 'subchannel',
@@ -427,6 +692,19 @@ class ContosoAnalyzer:
         return names
 
     @staticmethod
+    def _memory_repair_capability_lines(value: int) -> List[str]:
+        """Return one display line for each memory repair capability."""
+        capabilities = (
+            (0, "Soft PPR at runtime"),
+            (1, "Soft PPR at boot time"),
+            (2, "Hard PPR at boot time"),
+        )
+        return [
+            f"{label}: {'Supported' if value & (1 << bit) else 'Not supported'}"
+            for bit, label in capabilities
+        ]
+
+    @staticmethod
     def _fmt_register(name, code, value) -> str:
         """Format a Contoso register/additional value for display.
 
@@ -462,14 +740,8 @@ class ContosoAnalyzer:
             gib = value / (1024 ** 3)
             return f"{gib:g} GiB ({value} bytes)"
         if name == 'memory_repair_capabilities':
-            capabilities = (
-                (0, "Soft PPR at runtime"),
-                (1, "Soft PPR at boot time"),
-                (2, "Hard PPR at boot time"),
-            )
             return "; ".join(
-                f"{label}: {'Supported' if value & (1 << bit) else 'Not supported'}"
-                for bit, label in capabilities)
+                ContosoAnalyzer._memory_repair_capability_lines(value))
         if isinstance(value, list):          # Other packed array fields
             nonzero = [f"[{r}][{c}]={hex(v)}"
                        for r, row in enumerate(value)
@@ -507,7 +779,14 @@ class ContosoAnalyzer:
         print(f"         Misc 1:          {hex(decoded['misc1'])}")
         print(f"         Additional Registers:")
         for name, code in bank['additional']:
-            print(f"            {name + ':':<30} {self._fmt_register(name, code, decoded['additional'].get(name))}")
+            value = decoded['additional'].get(name)
+            if name == 'memory_repair_capabilities':
+                print(f"            {name}:")
+                for capability in self._memory_repair_capability_lines(value):
+                    print(f"               {capability}")
+                continue
+            print(f"            {name + ':':<30} "
+                  f"{self._fmt_register(name, code, value)}")
 
     def generate_cper_report(self, cper_data: Dict[str, Any], indent: str = ""):
         """Generate a detailed analysis report from CPER JSON data.
@@ -640,6 +919,8 @@ class ContosoAnalyzer:
                             ACTION_ID_MAP = {
                                 '0x0006': 'Memory Error Injection',
                                 '0x8001': 'Soft Post Package Repair (SPPR)',
+                                '0x8002': 'Page Offline',
+                                '0x8003': 'Reboot with Memory Retraining',
                             }
                             action_desc = ACTION_ID_MAP.get(action_id, action_id)
                             print(f"         Source Action:    {action_desc} ({action_id})")
@@ -671,7 +952,7 @@ class ContosoAnalyzer:
 
     def print_analysis_recommendation(self, cper_data: Dict[str, Any],
                                        sppr_created: bool = False,
-                                       sppr_filename: str = None,
+                                       sppr_filename: Optional[str] = None,
                                        dram_row_failure_detected: bool = False,
                                        memory_location: Optional[Dict] = None):
         """Print the Analysis Recommendation section (legacy single-CPER).
@@ -687,8 +968,10 @@ class ContosoAnalyzer:
 
     def print_batch_recommendation(self, analysis_results: list,
                                      successful: int = 0, failed: int = 0,
-                                     created_files: list = None,
-                                     created_sppr_files: list = None,
+                                     created_files: Optional[List[str]] = None,
+                                     created_sppr_files: Optional[List[str]] = None,
+                                     vendor_cpad_files: Optional[List[str]] = None,
+                                     cpad_generation_failed: bool = False,
                                      indent: str = ""):
         """Print a combined analysis summary and recommendation for the batch.
 
@@ -700,12 +983,14 @@ class ContosoAnalyzer:
             failed: number of failed files
             created_files: list of created JSON output filenames
             created_sppr_files: list of created SPPR CPAD filenames
+            vendor_cpad_files: list of memory-vendor CPAD filenames
             indent: Optional left-margin prefix applied to every printed line
                 (used when the block is nested inside the orchestrator flow).
         """
         print = _indented_print(indent)
         created_files = created_files or []
         created_sppr_files = created_sppr_files or []
+        vendor_cpad_files = vendor_cpad_files or []
         dram_row_failure_detected = any(
             r['dram_row_failure_detected'] for r in analysis_results)
         sppr_results = [r for r in analysis_results if r['sppr_created']]
@@ -741,6 +1026,8 @@ class ContosoAnalyzer:
         if created_sppr_files:
             for filename in created_sppr_files:
                 print(f"      - {filename}")
+        for filename in vendor_cpad_files:
+            print(f"      - {filename}")
 
         # Recommendation section
         if has_sppr:
@@ -763,6 +1050,15 @@ class ContosoAnalyzer:
             if sppr_filename:
                 print(f"\n   ✅ SPPR CPAD created: {sppr_filename}")
                 print(f"   Next Step:          Submit the SPPR CPAD to the platform to execute the repair")
+        elif vendor_cpad_files:
+            print(f"\n   Recommendation:     Memory vendor-recommended RAS action")
+            print(f"   Reason:             Memory vendor analysis returned "
+                  f"{len(vendor_cpad_files)} CPAD(s).")
+            print(f"   Next Step:          Evaluate each CPAD against operator policy.")
+        elif cpad_generation_failed:
+            print(f"\n   Finding:            A DRAM row-failure pattern was detected.")
+            print(f"   Recommendation:     No action emitted")
+            print(f"   Reason:             CPAD generation failed.")
         elif dram_row_failure_detected:
             print(f"\n   Recommendation:     Perform SPPR (Soft Post-Package Repair) operation")
             print(f"   ⚠️  SPPR CPAD not created")
@@ -805,103 +1101,198 @@ class ContosoAnalyzer:
                 print(f"   Next Step:          Continue monitoring; more error patterns are")
                 print(f"                       needed before a fault can be identified.")
 
+        if cpad_generation_failed and (has_sppr or vendor_cpad_files):
+            print(f"   Warning:            CPAD generation failed for another memory section.")
+
         print(f"   {'=' * 70}")
 
     # ─── SPPR CPAD Creation ─────────────────────────────────────────────
 
-    def create_sppr_cpad_from_cper(self, cper_data: Dict[str, Any],
-                                    original_file: str = None) -> Optional[str]:
-        """Create a JSON CPAD file for SPPR action based on CPER data.
-
-        Only creates an SPPR CPAD when the newest error is a REPEAT on a
-        failing DRAM row — i.e. a corrected error on the same device row
-        (chiplet/controller/channel/subchannel/dimm/rank/bank_group/bank/row/
-        device) as a prior error but at a *different column*. The first
-        occurrence is recorded in memory; a later hit on another column of
-        that device row triggers SPPR creation.
-
-        Args:
-            cper_data: Full CPER JSON data (with header, sectionDescriptors, sections)
-            original_file: Path to the original CPER file (for history tracking)
-
-        Returns:
-            Path to the generated SPPR CPAD JSON file, or None
-        """
+    def create_sppr_cpad_from_memory_event(
+            self, event: Dict[str, Any], cper_data: Dict[str, Any],
+            original_file: Optional[str] = None,
+            output_stem: Optional[str] = None,
+            record_location: bool = True) -> Optional[str]:
+        """Run default row analysis for one decoded DRAM error event."""
         try:
-            header = cper_data.get('header', {})
-
-            # Skip for non-corrected errors (e.g., informational SPPR results)
-            severity_data = header.get('severity', {})
-            if isinstance(severity_data, dict):
-                severity_name = severity_data.get('name', '')
-            else:
-                severity_name = str(severity_data)
-
-            if severity_name not in ['CPER_SEV_CORRECTED', 'Corrected']:
+            memory_error = event.get('memory_error', {})
+            status = memory_error.get('error_status', {})
+            if (event.get('event_type') != 'memory_error' or
+                    memory_error.get('bank') != 'DRAM Errors' or
+                    status.get('severity_value') !=
+                    contoso_catalog.SEVERITY_VALUES['Corrected']):
                 return None
 
-            # Extract memory location for matching check
-            memory_location = self._extract_memory_location(cper_data)
-
-            # Check if this is a repeat error
-            dram_row_failure_detected = (
+            memory_location = self._memory_location_from_event(event)
+            failure_detected = (
                 self._has_prior_error_on_same_dram_device_row_at_different_column(
                     memory_location))
-
-            if not dram_row_failure_detected:
-                # First occurrence - record it, don't create SPPR
-                self._add_to_seen_locations(memory_location)
+            if not failure_detected:
+                if record_location:
+                    self._add_to_seen_locations(memory_location)
                 return None
 
-            # Repeat error - create SPPR CPAD.  Confidence scales with the
-            # number of distinct column addresses failing on this row.
             distinct_columns = self._distinct_columns_on_row(memory_location)
             confidence = self._sppr_confidence(distinct_columns)
             if self.verbose:
                 print(f"  📊 SPPR confidence: {confidence}% "
                       f"({distinct_columns} distinct column address(es) on the row)")
+            section_index = event.get('source', {}).get('section_index', 0)
+            sppr_cpad = self._build_sppr_cpad(
+                cper_data, original_file, confidence, section_index)
+            if record_location:
+                self._add_to_seen_locations(memory_location)
 
-            # Build SPPR CPAD from CPER data
-            sppr_cpad = self._build_sppr_cpad(cper_data, original_file, confidence)
-
-            # Record this column too, so further columns on the row raise the
-            # confidence on the next SPPR.
-            self._add_to_seen_locations(memory_location)
-
-            # Generate output filenames using source CPER filename stem
-            # e.g. corrected_20260130_102809 → corrected_20260130_102809_sppr_cpad.json/.cpad
-            base_name = Path(original_file).stem if original_file else f"cper_{header.get('recordID', 'unknown')}"
-            sppr_json_filename = f"{base_name}_sppr_cpad.json"
-            sppr_json_path = self.output_dir / sppr_json_filename
-
-            with open(sppr_json_path, 'w') as f:
-                json.dump(sppr_cpad, f, indent=2)
-
-            # Convert JSON to binary CPAD using cpad-convert
-            sppr_binary_filename = f"{base_name}_sppr_cpad.cpad"
-            sppr_binary_path = self.output_dir / sppr_binary_filename
-            binary_result = self.decoder._convert_json_to_binary_cpad(
-                str(sppr_json_path), str(sppr_binary_path)
-            )
-
+            header = cper_data.get('header', {})
+            base_name = output_stem
+            if not base_name:
+                base_name = (Path(original_file).stem if original_file else
+                             f"cper_{header.get('recordID', 'unknown')}")
+            sppr_json_path = self.output_dir / f"{base_name}_sppr_cpad.json"
+            sppr_binary_path = self.output_dir / f"{base_name}_sppr_cpad.cpad"
+            with open(sppr_json_path, 'w') as stream:
+                json.dump(sppr_cpad, stream, indent=2)
+            try:
+                binary_result = self.decoder._convert_json_to_binary_cpad(
+                    str(sppr_json_path), str(sppr_binary_path))
+            except Exception:
+                sppr_json_path.unlink(missing_ok=True)
+                sppr_binary_path.unlink(missing_ok=True)
+                raise
             if binary_result:
                 return str(sppr_binary_path)
-            else:
-                if self.verbose:
-                    print(f"  ⚠️  Binary conversion failed, JSON file available: {sppr_json_filename}")
-                return str(sppr_json_path)
-
-        except Exception as e:
-            print(f"  ✗ Error creating SPPR CPAD: {e}")
+            sppr_json_path.unlink(missing_ok=True)
+            sppr_binary_path.unlink(missing_ok=True)
+            if self.verbose:
+                print("  ⚠️  Binary conversion failed; no SPPR CPAD emitted")
+            return None
+        except Exception as exc:
+            print(f"  ✗ Error creating SPPR CPAD: {exc}")
             if self.verbose:
                 import traceback
                 traceback.print_exc()
             return None
 
-    def _build_sppr_cpad(self, cper_data: Dict[str, Any], original_file: str,
-                         confidence: int) -> Dict[str, Any]:
-        """Build SPPR CPAD JSON by loading the spprTemplate.json template and
-        overlaying values from the source CPER.
+    def create_sppr_cpad_from_cper(self, cper_data: Dict[str, Any],
+                                    original_file: Optional[str] = None) -> Optional[str]:
+        """Compatibility wrapper for the first decoded DRAM error section."""
+        events = decode_memory_events([{
+            'cper_data': cper_data,
+            'cper_file': original_file or '',
+            'is_newest': True,
+        }])
+        event = next((item for item in events
+                      if self._memory_location_from_event(item) is not None), None)
+        if event is None:
+            return None
+        return self.create_sppr_cpad_from_memory_event(
+            event, cper_data, original_file)
+
+    def create_page_offline_cpad_from_memory_event(
+            self,
+            event: Dict[str, Any],
+            cper_data: Dict[str, Any],
+            original_file: Optional[str] = None,
+            output_stem: Optional[str] = None,
+            confidence: int = 100) -> Optional[str]:
+        """Create a Page Offline CPAD for a 4 KiB-aligned physical address."""
+        address = event.get('memory_error', {}).get('physical_address')
+        if not isinstance(address, int) or address < 0:
+            raise ValueError("Page Offline requires a physical address")
+        if address % contoso_catalog.PAGE_SIZE_BYTES:
+            raise ValueError(
+                "Page Offline physical address must be 4 KiB aligned")
+        return self._create_memory_action_cpad_output(
+            event,
+            cper_data,
+            contoso_catalog.PAGE_OFFLINE_ACTION,
+            "page_offline",
+            confidence,
+            original_file,
+            output_stem,
+        )
+
+    def create_reboot_with_retraining_cpad_from_memory_event(
+            self,
+            event: Dict[str, Any],
+            cper_data: Dict[str, Any],
+            original_file: Optional[str] = None,
+            output_stem: Optional[str] = None,
+            confidence: int = 100) -> Optional[str]:
+        """Create a partition-scoped reboot-with-retraining CPAD."""
+        return self._create_memory_action_cpad_output(
+            event,
+            cper_data,
+            contoso_catalog.REBOOT_WITH_RETRAINING_ACTION,
+            "reboot_with_retraining",
+            confidence,
+            original_file,
+            output_stem,
+        )
+
+    def _create_memory_action_cpad_output(
+            self,
+            event: Dict[str, Any],
+            cper_data: Dict[str, Any],
+            action: Dict[str, str],
+            suffix: str,
+            confidence: int,
+            original_file: Optional[str],
+            output_stem: Optional[str]) -> Optional[str]:
+        """Write paired JSON and binary output for one Contoso memory action."""
+        section_index = event.get('source', {}).get('section_index')
+        if not isinstance(section_index, int):
+            raise ValueError("memory action requires a source section index")
+        action_cpad = self._build_memory_action_cpad(
+            cper_data,
+            original_file,
+            action,
+            confidence,
+            section_index,
+        )
+        header = cper_data.get('header', {})
+        base_name = output_stem
+        if not base_name:
+            base_name = (
+                Path(original_file).stem if original_file
+                else f"cper_{header.get('recordID', 'unknown')}"
+            )
+        json_path = self.output_dir / f"{base_name}_{suffix}_cpad.json"
+        binary_path = self.output_dir / f"{base_name}_{suffix}_cpad.cpad"
+        with open(json_path, 'w') as stream:
+            json.dump(action_cpad, stream, indent=2)
+        try:
+            result = self.decoder._convert_json_to_binary_cpad(
+                str(json_path), str(binary_path))
+        except Exception:
+            json_path.unlink(missing_ok=True)
+            binary_path.unlink(missing_ok=True)
+            raise
+        if result:
+            return str(binary_path)
+        json_path.unlink(missing_ok=True)
+        binary_path.unlink(missing_ok=True)
+        return None
+
+    def _build_sppr_cpad(self, cper_data: Dict[str, Any], original_file: Optional[str],
+                         confidence: int, section_index: int = 0) -> Dict[str, Any]:
+        """Build an SPPR CPAD from one source memory section."""
+        return self._build_memory_action_cpad(
+            cper_data,
+            original_file,
+            contoso_catalog.SPPR_ACTION,
+            confidence,
+            section_index,
+        )
+
+    def _build_memory_action_cpad(
+            self,
+            cper_data: Dict[str, Any],
+            original_file: Optional[str],
+            action: Dict[str, str],
+            confidence: int,
+            section_index: int = 0) -> Dict[str, Any]:
+        """Build a Contoso memory-action CPAD from one source CPER section.
 
         Steps:
         1. Load the SPPR CPAD template (spprTemplate.json)
@@ -917,7 +1308,7 @@ class ContosoAnalyzer:
             original_file: Path to the original binary CPER file
 
         Returns:
-            dict: SPPR CPAD data in cperlib format, ready for cpad-convert
+            dict: CPAD data in cperlib format, ready for cpad-convert
         """
         # ── Step 1: Load template ───────────────────────────────────────
         if not self.sppr_template_path.exists():
@@ -928,7 +1319,8 @@ class ContosoAnalyzer:
             sppr_cpad = json.load(f)
 
         # Deep-copy so we never mutate the cached template
-        sppr_cpad = copy.deepcopy(sppr_cpad)
+        action_cpad = copy.deepcopy(sppr_cpad)
+        action_cpad['sectionDescriptors'][0]['actionID'] = dict(action)
 
         # ── Step 2: Overlay header IDs from CPER ────────────────────────
         cper_header = cper_data.get('header', {})
@@ -941,7 +1333,7 @@ class ContosoAnalyzer:
         for field in ('platformID', 'creatorID', 'partitionID'):
             value = cper_header.get(field)
             if value:
-                sppr_cpad['header'][field] = _extract_id(value)
+                action_cpad['header'][field] = _extract_id(value)
 
         # ── Step 3: Timestamp = CPER timestamp + 5 seconds ──────────────
         cper_timestamp_str = cper_header.get('timestamp', datetime.now().isoformat())
@@ -952,24 +1344,25 @@ class ContosoAnalyzer:
         except Exception:
             new_timestamp = datetime.now().strftime('%Y-%m-%dT%H:%M:%S+00:00')
 
-        sppr_cpad['header']['timestamp'] = new_timestamp
+        action_cpad['header']['timestamp'] = new_timestamp
 
         # ── Step 4: Fresh recordID ──────────────────────────────────────
-        sppr_cpad['header']['recordID'] = int(datetime.now().timestamp())
+        action_cpad['header']['recordID'] = int(datetime.now().timestamp())
 
         # ── Step 5: Copy FRU / sectionType from CPER descriptors ────────
         cper_descriptors = cper_data.get('sectionDescriptors', [])
-        if cper_descriptors and sppr_cpad.get('sectionDescriptors'):
-            cper_desc = cper_descriptors[0]
-            sppr_desc = sppr_cpad['sectionDescriptors'][0]
+        if (section_index < len(cper_descriptors) and
+                action_cpad.get('sectionDescriptors')):
+            cper_desc = cper_descriptors[section_index]
+            action_desc = action_cpad['sectionDescriptors'][0]
 
             for field in ('fruID', 'fruText'):
                 if field in cper_desc:
-                    sppr_desc[field] = cper_desc[field]
+                    action_desc[field] = cper_desc[field]
 
             st = cper_desc.get('sectionType', {})
             if isinstance(st, dict) and 'data' in st:
-                sppr_desc['sectionType'] = {
+                action_desc['sectionType'] = {
                     'data': st['data'],
                     'type': st.get('type', 'Unknown')
                 }
@@ -981,9 +1374,9 @@ class ContosoAnalyzer:
         # and base64-encode them as {"Unknown": {"data": "<base64>"}}.
         section_data_b64 = ""
         section_length = 0
-        if cper_descriptors:
-            sec_offset = cper_descriptors[0].get('sectionOffset', 0)
-            sec_length = cper_descriptors[0].get('sectionLength', 0)
+        if section_index < len(cper_descriptors) and original_file:
+            sec_offset = cper_descriptors[section_index].get('sectionOffset', 0)
+            sec_length = cper_descriptors[section_index].get('sectionLength', 0)
             try:
                 with open(original_file, 'rb') as f:
                     f.seek(sec_offset)
@@ -993,24 +1386,34 @@ class ContosoAnalyzer:
             except Exception as e:
                 if self.verbose:
                     print(f"  ⚠️  Could not read section bytes from {original_file}: {e}")
+        elif section_index < len(cper_data.get('sections', [])):
+            section_data_b64 = cper_data['sections'][section_index].get(
+                'Unknown', {}).get('data', '')
+            try:
+                section_length = len(base64.b64decode(
+                    section_data_b64, validate=True))
+            except Exception:
+                section_data_b64 = ""
+                section_length = 0
 
         # Update section data in template
-        sppr_cpad['sections'] = [{"Unknown": {"data": section_data_b64}}]
+        action_cpad['sections'] = [{"Unknown": {"data": section_data_b64}}]
 
         # Update sectionLength and recordLength to match actual data.  A
         # single-section CPAD's body starts at a fixed 202-byte offset
         # (CPAD header + one section descriptor), verified against libcper.
         CPAD_SINGLE_SECTION_OFFSET = 202
-        if sppr_cpad.get('sectionDescriptors'):
-            sppr_cpad['sectionDescriptors'][0]['sectionOffset'] = CPAD_SINGLE_SECTION_OFFSET
-            sppr_cpad['sectionDescriptors'][0]['sectionLength'] = section_length
+        if action_cpad.get('sectionDescriptors'):
+            action_cpad['sectionDescriptors'][0]['sectionOffset'] = CPAD_SINGLE_SECTION_OFFSET
+            action_cpad['sectionDescriptors'][0]['sectionLength'] = section_length
             # Confidence is a section-descriptor field (the standard CPAD
             # location); cpad-convert sets its validation bit automatically.
-            sppr_cpad['sectionDescriptors'][0]['confidence'] = confidence
-        sppr_cpad['header'].pop('confidence', None)  # never in the top-level header
-        sppr_cpad['header']['recordLength'] = CPAD_SINGLE_SECTION_OFFSET + section_length
+            action_cpad['sectionDescriptors'][0]['confidence'] = confidence
+        action_cpad['header'].pop('confidence', None)
+        action_cpad['header']['recordLength'] = (
+            CPAD_SINGLE_SECTION_OFFSET + section_length)
 
-        return sppr_cpad
+        return action_cpad
 
     # ─── Main Analysis Flow ─────────────────────────────────────────────
 
@@ -1120,7 +1523,8 @@ class ContosoAnalyzer:
 
         return successful
 
-    def analyze_directory(self, cper_dir: str, error_type: str = None) -> int:
+    def analyze_directory(self, cper_dir: str,
+                          error_type: Optional[str] = None) -> int:
         """Analyze all binary .cper files in a directory (recursively).
 
         Args:
@@ -1214,25 +1618,16 @@ def run_analysis(input_file: str) -> int:
     # into our own directory so the AO can collect them afterward.
     analyzer = ContosoAnalyzer(output_dir=str(SCRIPT_DIR), verbose=False)
 
-    # Pre-load the prior CPERs in the window (oldest → newest, excluding the
-    # newest) so repeat-error detection has the correct history.  cper_files is
-    # ordered newest → oldest, so we reverse and drop the final (newest) entry.
-    history = list(reversed(cper_files))[:-1]
-    print(f"\n{IND}   📚 Establishing error history from the lookback window")
+    history = cper_files[1:]
+    decoded_window = {}
+    print(f"\n{IND}   📚 Prior CPER candidates")
     if history:
-        print(f"{IND}      Loaded {len(history)} prior CPER(s) to learn where errors have already been seen:")
-        for prior_file in history:
-            prior_data = analyzer.extract_cper_data(prior_file)
-            if not prior_data:
-                continue
-            location = analyzer._extract_memory_location(prior_data)
-            analyzer._add_to_seen_locations(location)
-            if location:
-                print(f"{IND}         • {analyzer._format_row(location)} "
-                      f"Col={location['column']}")
+        print(f"{IND}      {len(history)} prior CPER(s) are available for "
+              "subcomponent analyzers to consider.")
+        print(f"{IND}      Relevant history will be selected after the newest "
+              "CPER is decoded.")
     else:
-        print(f"{IND}      No prior CPERs in the window — this is the first error")
-        print(f"{IND}      at any location.")
+        print(f"{IND}      No prior CPER candidates are available.")
 
     # Decode the newest (triggering) CPER — it is the subject of analysis.
     print(f"\n{IND}   📋 Analyzing newest CPER: {newest_path.name}")
@@ -1240,6 +1635,7 @@ def run_analysis(input_file: str) -> int:
     if not newest_data:
         print(f"   ✗ Could not decode newest CPER: {newest_path}", file=sys.stderr)
         return 1
+    decoded_window[str(newest_path)] = newest_data
     print(f"{IND}      ✓ Valid CPER data extracted")
 
     creator_id = context.get("creator_id")
@@ -1252,29 +1648,90 @@ def run_analysis(input_file: str) -> int:
     # Full decoded CPER report (header, sections, DIMM info, action-event details).
     analyzer.generate_cper_report(newest_data, indent=IND)
 
-    # Determine repeat status before creating the SPPR (create_... re-checks
-    # and records first occurrences itself).
-    memory_location = analyzer._extract_memory_location(newest_data)
+    grouped = decode_newest_sections(analyzer, newest_data, str(newest_path))
+    needs_history = (
+        bool(grouped["memory_controller"])
+        or _has_platform_action_event(newest_data)
+    )
+    selected_files = cper_files if needs_history else cper_files[:1]
+    records = []
+    for window_index, cper_file in enumerate(selected_files):
+        cper_path = Path(cper_file)
+        cper_data = decoded_window.get(str(cper_path))
+        if cper_data is None:
+            cper_data = analyzer.extract_cper_data(str(cper_path))
+        if cper_data is not None:
+            records.append({
+                'cper_data': cper_data,
+                'cper_file': str(cper_path),
+                'is_newest': window_index == 0,
+            })
+
+    try:
+        combined_result = dispatch_subcomponent_analysis(
+            analyzer, records, newest_path.stem, grouped, len(history))
+    except ValueError as exc:
+        print(f"   ✗ Invalid newest CPER: {exc}", file=sys.stderr)
+        return 1
+
+    for subcomponent_result in combined_result["subcomponents"]:
+        history_summary = subcomponent_result.get("history_summary")
+        if history_summary is None:
+            continue
+        print(f"\n{IND}   🧠 {history_summary['heading']}")
+        for message in history_summary["messages"]:
+            print(f"{IND}      {message}")
+
+    memory_result = next(
+        (result for result in combined_result["subcomponents"]
+         if result["subcomponent"] == "memory_controller"),
+        None,
+    )
+    shim_result = memory_result["shim_result"] if memory_result else {
+        "events": [], "invocations": [], "handled_manufacturers": set(),
+    }
+    shim_cpad_paths = memory_result["shim_cpads"] if memory_result else []
+    shim_cpad_filenames = [Path(path).name for path in shim_cpad_paths]
+    default_cpad_paths = memory_result["default_cpads"] if memory_result else []
+    generation_failed = (
+        memory_result["cpad_generation_failed"] if memory_result else False)
+    memory_location = (
+        memory_result["recommendation_location"] if memory_result else None)
     dram_row_failure_detected = (
-        analyzer._has_prior_error_on_same_dram_device_row_at_different_column(
-            memory_location))
+        memory_result["dram_row_failure_detected"] if memory_result else False)
 
-    print(f"\n{IND}   🔁 DRAM device-row failure check")
-    if dram_row_failure_detected:
-        print(f"{IND}      A prior CPER recorded a different column on this DRAM device row.")
-        print(f"{IND}      A single corrected error is normal wear; multiple errors on the same device row")
-        print(f"{IND}      indicate a failing row that might be repairable with PPR.")
-    elif memory_location:
-        print(f"{IND}      First time this location has been seen → recorded, no repair yet.")
-    else:
-        print(f"{IND}      No memory-location data in this CPER (informational record).")
+    if memory_result is not None:
+        analysis_route = memory_result["analysis_route"]
+        print(f"\n{IND}   🧭 {analysis_route['heading']}")
+        for message in analysis_route["messages"]:
+            print(f"{IND}      {message}")
+        for error in analyzer.memory_shim_errors:
+            print(f"{IND}   ⚠️  Memory shim discovery: {error}")
+        for invocation in shim_result["invocations"]:
+            if invocation["status"] == "ok":
+                print(f"{IND}   🧩 {invocation['shim']}: "
+                      f"{invocation['event_count']} event(s), "
+                      f"{invocation['cpad_count']} CPAD(s)")
+            else:
+                print(f"{IND}   ⚠️  {invocation['shim']} failed: "
+                      f"{invocation['error']} — using default analysis when applicable")
+        for _vendor_id, error in memory_result["emission_errors"]:
+            print(f"{IND}   ⚠️  Memory shim CPAD emission failed: {error}")
 
-    # Attempt SPPR creation for the newest CPER.  This returns a path only when
-    # the newest CPER is a repeat corrected error at a known memory location,
-    # in which case it writes <stem>_sppr_cpad.json and <stem>_sppr_cpad.cpad.
-    sppr_path = analyzer.create_sppr_cpad_from_cper(newest_data, str(newest_path))
+        print(f"\n{IND}   🔁 DRAM device-row failure check")
+        if dram_row_failure_detected:
+            print(f"{IND}      A prior CPER recorded a different column on this DRAM device row.")
+            print(f"{IND}      A single corrected error is normal wear; multiple errors on the same device row")
+            print(f"{IND}      indicate a failing row that might be repairable with PPR.")
+        elif memory_result["all_newest_dram_errors_handled"]:
+            print(f"{IND}      Matching memory-vendor shim owns analysis for this event.")
+        elif memory_location:
+            print(f"{IND}      First time this location has been seen → recorded, no repair yet.")
+        else:
+            print(f"{IND}      No DRAM-location data in this CPER.")
+    default_cpad_filenames = [Path(path).name for path in default_cpad_paths]
+    sppr_path = default_cpad_paths[0] if default_cpad_paths else None
     sppr_filename = Path(sppr_path).name if sppr_path else None
-
     # Recommendation block — explains the decision, error location, and next step.
     analyzer.print_batch_recommendation(
         [{
@@ -1285,26 +1742,38 @@ def run_analysis(input_file: str) -> int:
             'memory_location': memory_location,
         }],
         successful=1,
-        created_sppr_files=[sppr_filename] if sppr_filename else [],
+        created_sppr_files=default_cpad_filenames,
+        vendor_cpad_files=shim_cpad_filenames,
+        cpad_generation_failed=generation_failed,
         indent=IND,
     )
 
-    if not sppr_path:
-        # No remediation needed: emit a single analysis-result JSON so the AO
-        # always has exactly one .json output to collect.
-        result = {
-            "analyzer_name": ANALYZER_NAME,
-            "analyzer_version": ANALYZER_VERSION,
-            "newest_cper": newest_path.name,
-            "creator_id": context.get("creator_id"),
-            "timestamp": context.get("newest_timestamp"),
-            "window_size": len(cper_files),
-            "sppr_recommended": False,
-            "header": newest_data.get("header", {}),
-        }
-        result_path = SCRIPT_DIR / f"{newest_path.stem}_analysis.json"
-        with open(result_path, "w") as f:
-            json.dump(result, f, indent=2)
+    result = {
+        "analyzer_name": ANALYZER_NAME,
+        "analyzer_version": ANALYZER_VERSION,
+        "newest_cper": newest_path.name,
+        "creator_id": context.get("creator_id"),
+        "timestamp": context.get("newest_timestamp"),
+        "window_size": len(cper_files),
+        "memory_event_count": len(shim_result['events']),
+        "memory_shim_invocations": shim_result['invocations'],
+        "shim_cpad_count": len(shim_cpad_paths),
+        "sppr_recommended": bool(default_cpad_paths),
+        "cpad_generation_failed": generation_failed,
+        "subcomponent_results": [
+            {
+                "subcomponent": item["subcomponent"],
+                "section_indexes": item.get("section_indexes", []),
+                "findings": item.get("findings", []),
+            }
+            for item in combined_result["subcomponents"]
+        ],
+        "cross_subcomponent_correlations": combined_result["correlations"],
+        "header": newest_data.get("header", {}),
+    }
+    result_path = SCRIPT_DIR / f"{newest_path.stem}_analysis.json"
+    with open(result_path, "w") as f:
+        json.dump(result, f, indent=2)
 
     return 0
 

@@ -120,6 +120,20 @@ def decode_cpad_memory_coordinates(cpad_data: Dict[str, Any]) -> Dict[str, int]:
     return decode_memory_coordinates(_section_body(cpad_data))
 
 
+def decode_memory_error_address(body: bytes) -> int:
+    """Decode the active DRAM bank's valid 64-bit physical address."""
+    if active_memory_bank(body) != "dram":
+        raise ValueError("Page Offline requires the DRAM Errors bank to be active")
+    status = struct.unpack_from("<Q", body, _SECTION_HEADER_SIZE)[0]
+    if not status >> 63 & 0x1:
+        raise ValueError("Page Offline requires a valid physical address")
+    return struct.unpack_from("<Q", body, _SECTION_HEADER_SIZE + 8)[0]
+
+
+def decode_cpad_memory_error_address(cpad_data: Dict[str, Any]) -> int:
+    return decode_memory_error_address(_section_body(cpad_data))
+
+
 def _fixed_ascii(value: str, capacity: int) -> bytes:
     encoded = value.encode("ascii")
     return encoded + b"\x00" * (capacity - len(encoded))

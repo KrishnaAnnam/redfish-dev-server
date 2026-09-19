@@ -223,6 +223,13 @@ class RASPlugin:
         
         return 404, {}, {"error": "Not found"}
 
+    def on_system_reset(self, system_id: str, reset_type: str) -> int:
+        """Complete RAS actions deferred until the system resets."""
+        if not self._enabled:
+            return 0
+        return self.submit_cpad_handler.on_system_reset(
+            system_id, reset_type)
+
 
 # Singleton instance
 _plugin_instance: Optional[RASPlugin] = None

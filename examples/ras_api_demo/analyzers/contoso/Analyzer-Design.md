@@ -28,7 +28,7 @@ build a **CreatorID → analyzer** routing table:
 ```json
 {
   "analyzer_name":    "Contoso CPER Analyzer",
-  "analyzer_version": "1.0.0",
+  "analyzer_version": "1.1.0",
   "creator_ids":      ["11111111-2222-3333-4444-555555555555"],
   "prior_days":       30
 }
@@ -49,8 +49,8 @@ the analyzer with it. The analyzer processes the CPERs and writes its outputs
 collects whatever this run produced):
 
 - exactly **one `.json`** — the analysis result/report, and
-- **zero or one `.cpad`** — a remediation (e.g. SPPR), created only when the
-  evidence warrants an action.
+- **zero or more paired CPAD outputs** — each action has one
+  `<name>_cpad.json` and one `<name>_cpad.cpad` file.
 
 Exit code is 0 on success, non-zero on failure.
 
@@ -105,36 +105,157 @@ The analyzer processes the AO's CPER list **newest first**:
       report it and, where appropriate, suggest another action (for example,
       escalating to a part replacement).
 - **Otherwise it is an error CPER.**
-  Error CPER section types are associated with a subcomponent such as a core or a memory controller.  For each error CPER section type, there is a function for decoding and analyzing the errors for that subcomponent.  These functions are described in the following section.
+  The top-level analyzer decodes the newest CPER once, inspects every section,
+  and groups supported sections by silicon subcomponent. It preserves each
+  section's source CPER and original zero-based section index. It then invokes
+  every applicable subcomponent analyzer; a CPER containing CPU-core and
+  memory-controller sections runs both analyzers.
 
-### Analyzer Functions
-  These reflect the subcomponents that make up the design of the chip.  For the Contoso chip, the currently implemented subcomponents are:
+The top-level module is deliberately a dispatcher rather than the owner of
+subcomponent policy:
+
+- `cpu_core_analyzer.py` accepts every decoded CPU-core section from the newest
+  CPER and returns structured error findings with no CPADs.
+- `memory_controller_analyzer.py` owns memory history selection, memory-vendor
+  shim invocation, default row analysis, and SPPR orchestration. Memory support
+  is initialized lazily, so a CPU-only newest CPER neither initializes nor calls
+  memory analysis.
+- `cross_subcomponent_correlator.py` currently passes through and combines the
+  independent structured findings and CPADs. Its explicit seam allows future
+  CPU/memory/IO relationships to be added without coupling the subcomponent
+  analyzers.
+
+### Contoso Actions
+
+Subcomponent analyzers own the decision to propose a CPAD. The top-level
+analyzer only aggregates and emits those actions. The Contoso implementation
+can build SPPR, Page Offline, and reboot-with-memory-retraining CPADs. Page
+Offline requires a 4 KiB-aligned physical address. Reboot with retraining is
+scoped to the SoC `PartitionID`, not to the memory controller that observed the
+error.
+
+The current default memory analysis automatically recommends SPPR when its row
+failure criteria are met. Builders for Page Offline and reboot with retraining
+are available, but their automatic recommendation criteria are intentionally
+left to future analyzer policy.
+
+See [Contoso CPAD Actions](contoso-cpad-actions.md) for the ActionIDs, endpoint
+behavior, generated CPERs, and reset lifecycle.
+
+### Analyzer Functions for Analyzing Errors
+  The functions reflect the subcomponents that make up the design of the chip.  For the Contoso chip, the currently implemented subcomponents are:
 
   - CPU Cores
   - Memory Controllers
 
 **Note:** Any practical SoC would also have an IO block and that may be added to the Contoso chip in the future.
 
+Each CPER section type is analyzed separately. The CPER sections are sent to
+their respective analyzer in source order. On a more realistic SoC, errors
+detected in different subcomponents might be related. The pass-through
+cross-subcomponent correlator is the second analysis layer where those
+relationships can be implemented later.
+
+### CPU Core Error Analysis
+
+The CPU-core analyzer is intentionally a no-action stub. It decodes and reports
+the active error bank, error ID and name, severity, address/status/misc fields,
+core coordinates, and additional CPU registers for every newest CPU section.
+It returns structured findings and an empty CPAD list. This provides a complete
+dispatch and reporting contract without inventing a mitigation policy.
+
 ### Memory Error Analysis
 
-The memory error analyzer supports optional analyzer tools from memory vendors.  It will discover vendor memory analyzers when it starts, looking for files named:
+For a newest error CPER containing DRAM-error sections, all such sections must
+identify one DRAM manufacturer. Multiple DRAM manufacturers in that newest CPER
+are rejected as ambiguous. Memory history is built only from successfully
+decoded memory-controller DRAM-error sections that:
 
- - analyzer_micron.py
- - analyzer_samsung.py
- - analyzer_skhynix.py
+- have the same DRAM manufacturer as the newest DRAM sections; and
+- match the newest CPER's CreatorID, PlatformID, and PartitionID.
 
-If any of these files are present, the contoso memory analyzer function will call them to analyze the memory error(s), capture any JSON output from them and generate CPADs when they recommend an action to be taken.
+Historical CPU, IO, unsupported, and memory sections from another DRAM vendor
+are ignored. Each retained event carries its source CPER and original section
+index. A memory-controller `Other Errors` bank remains Contoso-owned: it is
+reported as a structured finding and is never sent to a DRAM-vendor shim.
 
-If these files are not present, the memory analyzer function will default to the Failing-Row detection algorithm described below.
+The memory analyzer supports optional tools supplied by memory vendors. Contoso
+ships Python shims under `memory_shims/` that adapt the common event contract to
+those vendor tools. The initial shims are stubs:
+
+- `analyzer_micron.py`
+- `analyzer_samsung.py`
+- `analyzer_skhynix.py`
+
+The AO does not discover these as top-level analyzers because its filename
+pattern is `analyzer-*.py`; memory shims use an underscore.
+
+Each shim publishes `SHIM_INFO` with an API version and one or more exact DRAM
+manufacturer IDs. The Contoso analyzer validates and discovers these shims at
+startup. Shims are trusted in-process Python adapters. A shim may later invoke
+an isolated external vendor tool without changing the Contoso-side contract.
+
+#### Memory shim input
+
+When the newest CPER contains a memory error or a correlated memory Platform
+Action Event, the matching shim is called once with a newest-first list of
+completely decoded memory events for its DRAM manufacturer. The list may contain:
+
+- `memory_error` events with the complete CPER header, section descriptor,
+  subcomponent, active error bank, status, address, misc registers, and every
+  decoded additional register; and
+- `platform_action` events with the complete raw Platform Action Event section,
+  normalized action/return/reason values, success status, and correlated memory
+  target.
+
+Platform Action Events are not restricted to PPR. A memory shim may recommend
+any RAS action and needs the result to decide whether to recommend a follow-up,
+such as DIMM replacement after a failed repair.
+
+The analyzer correlates a Platform Action Event with older memory-error CPERs
+using both `fruID` and trimmed `fruText` from their section descriptors. FRU IDs
+are normalized to lowercase without braces. If matching errors identify exactly
+one DRAM manufacturer, the action is routed to that vendor's shim using the most
+recent match as its memory target. Missing matches or conflicting manufacturers
+are reported as uncorrelated and are not routed.
+
+#### Memory shim output
+
+The Python entry point is:
+
+```python
+def analyze_memory_events(events: list[dict]) -> list[dict]:
+    """Return zero or more complete, cperlib-compatible CPAD documents."""
+```
+
+The Contoso analyzer validates every returned CPAD: its platform, partition,
+CreatorID, and FRU must match an input event; each section needs an action ID and
+confidence from 0 through 100; and sections must match section descriptors.
+Exact duplicate CPADs from one invocation are emitted once.
+
+Each CPAD is written as a paired JSON/binary output named
+`<source>_<vendor>_<manufacturer-id>_<sequence>_cpad.{json,cpad}`. Including
+the manufacturer ID prevents collisions when one shim registers multiple IDs.
+The AO pairs files by stem, evaluates each JSON CPAD against policy, and submits
+its matching binary CPAD.
+
+A valid empty CPAD list means the vendor shim successfully analyzed the events
+and recommends no action. The default failing-row detector does not run in that
+case. If no matching shim exists, or shim discovery, invocation, validation, or
+binary conversion fails, a newest memory error falls back to the detector below.
+Platform Action Events never invoke the default detector.
 
 #### Micron Analyzer Interface
 
+The stub registers DDR5 SPD manufacturer ID `80 2C` and returns no CPADs.
 
 #### Samsung Analyzer Interface
 
+The stub registers DDR5 SPD manufacturer ID `80 CE` and returns no CPADs.
 
 #### SKHynix Analyzer Interface
 
+The stub registers DDR5 SPD manufacturer ID `80 AD` and returns no CPADs.
 
 
 
@@ -148,7 +269,7 @@ and needs no action.
 
 
 The analyzer keys each memory error by its **row coordinates** (chiplet,
-controller, channel, subchannel, DIMM, rank, bank group, bank, row) — the
+controller, channel, subchannel, DIMM, rank, DRAM device, bank group, bank, row) — the
 *column* is deliberately excluded from the key. It then looks for a prior error
 on the **same row** at a **different column**:
 
@@ -227,6 +348,9 @@ The decoded JSON data consists of two parts:
 
 ### CPAD Output Requirements
 
+The analyzer always emits one `<source>_analysis.json` manifest. Each suggested
+action additionally emits a same-stem `.json`/`.cpad` pair. A shim may return
+multiple actions; no implicit ordering or PPR-only restriction is imposed.
 
 
 ## Related documents
@@ -237,6 +361,8 @@ The decoded JSON data consists of two parts:
   the Contoso CPER sections this analyzer decodes.
 - [error-injector-contoso.md](error-injector-contoso.md) — the vendor tool that
   produces the error-injection CPADs the demo feeds to the endpoint.
+- [contoso-cpad-actions.md](contoso-cpad-actions.md) — the proprietary Contoso
+  action contract and completion lifecycle.
 - [POLICY_ENGINE.md](../../POLICY_ENGINE.md) — the operator gate that approves or
   denies the SPPR CPADs this analyzer emits.
 - [CPAD_SUBMISSION.md](../../CPAD_SUBMISSION.md) — how an approved CPAD is

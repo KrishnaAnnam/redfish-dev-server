@@ -86,6 +86,18 @@ type from one creator.
       "permitted": true,
       "confidence_threshold": 80,
       "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
+    },
+    "0x8002": {
+      "name": "Page Offline",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
+    },
+    "0x8003": {
+      "name": "Reboot with Memory Retraining",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
     }
   }
 }
@@ -104,12 +116,16 @@ type from one creator.
 action *type* from the section descriptor. For an error injection (`0x0006`) it
 cannot tell what error is being injected, and confidence is not meaningful — so
 that row simply omits `confidence_threshold` and the confidence rule is skipped.
-An analyzer-driven remediation like SPPR (`0x8001`) carries the analyzer's
-confidence and is gated (here at `80`). Omitting the field is preferred over a
-`0` threshold because it's unambiguous ("no confidence policy" vs "threshold of
-zero").
+Analyzer-driven remediations such as SPPR (`0x8001`), Page Offline (`0x8002`),
+and reboot with memory retraining (`0x8003`) carry the analyzer's confidence
+and are gated (here at `80`). Omitting the field is preferred over a `0`
+threshold because it is unambiguous ("no confidence policy" versus "threshold
+of zero").
 
 Note that proprietary CPAD ActionIDs (0x8000 to 0xFFFF) are specific to a particular CreatorID.  This means that proprietary ActionIDs may have different meanings for different vendors (CreatorIDs). 
+
+The Contoso definitions are documented in
+[Contoso CPAD Actions](analyzers/contoso/contoso-cpad-actions.md).
 
 ## The rules
 

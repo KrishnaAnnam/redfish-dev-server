@@ -45,7 +45,8 @@
                               "0xD5"
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
-                           "serial_number" : "MSFT-C0-CH0-D0"
+                           "spd_temperature" : 40,
+                           "serial_number": "MSFT-C0-CH0-D0"
                         }
                      },
                      {
@@ -63,7 +64,8 @@
                               "0xD5"
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
-                           "serial_number" : "MSFT-C0-CH0-D1"
+                           "spd_temperature" : 40,
+                           "serial_number": "MSFT-C0-CH0-D1"
                         }
                      },
                      {
@@ -81,7 +83,8 @@
                               "0xD5"
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
-                           "serial_number" : "MSFT-C0-CH1-D0"
+                           "spd_temperature" : 40,
+                           "serial_number": "MSFT-C0-CH1-D0"
                         }
                      },
                      {
@@ -99,7 +102,8 @@
                               "0xD5"
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
-                           "serial_number" : "MSFT-C0-CH1-D1"
+                           "spd_temperature" : 40,
+                           "serial_number": "MSFT-C0-CH1-D1"
                         }
                      }
                   ]
@@ -123,7 +127,8 @@
                               "0xD5"
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
-                           "serial_number" : "MSFT-C1-CH0-D0"
+                           "spd_temperature" : 40,
+                           "serial_number": "MSFT-C1-CH0-D0"
                         }
                      },
                      {
@@ -141,7 +146,8 @@
                               "0xD5"
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
-                           "serial_number" : "MSFT-C1-CH0-D1"
+                           "spd_temperature" : 40,
+                           "serial_number": "MSFT-C1-CH0-D1"
                         }
                      },
                      {
@@ -159,7 +165,8 @@
                               "0xD5"
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
-                           "serial_number" : "MSFT-C1-CH1-D0"
+                           "spd_temperature" : 40,
+                           "serial_number": "MSFT-C1-CH1-D0"
                         }
                      },
                      {
@@ -177,7 +184,8 @@
                               "0xD5"
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
-                           "serial_number" : "MSFT-C1-CH1-D1"
+                           "spd_temperature" : 40,
+                           "serial_number": "MSFT-C1-CH1-D1"
                         }
                      }
                   ]

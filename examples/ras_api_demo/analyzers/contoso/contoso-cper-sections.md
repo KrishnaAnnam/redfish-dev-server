@@ -106,8 +106,9 @@ The Contoso CPER Section Header contains:
 | Subcomponent Instance ID | 4 bytes |
 | **Total** | **8 bytes** |
 
-The current Contoso CPER section format version is **1.4**. The decoder supports
-this version only.
+The current Contoso CPER section format version is **1.5**. The decoder also
+accepts version 1.4 records created before `spd_temperature` was added; that
+field is reported as not recorded for those records.
 
 The subcomponent instance ID is specific to a subcomponent.  The CPER section type tells us what type of subcomponent is being logged in the section body and the subcomponent instance ID tells us which instance of that subcomponent is being logged.  For example, the section type might be for a CPU core and the subcomponent instance ID might be the core number.  Each CPER section type definition will define how these bits are defined.
 
@@ -232,6 +233,7 @@ char     serial_number[19]; // 19 -- up to 18 ASCII characters plus NUL
 char     part_number[25];   // 25 -- up to 24 ASCII characters plus NUL
 uint8_t  module_manufacturer_id[2]; // 2 -- JEP106 ID in DDR5 SPD byte order
 uint8_t  dram_manufacturer_id[2];   // 2 -- JEP106 ID in DDR5 SPD byte order
+int8_t   spd_temperature;  // 1 -- SPD device temperature in degrees Celsius
 uint64_t total_memory_bytes; // 8 -- total installed memory on this RAS endpoint
 uint8_t  memory_repair_capabilities; // 1 -- capability bitfield
 uint16_t reserved;         // 2  -- must be zero
@@ -244,7 +246,7 @@ struct {
   uint8_t bank;
   uint8_t count;
 } repairs[repair_entry_count];
-// Total: 81 bytes + (6 * repair_entry_count)
+// Total: 82 bytes + (6 * repair_entry_count)
 ```
 
 The location fields follow the memory-address hierarchy. `device` identifies
@@ -294,10 +296,17 @@ odd parity or an invalid final manufacturer code is reported as `Invalid`.
 `module_manufacturer_id` identifies the DIMM assembler;
 `dram_manufacturer_id` identifies the DRAM device vendor.
 
+`spd_temperature` is the signed integer temperature of the SPD device on the
+identified DIMM in degrees Celsius. Real hardware would sample this value
+dynamically. For this demo, the endpoint copies the DIMM's default temperature
+from `ras_endpoint_config.json` whenever it emits a memory-controller CPER.
+Version 1.4 records do not contain this field.
+
 The simulator loads each endpoint and its installed DIMMs from
 `mockups/<platform>/ras_endpoint_config.json`. Each endpoint configures its
 repair capabilities and memory topology. Each DIMM supplies its size, SPD
-identity fields, and `max_repairs_per_bank` (default 16, valid range 0-255).
+identity fields, default SPD temperature, and `max_repairs_per_bank` (default
+16, valid range 0-255).
 The endpoint treats this file as authoritative when emitting memory CPERs. See
 [RAS Endpoint Configuration](../../../../src/plugins/ras/RAS_ENDPOINT_CONFIGURATION.md)
 for the complete schema and examples.

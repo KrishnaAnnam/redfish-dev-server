@@ -18,6 +18,7 @@ sys.path.insert(0, str(CONTOSO_DIR))
 import contoso_catalog as catalog  # noqa: E402
 import contoso_encoder as encoder  # noqa: E402
 import injection_spec as spec_model  # noqa: E402
+from memory_events import decode_memory_events  # noqa: E402
 from src.plugins.ras.action_provider import (  # noqa: E402
     ACTION_COMPLETED,
     ActionResult,
@@ -509,13 +510,54 @@ def test_cper_overlay_uses_configured_spd_and_authoritative_repairs():
     assert additional["part_number"] == "MSFT-DDR5-64GB"
     assert additional["module_manufacturer_id"] == [0x04, 0xD5]
     assert additional["dram_manufacturer_id"] == [0x04, 0xD5]
+    assert additional["spd_temperature"] == 40
     assert additional["total_memory_bytes"] == 512 * 1024 ** 3
     assert additional["memory_repair_capabilities"] == 0b111
     assert additional["repairs"] == [{
         "subchannel": 0, "rank": 0, "device": 3,
         "bank_group": 2, "bank": 3, "count": 1,
     }]
-    assert len(body) == 183
+    assert len(body) == 184
+
+    cper = {
+        "header": {
+            "creatorID": CONTOSO_CREATOR_ID,
+            "platformID": "990f8820-bd4d-5064-58cc-961a053dea79",
+            "partitionID": PARTITION_ID,
+        },
+        "sectionDescriptors": cpad["sectionDescriptors"],
+        "sections": [{"Unknown": {
+            "data": base64.b64encode(body).decode("ascii"),
+        }}],
+    }
+    event = decode_memory_events([{
+        "cper_data": cper,
+        "cper_file": "temperature.cper",
+        "is_newest": True,
+    }])[0]
+    assert event["spd_temperature"] == 40
+    assert event["memory_error"]["additional"]["spd_temperature"] == 40
+
+
+def test_endpoint_upgrades_v14_memory_body_with_configured_temperature():
+    handler = _handler()
+    cpad = _memory_cpad()
+    body = bytearray(base64.b64decode(
+        cpad["sections"][0]["Unknown"]["data"], validate=True))
+    other_offset = int.from_bytes(body[80:84], "little")
+    del body[157]
+    body[1] = 4
+    body[80:84] = (other_offset - 1).to_bytes(4, "little")
+    cpad["sections"][0]["Unknown"]["data"] = base64.b64encode(body).decode(
+        "ascii")
+
+    upgraded = overlay_cpad_memory_state(
+        cpad, handler.memory_repair_state)
+    decoded = encoder.unpack_section_body(
+        "Memory Controller - First Generation", upgraded)
+
+    assert upgraded[0:2] == bytes([1, 5])
+    assert decoded["additional"]["spd_temperature"] == 40
 
 
 def test_sppr_rejects_uninstalled_dimm():
@@ -591,17 +633,19 @@ def test_controller_error_normalizes_inactive_dram_metadata():
     cpad = _other_error_cpad()
     body = bytearray(base64.b64decode(
         cpad["sections"][0]["Unknown"]["data"], validate=True))
-    body[157:165] = (123).to_bytes(8, "little")
-    body[165] = 0b001
+    body[157] = 99
+    body[158:166] = (123).to_bytes(8, "little")
+    body[166] = 0b001
 
     normalized = overlay_cpad_memory_state(
         {**cpad, "sections": [{"Unknown": {
             "data": base64.b64encode(body).decode("ascii"),
         }}]}, handler.memory_repair_state)
 
-    assert int.from_bytes(normalized[157:165], "little") == 512 * 1024 ** 3
-    assert normalized[165] == 0b111
-    assert normalized[168] == 0
+    assert normalized[157] == 0
+    assert int.from_bytes(normalized[158:166], "little") == 512 * 1024 ** 3
+    assert normalized[166] == 0b111
+    assert normalized[169] == 0
 
 
 def test_submit_cpad_rejects_noncanonical_base64():

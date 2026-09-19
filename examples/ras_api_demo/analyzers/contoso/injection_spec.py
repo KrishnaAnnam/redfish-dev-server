@@ -266,6 +266,18 @@ def validate_spec(spec):
         problems.append(
             "section.additional.memory_repair_capabilities must be a byte.")
 
+    spd_temperature = spec.get("section", {}).get("additional", {}).get(
+        "spd_temperature", 0)
+    try:
+        parsed_temperature = as_int(spd_temperature)
+        if not -128 <= parsed_temperature <= 127:
+            problems.append(
+                "section.additional.spd_temperature must be in the range "
+                "-128..127 degrees Celsius.")
+    except (ValueError, TypeError):
+        problems.append(
+            "section.additional.spd_temperature must be an integer.")
+
     if bank:
         additional = spec.get("section", {}).get("additional", {})
         for name, code in bank["additional"]:

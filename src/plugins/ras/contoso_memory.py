@@ -1,4 +1,4 @@
-"""Endpoint-side helpers for Contoso v1.4 memory section bodies."""
+"""Endpoint-side helpers for Contoso v1.4 and v1.5 memory section bodies."""
 
 from __future__ import annotations
 
@@ -10,13 +10,18 @@ from .memory_config import MemoryRepairState
 
 
 CONTOSO_MEMORY_SECTION_GUID = "e01ce992-d080-43f4-8a2c-df8a9d81eb4e"
-_SECTION_VERSION = (1, 4)
+_CURRENT_SECTION_VERSION = (1, 5)
+_SUPPORTED_SECTION_VERSIONS = frozenset({(1, 4), (1, 5)})
 _SECTION_HEADER_SIZE = 8
 _ERROR_BANK_SIZE = 40
 _LOCATION_AND_BEATS_SIZE = 21
 _BANK_COUNT = 2
 _DRAM_ADDITIONAL_OFFSET = _SECTION_HEADER_SIZE + _BANK_COUNT * _ERROR_BANK_SIZE
-_DRAM_FIXED_SIZE = 81
+_DRAM_FIXED_SIZE_BY_VERSION = {
+    (1, 4): 81,
+    (1, 5): 82,
+}
+_DRAM_FIXED_SIZE = _DRAM_FIXED_SIZE_BY_VERSION[_CURRENT_SECTION_VERSION]
 _OTHER_ADDITIONAL_SIZE = 8
 
 
@@ -36,7 +41,7 @@ def _section_body(cpad_data: Dict[str, Any]) -> bytes:
     if not descriptors or not sections:
         raise ValueError("CPAD has no section")
     if not is_contoso_memory_cpad(cpad_data):
-        raise ValueError("SPPR CPAD does not contain a Contoso memory section")
+        raise ValueError("CPAD does not contain a Contoso memory section")
     encoded = sections[0].get("Unknown", {}).get("data")
     if not encoded:
         raise ValueError("Contoso memory section has no body")
@@ -46,14 +51,24 @@ def _section_body(cpad_data: Dict[str, Any]) -> bytes:
         raise ValueError("Contoso memory section body is not valid base64") from exc
 
 
-def active_memory_bank(body: bytes) -> str:
-    """Validate the common v1.4 header and return ``dram`` or ``other``."""
-    if len(body) < _DRAM_ADDITIONAL_OFFSET + _DRAM_FIXED_SIZE + _OTHER_ADDITIONAL_SIZE:
+def _section_version(body: bytes):
+    if len(body) < _DRAM_ADDITIONAL_OFFSET:
         raise ValueError("Contoso memory section body is truncated")
     major, minor, bank_count = struct.unpack_from("<BBH", body, 0)
-    if (major, minor) != _SECTION_VERSION or bank_count != _BANK_COUNT:
+    version = major, minor
+    if version not in _SUPPORTED_SECTION_VERSIONS or bank_count != _BANK_COUNT:
         raise ValueError(
             f"unsupported Contoso memory section {major}.{minor} with {bank_count} banks")
+    return version
+
+
+def active_memory_bank(body: bytes) -> str:
+    """Validate a supported Contoso memory section and return its active bank."""
+    version = _section_version(body)
+    fixed_size = _DRAM_FIXED_SIZE_BY_VERSION[version]
+    if len(body) < (
+            _DRAM_ADDITIONAL_OFFSET + fixed_size + _OTHER_ADDITIONAL_SIZE):
+        raise ValueError("Contoso memory section body is truncated")
     for index in range(_BANK_COUNT):
         reserved = struct.unpack_from(
             "<I", body,
@@ -73,14 +88,17 @@ def active_memory_bank(body: bytes) -> str:
         "<I", body, _SECTION_HEADER_SIZE + _ERROR_BANK_SIZE + 32)[0]
     if dram_offset != _DRAM_ADDITIONAL_OFFSET:
         raise ValueError("Contoso DRAM additional-register offset is invalid")
-    repair_count = body[dram_offset + _DRAM_FIXED_SIZE - 1]
-    if other_offset != dram_offset + _DRAM_FIXED_SIZE + repair_count * 6:
+    repair_count = body[dram_offset + fixed_size - 1]
+    if other_offset != dram_offset + fixed_size + repair_count * 6:
         raise ValueError("Contoso sparse repair table length is invalid")
     if len(body) != other_offset + _OTHER_ADDITIONAL_SIZE:
         raise ValueError("Contoso memory section length is invalid")
-    if body[dram_offset + 77] & ~0x07:
+    capabilities_offset = 77 if version == (1, 4) else 78
+    reserved_offset = capabilities_offset + 1
+    if body[dram_offset + capabilities_offset] & ~0x07:
         raise ValueError("Contoso memory repair capabilities have reserved bits set")
-    if any(body[dram_offset + 78:dram_offset + 80]):
+    if any(body[
+            dram_offset + reserved_offset:dram_offset + reserved_offset + 2]):
         raise ValueError("Contoso memory reserved field must be zero")
     return "dram" if dram_active else "other"
 
@@ -90,9 +108,7 @@ def active_cpad_memory_bank(cpad_data: Dict[str, Any]) -> str:
 
 
 def decode_memory_coordinates(body: bytes) -> Dict[str, int]:
-    """Decode the v1.4 DIMM and bank target from a Contoso memory body."""
-    if len(body) < _DRAM_ADDITIONAL_OFFSET + _DRAM_FIXED_SIZE + _OTHER_ADDITIONAL_SIZE:
-        raise ValueError("Contoso memory section body is truncated")
+    """Decode the DIMM and bank target from a Contoso memory body."""
     if active_memory_bank(body) != "dram":
         raise ValueError("SPPR requires the DRAM Errors bank to be active")
     chiplet, controller = struct.unpack_from("<HH", body, 4)
@@ -146,10 +162,12 @@ def overlay_memory_state(body: bytes, state: MemoryRepairState) -> bytes:
         other_offset = struct.unpack_from(
             "<I", body, _SECTION_HEADER_SIZE + _ERROR_BANK_SIZE + 32)[0]
         dram = bytearray(_LOCATION_AND_BEATS_SIZE + 19 + 25 + 2 + 2)
+        dram += struct.pack("<b", 0)
         dram += struct.pack("<Q", state.config.total_memory_bytes)
         dram += struct.pack("<B", state.capabilities.bitfield)
         dram += b"\x00\x00\x00"
         prefix = bytearray(body[:_DRAM_ADDITIONAL_OFFSET])
+        prefix[0:2] = bytes(_CURRENT_SECTION_VERSION)
         struct.pack_into(
             "<I", prefix, _SECTION_HEADER_SIZE + _ERROR_BANK_SIZE + 32,
             _DRAM_ADDITIONAL_OFFSET + len(dram))
@@ -171,6 +189,7 @@ def overlay_memory_state(body: bytes, state: MemoryRepairState) -> bytes:
     dram += _fixed_ascii(dimm.part_number, 25)
     dram += bytes(dimm.module_manufacturer_id)
     dram += bytes(dimm.dram_manufacturer_id)
+    dram += struct.pack("<b", dimm.spd_temperature)
     dram += struct.pack("<Q", state.config.total_memory_bytes)
     dram += struct.pack("<B", state.capabilities.bitfield)
     dram += b"\x00\x00"
@@ -181,6 +200,7 @@ def overlay_memory_state(body: bytes, state: MemoryRepairState) -> bytes:
             entry["bank_group"], entry["bank"], entry["count"])
 
     prefix = bytearray(body[:dram_offset])
+    prefix[0:2] = bytes(_CURRENT_SECTION_VERSION)
     struct.pack_into("<I", prefix, other_bank_offset_field, dram_offset + len(dram))
     return bytes(prefix + dram + body[old_other_offset:])
 

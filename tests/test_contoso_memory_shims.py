@@ -259,6 +259,8 @@ def test_decodes_complete_memory_error():
         "chiplet": 0, "controller": 0}
     additional = event["memory_error"]["additional"]
     assert additional["serial_number"] == "SERIAL"
+    assert event["spd_temperature"] == 0
+    assert additional["spd_temperature"] == 0
     assert additional["device"] == 3
     assert additional["row"] == 1234
     assert "beat_mask" in additional

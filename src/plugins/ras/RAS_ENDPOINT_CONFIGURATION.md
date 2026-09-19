@@ -22,6 +22,7 @@ The configuration is authoritative for:
 - Internal memory-repair capabilities reported in Contoso CPERs
 - Installed memory topology and DIMM capacities
 - DIMM SPD identity data
+- The default SPD-device temperature reported for each DIMM
 - Per-DIMM repair limits
 
 Memory-repair capabilities are not published on the Redfish RAS endpoint
@@ -147,6 +148,13 @@ The `spd` object contains:
 | `part_number` | Yes | 24 ASCII characters | DIMM part number. |
 | `module_manufacturer_id` | Yes | 2 bytes | Module assembler JEP106 ID in DDR5 SPD order. |
 | `dram_manufacturer_id` | Yes | 2 bytes | DRAM manufacturer JEP106 ID in DDR5 SPD order. |
+| `spd_temperature` | No | Signed byte | Default SPD-device temperature in degrees Celsius; defaults to `40`, valid range `-128..127`. |
+
+On real hardware, SPD temperature is a dynamic measurement. The demo does not
+yet expose a control for changing it at runtime, so the configured value is the
+default reported in every memory-controller CPER for that DIMM. Keeping it in
+the per-DIMM SPD object allows future demos to vary temperatures and show how
+DRAM-vendor analyzers use that signal.
 
 The demo uses Microsoft for both manufacturer IDs:
 
@@ -203,7 +211,8 @@ DIMMs in
                   "serial_number": "MSFT-C0-CH0-D0",
                   "part_number": "MSFT-DDR5-64GB",
                   "module_manufacturer_id": ["0x04", "0xD5"],
-                  "dram_manufacturer_id": ["0x04", "0xD5"]
+                  "dram_manufacturer_id": ["0x04", "0xD5"],
+                  "spd_temperature": 40
                 }
               }
             ]
@@ -232,6 +241,7 @@ with authoritative configuration and runtime state for:
 
 - SPD serial number and part number
 - Module and DRAM manufacturer IDs
+- SPD-device temperature
 - Total endpoint memory
 - Memory-repair capability bitfield
 - Sparse per-DIMM bank repair counts

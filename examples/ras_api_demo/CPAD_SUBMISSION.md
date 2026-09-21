@@ -138,15 +138,21 @@ The demo supports these CPAD actions:
 
 - **Error-injection CPADs** (`0x0006`) from the Contoso injector, to create the
   corrected DRAM errors the analyzer then studies.
-- **SPPR repair CPADs** (`0x8001`) that the analyzer emits and the
+- **PPR repair CPADs** (`0x8001`) that the analyzer emits and the
   [PolicyEngine](POLICY_ENGINE.md) approves.
-- **Page Offline CPADs** (`0x8002`) that forward a 4 KiB-aligned physical page
-  address to the simulated OS.
+- **Page Offline CPADs** (`0x8002`) that forward one or more 4 KiB physical
+  pages to the simulated OS using compact PFN-list, range, or bitmap encoding.
 - **Reboot with Memory Retraining CPADs** (`0x8003`) that remain pending until
   `On`, restart, or power-cycle resets the target SoC partition.
 
 The proprietary Contoso behavior is defined in
 [Contoso CPAD Actions](analyzers/contoso/contoso-cpad-actions.md).
+
+Error-injection CPADs carry the original Contoso error section because that
+body describes the error to create. Remediation CPADs use the independent
+Contoso action-parameter section
+`a813b17b-db08-416b-810c-172668affb28`; their ActionID selects the PPR, Page
+Offline, or Reboot with Retraining parameter codec.
 
 See the [end-to-end walkthrough](README.md#end-to-end-walkthrough) for how
 submission fits into the full inject → analyze → policy → submit → repair loop,

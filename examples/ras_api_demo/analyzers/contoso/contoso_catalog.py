@@ -42,7 +42,9 @@ SUPPORTED_SECTION_VERSIONS = frozenset({(1, 4), (1, 5)})
 
 # The RAS API "Inject Error" action (Action Id 0x06).
 INJECT_ACTION = {"code": "0x0006", "name": "Inject Error"}
-SPPR_ACTION = {"code": "0x8001", "name": "Soft Post Package Repair"}
+PPR_ACTION = {"code": "0x8001", "name": "Post Package Repair"}
+# Compatibility name for callers that specifically request runtime soft PPR.
+SPPR_ACTION = PPR_ACTION
 PAGE_OFFLINE_ACTION = {"code": "0x8002", "name": "Page Offline"}
 REBOOT_WITH_RETRAINING_ACTION = {
     "code": "0x8003",

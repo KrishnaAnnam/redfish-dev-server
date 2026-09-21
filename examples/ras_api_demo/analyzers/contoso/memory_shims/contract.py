@@ -10,7 +10,7 @@ from types import ModuleType
 from typing import Any, Dict, Iterable, List, Tuple
 
 
-SHIM_API_VERSION = 1
+SHIM_API_VERSION = 2
 ManufacturerId = Tuple[int, int]
 
 
@@ -46,10 +46,11 @@ class MemoryShim:
         except Exception as exc:
             raise ShimContractError(f"{self.name} failed: {exc}") from exc
         if not isinstance(result, list):
-            raise ShimContractError(f"{self.name} must return a list of CPADs")
-        if any(not isinstance(cpad, dict) for cpad in result):
             raise ShimContractError(
-                f"{self.name} returned a CPAD that is not an object")
+                f"{self.name} must return a list of action requests")
+        if any(not isinstance(request, dict) for request in result):
+            raise ShimContractError(
+                f"{self.name} returned an action request that is not an object")
         return result
 
 

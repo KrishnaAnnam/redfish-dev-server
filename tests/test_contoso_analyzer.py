@@ -82,14 +82,14 @@ def _cpu_section(core=0):
     )
 
 
-def _memory_section(vendor=(0x80, 0x2C)):
+def _memory_section(vendor=(0x80, 0x2C), error_address=0x2000):
     return _contoso_section(
         "Memory Controller - First Generation",
         "DRAM Errors",
         {
             "subcomponent": {"chiplet": 0, "controller": 0},
             "error_status": (True, False, 2, 1),
-            "error_address": 0x2000,
+            "error_address": error_address,
             "misc0": (False, 1),
             "misc1": 0,
             "additional": {
@@ -131,10 +131,11 @@ def _decoded_cper(*section_pairs):
 
 def test_contoso_memory_action_builders_emit_distinct_action_ids():
     cper = _decoded_cper(_memory_section())
-    event = {
-        "source": {"section_index": 0},
-        "memory_error": {"physical_address": 0x2000},
-    }
+    event = ANALYZER_MODULE.decode_memory_events([{
+        "cper_data": cper,
+        "cper_file": "memory.cper",
+        "is_newest": True,
+    }])[0]
     analyzer = ContosoAnalyzer.__new__(ContosoAnalyzer)
     analyzer.sppr_template_path = (
         ANALYZER_PATH.parents[2] / "cpad_storage" / "spprTemplate.json")
@@ -148,6 +149,8 @@ def test_contoso_memory_action_builders_emit_distinct_action_ids():
     with tempfile.TemporaryDirectory() as tmp_dir:
         analyzer.output_dir = Path(tmp_dir)
         analyzer.decoder = StubDecoder()
+        ppr_json = analyzer._build_sppr_cpad(
+            cper, None, confidence=80, section_index=0)
         page_path = analyzer.create_page_offline_cpad_from_memory_event(
             event, cper, output_stem="page")
         retrain_path = (
@@ -165,21 +168,42 @@ def test_contoso_memory_action_builders_emit_distinct_action_ids():
             contoso_catalog.PAGE_OFFLINE_ACTION)
         assert retrain_json["sectionDescriptors"][0]["actionID"] == (
             contoso_catalog.REBOOT_WITH_RETRAINING_ACTION)
+        assert page_json["sectionDescriptors"][0]["sectionType"]["data"] == (
+            ANALYZER_MODULE.contoso_action_parameters.
+            CONTOSO_ACTION_PARAMETER_GUID)
+        assert retrain_json["sectionDescriptors"][0]["sectionType"]["data"] == (
+            ANALYZER_MODULE.contoso_action_parameters.
+            CONTOSO_ACTION_PARAMETER_GUID)
+        ppr_body = base64.b64decode(
+            ppr_json["sections"][0]["Unknown"]["data"], validate=True)
+        ppr_parameters = (
+            ANALYZER_MODULE.contoso_action_parameters.decode_action_parameters(
+                ANALYZER_MODULE.contoso_action_parameters.PPR_ACTION_ID,
+                ppr_body,
+            )
+        )
+        assert ppr_parameters["ppr_type"] == (
+            ANALYZER_MODULE.contoso_action_parameters.PPR_TYPE_SOFT_RUNTIME)
+        assert ppr_parameters["row"] == 4
 
 
 def test_page_offline_builder_requires_4k_alignment():
     analyzer = ContosoAnalyzer.__new__(ContosoAnalyzer)
-    event = {
-        "source": {"section_index": 0},
-        "memory_error": {"physical_address": 0x2001},
-    }
+    cper = _decoded_cper(_memory_section(error_address=0x2001))
+    event = ANALYZER_MODULE.decode_memory_events([{
+        "cper_data": cper,
+        "cper_file": "memory.cper",
+        "is_newest": True,
+    }])[0]
+    analyzer.sppr_template_path = (
+        ANALYZER_PATH.parents[2] / "cpad_storage" / "spprTemplate.json")
 
     try:
         analyzer.create_page_offline_cpad_from_memory_event(
-            event, _decoded_cper(_memory_section()))
+            event, cper)
     except ValueError as exc:
         assert str(exc) == (
-            "Page Offline physical address must be 4 KiB aligned")
+            "Page Offline physical addresses must be 4 KiB aligned")
     else:
         raise AssertionError("unaligned Page Offline address was accepted")
 

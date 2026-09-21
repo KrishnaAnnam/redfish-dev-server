@@ -19,6 +19,7 @@ sys.path.insert(0, str(CONTOSO_DIR))
 sys.path.insert(0, str(RAS_DEMO_DIR))
 sys.path.insert(0, str(ROOT))
 
+import contoso_action_parameters as action_parameters  # noqa: E402
 import contoso_catalog as catalog  # noqa: E402
 import contoso_encoder as encoder  # noqa: E402
 import injection_spec as spec_model  # noqa: E402
@@ -194,6 +195,32 @@ def _cpad_for_event(event, action_id="0x9001"):
     }
 
 
+def _action_request_for_event(
+        event, action_id=action_parameters.PAGE_OFFLINE_ACTION_ID,
+        parameters=None):
+    if parameters is None:
+        if action_id == action_parameters.PPR_ACTION_ID:
+            parameters = {
+                "ppr_type": action_parameters.PPR_TYPE_SOFT_RUNTIME}
+        elif action_id == action_parameters.PAGE_OFFLINE_ACTION_ID:
+            parameters = {
+                "page_ranges": [{
+                    "start_address":
+                        event["memory_error"]["error_address"],
+                    "page_count": 1,
+                }],
+            }
+        else:
+            parameters = {}
+    return {
+        "cper_file": event["cper_file"],
+        "section_index": event["section_index"],
+        "action_id": action_id,
+        "confidence": 90,
+        "parameters": parameters,
+    }
+
+
 class FakeShim:
     def __init__(self, result=None, error=None, vendor="micron"):
         self.name = f"{vendor.title()} Fake Shim"
@@ -220,15 +247,30 @@ def test_discovers_three_stub_shims():
                for shim in shims.values())
 
 
+def test_rejects_legacy_shim_api_version():
+    with tempfile.TemporaryDirectory() as directory:
+        shim_dir = Path(directory)
+        (shim_dir / "analyzer_legacy.py").write_text(
+            "SHIM_INFO = {'api_version': 1, 'name': 'Legacy', "
+            "'version': '1', 'dram_manufacturer_ids': [[128, 44]]}\n"
+            "def analyze_memory_events(events): return []\n")
+
+        shims, errors = discover_memory_shims(shim_dir)
+
+        assert shims == {}
+        assert len(errors) == 1
+        assert "unsupported api_version 1" in errors[0]
+
+
 def test_multi_id_shim_registration_is_atomic_on_conflict():
     with tempfile.TemporaryDirectory() as directory:
         shim_dir = Path(directory)
         (shim_dir / "analyzer_a.py").write_text(
-            "SHIM_INFO = {'api_version': 1, 'name': 'A', 'version': '1', "
+            "SHIM_INFO = {'api_version': 2, 'name': 'A', 'version': '1', "
             "'dram_manufacturer_ids': [[128, 206]]}\n"
             "def analyze_memory_events(events): return []\n")
         (shim_dir / "analyzer_b.py").write_text(
-            "SHIM_INFO = {'api_version': 1, 'name': 'B', 'version': '1', "
+            "SHIM_INFO = {'api_version': 2, 'name': 'B', 'version': '1', "
             "'dram_manufacturer_ids': [[128, 44], [128, 206]]}\n"
             "def analyze_memory_events(events): return []\n")
 
@@ -244,6 +286,10 @@ def test_decodes_complete_memory_error():
 
     assert len(events) == 1
     event = events[0]
+    assert list(event)[:3] == [
+        "cper_file", "section_index", "event_type"]
+    assert event["cper_file"] == "record-0.cper"
+    assert event["section_index"] == 0
     assert event["event_type"] == "memory_error"
     assert event["source"] == {
         "cper_file": "record-0.cper",
@@ -431,6 +477,10 @@ def test_correlates_arbitrary_action_to_prior_memory_error_by_fru():
     assert [event["event_type"] for event in events] == [
         "platform_action", "memory_error"]
     action = events[0]
+    assert list(action)[:3] == [
+        "cper_file", "section_index", "event_type"]
+    assert action["cper_file"] == "record-0.cper"
+    assert action["section_index"] == 0
     assert action["dram_manufacturer_id"] == MICRON
     assert action["correlation"] == {
         "method": "fru_id_and_text",
@@ -568,13 +618,13 @@ def test_missing_and_failed_shims_can_create_default_sppr():
         assert Path(failed_path).name == "failed_sppr_cpad.cpad"
 
 
-def test_invalid_later_cpad_discards_entire_shim_result():
+def test_invalid_later_action_request_discards_entire_shim_result():
     analyzer = ContosoAnalyzer()
 
     def partly_invalid(events):
-        valid = _cpad_for_event(events[0])
+        valid = _action_request_for_event(events[0])
         invalid = copy.deepcopy(valid)
-        invalid["sectionDescriptors"][0]["confidence"] = 101
+        invalid["confidence"] = 101
         return [valid, invalid]
 
     analyzer.memory_shims = {
@@ -589,42 +639,61 @@ def test_invalid_later_cpad_discards_entire_shim_result():
     assert "confidence" in result["invocations"][0]["error"]
 
 
-def test_rejects_invalid_shim_cpad_section_structure():
+def test_rejects_invalid_shim_action_request_structure():
     analyzer = ContosoAnalyzer()
 
-    def wrong_section_count(events):
-        cpad = _cpad_for_event(events[0])
-        cpad["header"]["sectionCount"] = 2
-        return [cpad]
+    def missing_source_section(events):
+        request = _action_request_for_event(events[0])
+        del request["section_index"]
+        return [request]
 
     analyzer.memory_shims = {
-        tuple(MICRON): FakeShim(result=wrong_section_count),
+        tuple(MICRON): FakeShim(result=missing_source_section),
     }
     result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
     assert result["cpads"] == []
-    assert "sectionCount" in result["invocations"][0]["error"]
+    assert "must contain exactly" in result["invocations"][0]["error"]
 
-    def invalid_section(events):
-        cpad = _cpad_for_event(events[0])
-        cpad["sections"] = [None]
-        return [cpad]
+    def invalid_source(events):
+        request = _action_request_for_event(events[0])
+        request["section_index"] = 99
+        return [request]
 
     analyzer.memory_shims = {
-        tuple(MICRON): FakeShim(result=invalid_section),
+        tuple(MICRON): FakeShim(result=invalid_source),
     }
     result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
     assert result["cpads"] == []
-    assert "sections must contain objects" in result["invocations"][0]["error"]
+    assert "identify one input" in result["invocations"][0]["error"]
 
 
-def test_validates_and_deduplicates_arbitrary_shim_cpads():
+def test_rejects_invalid_shim_action_parameters():
     analyzer = ContosoAnalyzer()
 
-    def duplicate_cpads(events):
-        cpad = _cpad_for_event(events[0], action_id="0x9123")
-        return [cpad, copy.deepcopy(cpad)]
+    def missing_ppr_type(events):
+        return [_action_request_for_event(
+            events[0],
+            action_id=action_parameters.PPR_ACTION_ID,
+            parameters={},
+        )]
 
-    shim = FakeShim(result=duplicate_cpads)
+    analyzer.memory_shims = {
+        tuple(MICRON): FakeShim(result=missing_ppr_type),
+    }
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+
+    assert result["cpads"] == []
+    assert "ppr_type" in result["invocations"][0]["error"]
+
+
+def test_builds_and_deduplicates_shim_action_requests():
+    analyzer = ContosoAnalyzer()
+
+    def duplicate_actions(events):
+        request = _action_request_for_event(events[0])
+        return [request, copy.deepcopy(request)]
+
+    shim = FakeShim(result=duplicate_actions)
     analyzer.memory_shims = {tuple(MICRON): shim}
 
     result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
@@ -632,8 +701,77 @@ def test_validates_and_deduplicates_arbitrary_shim_cpads():
     assert result["handled_manufacturers"] == {tuple(MICRON)}
     assert len(result["cpads"]) == 1
     assert result["invocations"][0]["cpad_count"] == 1
-    assert result["cpads"][0][1]["sectionDescriptors"][0]["actionID"][
-        "code"] == "0x9123"
+    cpad = result["cpads"][0][1]
+    assert cpad["sectionDescriptors"][0]["actionID"]["code"] == (
+        action_parameters.PAGE_OFFLINE_ACTION_ID)
+    assert cpad["sectionDescriptors"][0]["sectionType"]["data"] == (
+        action_parameters.CONTOSO_ACTION_PARAMETER_GUID)
+
+
+def test_vendor_action_uses_referenced_coordinates_and_newest_partition():
+    analyzer = ContosoAnalyzer()
+    analyzer.sppr_template_path = (
+        RAS_DEMO_DIR / "cpad_storage" / "spprTemplate.json")
+    newest = _memory_cper(record_id=2)
+    newest["header"]["partitionID"] = "newest-partition"
+    prior = _memory_cper(record_id=1)
+    events = decode_memory_events(_records(newest, prior))
+    source = events[1]
+    source["memory_error"]["additional"]["row"] = 9876
+    request = _action_request_for_event(
+        source,
+        action_id=action_parameters.PPR_ACTION_ID,
+        parameters={
+            "ppr_type": action_parameters.PPR_TYPE_SOFT_BOOT_TIME,
+        },
+    )
+
+    cpad = analyzer._build_shim_action_cpad(request, events)
+    body = base64.b64decode(
+        cpad["sections"][0]["Unknown"]["data"], validate=True)
+    decoded = action_parameters.decode_action_parameters(
+        action_parameters.PPR_ACTION_ID, body)
+
+    assert cpad["header"]["partitionID"] == "newest-partition"
+    assert decoded["ppr_type"] == (
+        action_parameters.PPR_TYPE_SOFT_BOOT_TIME)
+    assert decoded["row"] == 9876
+
+
+def test_large_page_offline_request_builds_multiple_correlated_cpads():
+    analyzer = ContosoAnalyzer()
+    pages = [{
+        "start_address": 0x10000000 + index * 0x100000,
+        "page_count": 1,
+    } for index in range(10_000)]
+
+    def offline_pages(events):
+        return [_action_request_for_event(
+            events[0],
+            action_id=action_parameters.PAGE_OFFLINE_ACTION_ID,
+            parameters={"page_ranges": pages},
+        )]
+
+    analyzer.memory_shims = {
+        tuple(MICRON): FakeShim(result=offline_pages),
+    }
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+    cpads = [cpad for _shim, cpad in result["cpads"]]
+    decoded = [
+        action_parameters.decode_action_parameters(
+            action_parameters.PAGE_OFFLINE_ACTION_ID,
+            base64.b64decode(
+                cpad["sections"][0]["Unknown"]["data"], validate=True),
+        )
+        for cpad in cpads
+    ]
+
+    assert len(cpads) == 4
+    assert len({cpad["header"]["recordID"] for cpad in cpads}) == 4
+    assert sum(parameters["page_count"] for parameters in decoded) == 10_000
+    assert len({parameters["batch_id"] for parameters in decoded}) == 1
+    assert [parameters["chunk_index"] for parameters in decoded] == [
+        0, 1, 2, 3]
 
 
 def test_emits_paired_shim_json_and_binary_files():

@@ -93,9 +93,9 @@ for the complete action lifecycle.
 | `soft_ppr_boot_time_supported` | `false` | Firmware supports soft PPR during boot. |
 | `hard_ppr_boot_time_supported` | `false` | Firmware supports hard PPR during boot. |
 
-All values must be JSON booleans. Runtime action `0x8001` is accepted for
-execution only when `soft_ppr_runtime_supported` is `true`. Boot-time flags are
-reported capabilities; boot-time repair queuing is not simulated yet.
+All values must be JSON booleans. PPR action `0x8001` carries one PPR type bit
+matching this capability field. Runtime soft PPR executes immediately.
+Boot-time soft and hard PPR are queued until `On`, restart, or power-cycle.
 
 The Contoso memory CPER stores these values in a one-byte bitfield:
 

@@ -217,6 +217,10 @@ completely decoded memory events for its DRAM manufacturer. The list may contain
   normalized action/return/reason values, success status, and correlated memory
   target.
 
+Every event begins with top-level `cper_file` and `section_index` fields. These
+identify the original binary CPER and exact source section. The same values
+remain under `source` for window metadata and compatibility.
+
 Platform Action Events are not restricted to PPR. A memory shim may recommend
 any RAS action and needs the result to decide whether to recommend a follow-up,
 such as DIMM replacement after a failed repair.
@@ -234,13 +238,34 @@ The Python entry point is:
 
 ```python
 def analyze_memory_events(events: list[dict]) -> list[dict]:
-    """Return zero or more complete, cperlib-compatible CPAD documents."""
+    """Return zero or more source-referenced Contoso action requests."""
 ```
 
-The Contoso analyzer validates every returned CPAD: its platform, partition,
-CreatorID, and FRU must match an input event; each section needs an action ID and
-confidence from 0 through 100; and sections must match section descriptors.
-Exact duplicate CPADs from one invocation are emitted once.
+Each request contains exactly:
+
+```python
+{
+    "cper_file": "original.cper",
+    "section_index": 0,
+    "action_id": "0x8001",
+    "confidence": 90,
+    "parameters": {"ppr_type": 0x01},
+}
+```
+
+The filename and section index must identify one memory-error event passed to
+that shim. The referenced event supplies PPR coordinates or the Page Offline
+correlation context. `parameters` contains the action request: PPR requires one
+`ppr_type` capability bit, Page Offline requires one or more physical page
+ranges, and Reboot with Retraining uses an empty object.
+
+The Contoso analyzer validates each request and builds the full CPAD. It uses
+the referenced CPER section for PPR coordinates and FRU data. For Page Offline,
+it canonicalizes the requested 4 KiB ranges and chooses the smallest 40-bit PFN
+list, range, or bitmap encoding. The CPAD envelope targets the most recent
+memory-error PartitionID in the shim's event window. Large page sets may create
+multiple batch-correlated CPADs. Exact duplicate resulting CPADs are emitted
+once.
 
 Each CPAD is written as a paired JSON/binary output named
 `<source>_<vendor>_<manufacturer-id>_<sequence>_cpad.{json,cpad}`. Including
@@ -248,23 +273,29 @@ the manufacturer ID prevents collisions when one shim registers multiple IDs.
 The AO pairs files by stem, evaluates each JSON CPAD against policy, and submits
 its matching binary CPAD.
 
-A valid empty CPAD list means the vendor shim successfully analyzed the events
-and recommends no action. The default failing-row detector does not run in that
-case. If no matching shim exists, or shim discovery, invocation, validation, or
-binary conversion fails, a newest memory error falls back to the detector below.
-Platform Action Events never invoke the default detector.
+A valid empty action-request list means the vendor shim successfully analyzed
+the events and recommends no action. The default failing-row detector does not
+run in that case. If no matching shim exists, or shim discovery, invocation,
+validation, or binary conversion fails, a newest memory error falls back to the
+detector below. Platform Action Events never invoke the default detector.
+
+The complete version 2 shim contract is documented in
+[memory_shims/README.md](memory_shims/README.md).
 
 #### Micron Analyzer Interface
 
-The stub registers DDR5 SPD manufacturer ID `80 2C` and returns no CPADs.
+The stub registers DDR5 SPD manufacturer ID `80 2C` and returns no action
+requests.
 
 #### Samsung Analyzer Interface
 
-The stub registers DDR5 SPD manufacturer ID `80 CE` and returns no CPADs.
+The stub registers DDR5 SPD manufacturer ID `80 CE` and returns no action
+requests.
 
 #### SKHynix Analyzer Interface
 
-The stub registers DDR5 SPD manufacturer ID `80 AD` and returns no CPADs.
+The stub registers DDR5 SPD manufacturer ID `80 AD` and returns no action
+requests.
 
 
 

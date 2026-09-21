@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(CONTOSO_DIR))
 
 import contoso_catalog as catalog  # noqa: E402
+import contoso_action_parameters as action_encoder  # noqa: E402
 import contoso_encoder as encoder  # noqa: E402
 import injection_spec as spec_model  # noqa: E402
 from memory_events import decode_memory_events  # noqa: E402
@@ -33,6 +34,13 @@ from src.plugins.ras.contoso_actions import (  # noqa: E402
     REBOOT_WITH_RETRAINING_ACTION_ID,
     RETRAINING_RESET_TYPES,
     SPPR_ACTION_ID,
+)
+from src.plugins.ras.contoso_action_parameters import (  # noqa: E402
+    CONTOSO_ACTION_PARAMETER_GUID,
+    PPR_TYPE_HARD_BOOT_TIME,
+    PPR_TYPE_SOFT_BOOT_TIME,
+    PPR_TYPE_SOFT_RUNTIME,
+    decode_cpad_action_parameters,
 )
 from src.plugins.ras.handlers.submit_cpad_action import SubmitCPADActionHandler  # noqa: E402
 from src.plugins.ras.memory_config import (  # noqa: E402
@@ -137,7 +145,9 @@ def _set_spd_temperature(cpad, temperature):
 
 def _submission_handler(
         action_id, address=0x12345000,
-        creator_id=CONTOSO_CREATOR_ID):
+        creator_id=CONTOSO_CREATOR_ID,
+        ppr_type=PPR_TYPE_SOFT_RUNTIME,
+        page_ranges=None):
     handler = _handler()
     cpad = _memory_cpad()
     _set_error_address(cpad, address)
@@ -152,6 +162,43 @@ def _submission_handler(
         "fruID": "75824856-bd36-2cc8-61f4-39bb3276da2a",
         "fruText": "DIMM A1",
     })
+    if action_id != "0x0006":
+        source_cper = {
+            "header": cpad["header"],
+            "sectionDescriptors": copy.deepcopy(cpad["sectionDescriptors"]),
+            "sections": copy.deepcopy(cpad["sections"]),
+        }
+        source_event = decode_memory_events([{
+            "cper_data": source_cper,
+            "cper_file": "source.cper",
+            "is_newest": True,
+        }])[0]
+        if action_id == SPPR_ACTION_ID:
+            parameters = {"ppr_type": ppr_type}
+        elif action_id == PAGE_OFFLINE_ACTION_ID:
+            if page_ranges is None:
+                page_ranges = [{
+                    "start_address":
+                        source_event["memory_error"]["error_address"],
+                    "page_count": 1,
+                }]
+            parameters = {
+                "page_ranges": page_ranges,
+            }
+        else:
+            parameters = {}
+        action_body = action_encoder.encode_action_parameters(
+            action_id, source_event, parameters)
+        cpad["sectionDescriptors"][0]["sectionType"] = {
+            "data": CONTOSO_ACTION_PARAMETER_GUID,
+            "type": "Unknown",
+        }
+        cpad["sectionDescriptors"][0]["sectionLength"] = len(action_body)
+        cpad["sections"] = [{
+            "Unknown": {
+                "data": base64.b64encode(action_body).decode("ascii"),
+            },
+        }]
     metadata = {
         "record_id": 42,
         "creator_id": creator_id,
@@ -206,6 +253,39 @@ def test_analyzer_and_endpoint_share_contoso_action_contract():
         "On", "GracefulRestart", "ForceRestart", "PowerCycle"}
 
 
+def test_analyzer_and_endpoint_share_action_parameter_binary_contract():
+    handler, cpad = _submission_handler(
+        SPPR_ACTION_ID, ppr_type=PPR_TYPE_HARD_BOOT_TIME)
+
+    endpoint_parameters = decode_cpad_action_parameters(
+        cpad, SPPR_ACTION_ID)
+
+    assert CONTOSO_ACTION_PARAMETER_GUID == (
+        action_encoder.CONTOSO_ACTION_PARAMETER_GUID)
+    assert endpoint_parameters == {
+        "ppr_type": PPR_TYPE_HARD_BOOT_TIME,
+        "chiplet": 0,
+        "controller": 0,
+        "channel": 0,
+        "dimm": 1,
+        "subchannel": 0,
+        "rank": 0,
+        "device": 3,
+        "bank_group": 2,
+        "bank": 3,
+        "row": 1234,
+    }
+    assert handler._contoso_action_provider() is not None
+
+
+def test_error_injection_keeps_memory_error_section_guid():
+    _handler_instance, cpad = _submission_handler("0x0006")
+
+    assert cpad["sectionDescriptors"][0]["sectionType"]["data"] == (
+        catalog.SECTION_TYPES[
+            "Memory Controller - First Generation"]["guid"])
+
+
 def test_successful_sppr_increments_target_bank():
     handler = _handler()
     cpad = _memory_cpad()
@@ -221,7 +301,7 @@ def test_successful_sppr_increments_target_bank():
     }]
 
 
-def test_successful_sppr_prints_complete_repair_target():
+def test_successful_runtime_ppr_prints_complete_repair_target():
     handler, _cpad = _submission_handler(SPPR_ACTION_ID)
     output = io.StringIO()
 
@@ -231,7 +311,7 @@ def test_successful_sppr_prints_complete_repair_target():
 
     assert status == 202
     text = output.getvalue()
-    assert "           ✓ SPPR applied:" in text
+    assert "           ✓ runtime soft PPR applied:" in text
     assert "             Chiplet:      0" in text
     assert "             Controller:   0" in text
     assert "             Channel:      0" in text
@@ -241,10 +321,11 @@ def test_successful_sppr_prints_complete_repair_target():
     assert "             DRAM device:  3" in text
     assert "             Bank group:   2" in text
     assert "             Bank:         3" in text
+    assert "             Row:          1234" in text
     assert "             Repair count: 1" in text
 
 
-def test_page_offline_accepts_only_aligned_valid_physical_address():
+def test_page_offline_accepts_one_physical_page():
     handler, cpad = _submission_handler(PAGE_OFFLINE_ACTION_ID)
     endpoint = handler.endpoint_configuration.endpoint_by_partition(PARTITION_ID)
     metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
@@ -254,21 +335,12 @@ def test_page_offline_accepts_only_aligned_valid_physical_address():
         "System", PAGE_OFFLINE_ACTION_ID, cpad, metadata, endpoint)
 
     assert result.return_code == 0
-    assert result.details["physical_address"] == 0x12345000
+    assert result.details["page_count"] == 1
+    assert result.details["page_ranges"] == [{
+        "start_address": 0x12345000,
+        "page_count": 1,
+    }]
     assert "forwarded to the OS" in result.context
-
-    _set_error_address(cpad, 0x12345001)
-    result = provider.execute(
-        "System", PAGE_OFFLINE_ACTION_ID, cpad, metadata, endpoint)
-    assert result.return_code == 1
-    assert result.reason == (
-        "Page Offline physical address must be 4 KiB aligned")
-
-    _set_error_address(cpad, 0x12345000, valid=False)
-    result = provider.execute(
-        "System", PAGE_OFFLINE_ACTION_ID, cpad, metadata, endpoint)
-    assert result.return_code == 1
-    assert result.reason == "Page Offline requires a valid physical address"
 
 
 def test_page_offline_emits_action_event_without_error_cper():
@@ -286,6 +358,56 @@ def test_page_offline_emits_action_event_without_error_cper():
     assert base64.b64decode(action_event["additionalContext"]).decode() == (
         "Page Offline request for physical address 0x0000000012345000 "
         "was forwarded to the OS")
+
+
+def test_page_offline_for_multiple_pages_reports_page_count():
+    ranges = [{
+        "start_address": 0x20000000 + index * 0x100000,
+        "page_count": 1,
+    } for index in range(10)]
+    handler, _cpad = _submission_handler(
+        PAGE_OFFLINE_ACTION_ID, page_ranges=ranges)
+
+    status, _response = handler.handle_submit_cpad(
+        "System", _submission_request())
+
+    assert status == 202
+    assert len(handler.log_service_handler.records) == 1
+    action_event = handler.log_service_handler.records[0]["sections"][0][
+        "PlatformActionEvent"]
+    assert base64.b64decode(action_event["additionalContext"]).decode() == (
+        "Page Offline request for 10 physical pages was forwarded to the OS")
+
+
+def test_chunked_page_offline_reports_batch_and_chunk():
+    handler, cpad = _submission_handler(PAGE_OFFLINE_ACTION_ID)
+    source = _memory_cpad()
+    source["header"] = copy.deepcopy(cpad["header"])
+    source_event = decode_memory_events([{
+        "cper_data": source,
+        "cper_file": "source.cper",
+        "is_newest": True,
+    }])[0]
+    pages = [{
+        "start_address": 0x10000000 + index * 0x100000,
+        "page_count": 1,
+    } for index in range(10_000)]
+    bodies = action_encoder.encode_action_parameter_bodies(
+        PAGE_OFFLINE_ACTION_ID,
+        source_event,
+        {"page_ranges": pages},
+    )
+    cpad["sections"][0]["Unknown"]["data"] = base64.b64encode(
+        bodies[0]).decode("ascii")
+    metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+    endpoint = handler.endpoint_configuration.endpoint_by_partition(PARTITION_ID)
+
+    result = handler._contoso_action_provider().execute(
+        "System", PAGE_OFFLINE_ACTION_ID, cpad, metadata, endpoint)
+
+    assert result.return_code == 0
+    assert "chunk 1 of 4" in result.context
+    assert result.details["chunk_count"] == 4
 
 
 def test_error_injection_is_the_only_action_that_emits_an_error_cper():
@@ -328,6 +450,59 @@ def test_retraining_waits_for_qualifying_whole_machine_reset():
     assert handler.on_system_reset("system", "PowerCycle") == 0
 
 
+def test_boot_time_ppr_waits_for_reset_and_repairs_once():
+    for ppr_type, label in (
+            (PPR_TYPE_SOFT_BOOT_TIME, "boot-time soft PPR"),
+            (PPR_TYPE_HARD_BOOT_TIME, "boot-time hard PPR")):
+        handler, _cpad = _submission_handler(
+            SPPR_ACTION_ID, ppr_type=ppr_type)
+
+        status, response = handler.handle_submit_cpad(
+            "System", _submission_request())
+
+        assert status == 202
+        assert response["TaskState"] == "Pending"
+        assert handler.memory_repair_state.entries_for_dimm(
+            0, 0, 0, 1) == []
+        assert handler.on_system_reset("system", "GracefulShutdown") == 0
+        assert handler.on_system_reset("system", "PowerCycle") == 1
+        assert handler.memory_repair_state.entries_for_dimm(
+            0, 0, 0, 1)[0]["count"] == 1
+        action_event = handler.log_service_handler.records[0]["sections"][0][
+            "PlatformActionEvent"]
+        context = base64.b64decode(
+            action_event["additionalContext"]).decode()
+        assert label in context
+        assert handler.on_system_reset("system", "PowerCycle") == 0
+        assert handler.memory_repair_state.entries_for_dimm(
+            0, 0, 0, 1)[0]["count"] == 1
+
+
+def test_ppr_type_must_be_advertised_by_endpoint_capabilities():
+    with CONFIG_PATH.open(encoding="utf-8") as stream:
+        data = json.load(stream)
+    capabilities = data["ras_endpoints"][0]["memory"][
+        "memory_repair_capabilities"]
+    capabilities["hard_ppr_boot_time_supported"] = False
+    config = RASEndpointConfiguration.from_dict(data)
+    endpoint = config.endpoint_by_partition(PARTITION_ID)
+    state = MemoryRepairState(
+        endpoint.memory, endpoint.memory_repair_capabilities)
+    handler, cpad = _submission_handler(
+        SPPR_ACTION_ID, ppr_type=PPR_TYPE_HARD_BOOT_TIME)
+    handler.endpoint_configuration = config
+    handler.memory_repair_states = {PARTITION_ID: state}
+    handler.memory_repair_state = state
+    handler.action_providers = {}
+    metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+
+    result = handler._contoso_action_provider().execute(
+        "System", SPPR_ACTION_ID, cpad, metadata, endpoint)
+
+    assert result.return_code == 1
+    assert result.reason == "boot-time hard PPR is not supported"
+
+
 def test_every_restart_style_reset_completes_retraining():
     for reset_type in RETRAINING_RESET_TYPES:
         handler, _cpad = _submission_handler(
@@ -358,6 +533,32 @@ def test_failed_retraining_event_storage_leaves_action_pending():
     handler.log_service_handler = working_log_service
     assert handler.on_system_reset("system", "PowerCycle") == 1
     assert len(handler.log_service_handler.records) == 1
+
+
+def test_failed_boot_ppr_event_storage_does_not_repeat_repair():
+    handler, _cpad = _submission_handler(
+        SPPR_ACTION_ID, ppr_type=PPR_TYPE_SOFT_BOOT_TIME)
+    handler.handle_submit_cpad("System", _submission_request())
+    working_log_service = handler.log_service_handler
+
+    class FailingLogService:
+        @staticmethod
+        def next_record_id():
+            return 1
+
+        @staticmethod
+        def add_cper_log_entry(_cper, _binary_path):
+            return 500, None
+
+    handler.log_service_handler = FailingLogService()
+    assert handler.on_system_reset("system", "PowerCycle") == 0
+    assert handler.memory_repair_state.entries_for_dimm(
+        0, 0, 0, 1)[0]["count"] == 1
+
+    handler.log_service_handler = working_log_service
+    assert handler.on_system_reset("system", "PowerCycle") == 1
+    assert handler.memory_repair_state.entries_for_dimm(
+        0, 0, 0, 1)[0]["count"] == 1
 
 
 def test_submit_rejects_creator_that_does_not_own_target_partition():
@@ -758,63 +959,14 @@ def test_two_endpoints_keep_totals_capabilities_and_repairs_independent():
     assert second_additional["repairs"] == []
 
 
-def test_failed_sppr_submission_emits_failed_action_event_and_returns_accepted():
-    handler = _handler()
-    cpad = _memory_cpad()
-    cpad["header"] = {
-        "platformID": "990f8820-bd4d-5064-58cc-961a053dea79",
-        "partitionID": "22222222-3333-4444-5555-666666666666",
-        "creatorID": "11111111-2222-3333-4444-555555555555",
-        "recordID": 42,
-    }
-    cpad["sectionDescriptors"][0].update({
-        "fruID": "75824856-bd36-2cc8-61f4-39bb3276da2a",
-        "fruText": "DIMM A1",
-    })
+def test_failed_ppr_submission_emits_failed_action_event_and_returns_accepted():
+    handler, _cpad = _submission_handler(SPPR_ACTION_ID)
+    source_cpad = _memory_cpad()
     for _attempt in range(16):
-        assert handler._perform_sppr(cpad)[0] == 0
+        assert handler._perform_sppr(source_cpad)[0] == 0
 
-    metadata = {
-        "record_id": 42,
-        "creator_id": cpad["header"]["creatorID"],
-        "platform_id": cpad["header"]["platformID"],
-        "partition_id": cpad["header"]["partitionID"],
-        "record_length": 48,
-        "action_id": "0x8001",
-        "fru_id": cpad["sectionDescriptors"][0]["fruID"],
-        "fru_text": "DIMM A1",
-        "confidence": 80,
-    }
-
-    class StubCpadHandler:
-        @staticmethod
-        def validate_and_extract(_cpad):
-            return True, metadata, None
-
-    class StubLogService:
-        def __init__(self):
-            self.records = []
-
-        @staticmethod
-        def next_record_id():
-            return 1
-
-        def add_cper_log_entry(self, cper, _binary_path):
-            self.records.append(cper)
-            return 201, "1"
-
-    handler.cpad_handler = StubCpadHandler()
-    handler.log_service_handler = StubLogService()
-    handler.event_handler = None
-    handler.submission_history = []
-    handler._convert_binary_cpad_to_json = lambda _raw: cpad
-    handler._convert_json_to_binary_cper = lambda _cper, _metadata: None
-    request = {
-        "EncodingType": "Base64",
-        "CPADData": base64.b64encode(b"CPAD" + b"\x00" * 44).decode("ascii"),
-    }
-
-    status, _response = handler.handle_submit_cpad("System", request)
+    status, _response = handler.handle_submit_cpad(
+        "System", _submission_request())
 
     action_event = handler.log_service_handler.records[0]["sections"][0][
         "PlatformActionEvent"]

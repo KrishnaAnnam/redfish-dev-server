@@ -93,6 +93,8 @@ def _decode_memory_error(record: Dict[str, Any], window_index: int,
     additional = copy.deepcopy(decoded["additional"])
     manufacturer_id = additional.get("dram_manufacturer_id")
     return {
+        "cper_file": str(record.get("cper_file", "")),
+        "section_index": section_index,
         "event_type": "memory_error",
         "source": _source(record, window_index, section_index),
         "header": copy.deepcopy(cper_data.get("header", {})),
@@ -176,6 +178,8 @@ def _decode_action_event(record: Dict[str, Any], window_index: int,
             matched_error["memory_error"]["subcomponent"])
 
     return {
+        "cper_file": str(record.get("cper_file", "")),
+        "section_index": section_index,
         "event_type": "platform_action",
         "source": _source(record, window_index, section_index),
         "header": copy.deepcopy(cper_data.get("header", {})),

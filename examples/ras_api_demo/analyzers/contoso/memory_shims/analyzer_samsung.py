@@ -1,7 +1,7 @@
 """Stub shim for Samsung memory-vendor analysis."""
 
 SHIM_INFO = {
-    "api_version": 1,
+    "api_version": 2,
     "name": "Samsung Memory Analyzer Shim",
     "version": "0.1.0",
     "dram_manufacturer_ids": [[0x80, 0xCE]],
@@ -9,13 +9,13 @@ SHIM_INFO = {
 
 
 def analyze_memory_events(events):
-    """Accept decoded memory events; vendor analysis will be added later."""
+    """Return source-referenced Contoso action requests for decoded events."""
 
     # Reformat to Samsung Spec
 
     # Call Samsung Tool
 
-    # Process output, collect text, CPADs
+    # Process output and collect action recommendations
 
-    # Generate fully formed CPADs and return them to caller
+    # Return source-referenced Contoso action requests to the caller
     return []

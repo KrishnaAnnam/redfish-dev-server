@@ -6,7 +6,7 @@
         },
         "sectionCount": 1,
         "urgency": 0,
-        "recordLength": 296,
+        "recordLength": 226,
         "timestamp": "2026-01-23T12:00:00+00:00",
         "timestampIsPrecise": true,
         "platformID": "990f8820-bd4d-5064-58cc-961a053dea79",
@@ -21,8 +21,8 @@
     },
     "sectionDescriptors": [
         {
-            "sectionOffset": 200,
-            "sectionLength": 96,
+            "sectionOffset": 202,
+            "sectionLength": 24,
             "revision": {
                 "major": 1,
                 "minor": 0
@@ -30,21 +30,21 @@
             "flags": 0,
             "confidence": 80,
             "sectionType": {
-                "data": "61ec04fc-48e6-d813-25c9-8daa44750b12",
-                "type": "Platform Memory 2"
+                "data": "a813b17b-db08-416b-810c-172668affb28",
+                "type": "Unknown"
             },
             "fruID": "75824856-bd36-2cc8-61f4-39bb3276da2a",
             "fruText": "DIMM A1",
             "actionID": {
                 "code": "0x8001",
-                "name": "Soft Post Package Repair"
+                "name": "Post Package Repair"
             }
         }
     ],
     "sections": [
         {
             "Unknown": {
-                "data": "//////////8VAAQAAAAAAHuP4VSUdUJpNl2CkAm+c3oAAAAAAAAAAAAAAADSBAAANwIAAAAAAAADAAAAAAIAAAAAAAAAAAAALCiuzGjI5zcAAAAAAAAAAAAAAAAAAAAA"
+                "data": "AQAQAAEAAAABAAAAAAABAAADAgPSBAAA"
             }
         }
     ]

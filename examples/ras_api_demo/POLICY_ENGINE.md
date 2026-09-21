@@ -39,7 +39,7 @@ The engine reads only the CPAD's **header** and **section descriptors**:
 - `sectionDescriptors[].actionId` / `actionID.code`, `sectionDescriptors[].confidence`, and `fruText`
 
 It never parses the opaque vendor **section body**. So it can tell *that* an
-action is, say, an error injection or an SPPR (from the action id in the section
+action is, say, an error injection or PPR (from the action id in the section
 descriptor), but not the private details inside the section. That keeps
 proprietary vendor data private while still letting the operator gate on
 identity, action type, target platform, and confidence.
@@ -82,7 +82,7 @@ type from one creator.
       "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
     },
     "0x8001": {
-      "name": "SPPR (Soft Post Package Repair)",
+      "name": "PPR (Post Package Repair)",
       "permitted": true,
       "confidence_threshold": 80,
       "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
@@ -116,7 +116,7 @@ type from one creator.
 action *type* from the section descriptor. For an error injection (`0x0006`) it
 cannot tell what error is being injected, and confidence is not meaningful — so
 that row simply omits `confidence_threshold` and the confidence rule is skipped.
-Analyzer-driven remediations such as SPPR (`0x8001`), Page Offline (`0x8002`),
+Analyzer-driven remediations such as PPR (`0x8001`), Page Offline (`0x8002`),
 and reboot with memory retraining (`0x8003`) carry the analyzer's confidence
 and are gated (here at `80`). Omitting the field is preferred over a `0`
 threshold because it is unambiguous ("no confidence policy" versus "threshold

@@ -1,7 +1,7 @@
 """Stub shim for SK Hynix memory-vendor analysis."""
 
 SHIM_INFO = {
-    "api_version": 1,
+    "api_version": 2,
     "name": "SK Hynix Memory Analyzer Shim",
     "version": "0.1.0",
     "dram_manufacturer_ids": [[0x80, 0xAD]],
@@ -9,5 +9,5 @@ SHIM_INFO = {
 
 
 def analyze_memory_events(events):
-    """Accept decoded memory events; vendor analysis will be added later."""
+    """Return source-referenced Contoso action requests for decoded events."""
     return []

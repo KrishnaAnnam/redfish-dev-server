@@ -29,8 +29,8 @@ from ..contoso_actions import (
     CONTOSO_CREATOR_ID,
     ContosoActionProvider,
     PAGE_OFFLINE_ACTION_ID,
+    PPR_ACTION_ID,
     REBOOT_WITH_RETRAINING_ACTION_ID,
-    SPPR_ACTION_ID,
 )
 from ..contoso_memory import (
     active_cpad_memory_bank,
@@ -774,17 +774,18 @@ class SubmitCPADActionHandler:
             }
 
         completed = 0
-        for pending in provider.pending_retraining(partition_ids, reset_type):
-            context = (
-                f"All memory controllers in SoC partition "
-                f"{pending.metadata['partition_id']} were retrained during "
-                f"{reset_type} of ComputerSystem {system_id}"
-            )
+        for pending in provider.pending_reset_actions(
+                partition_ids, reset_type):
+            result = provider.complete_pending_reset_action(
+                pending, reset_type)
+            context = result.context or result.reason
+            if context:
+                context = f"{context} of ComputerSystem {system_id}"
             try:
                 entry_id = self._store_action_event(
                     pending.cpad_data,
                     pending.metadata,
-                    action_return_code=0x00,
+                    action_return_code=result.return_code,
                     additional_context=context,
                 )
             except Exception:
@@ -798,10 +799,10 @@ class SubmitCPADActionHandler:
                     "Action Event could not be stored; the action remains pending",
                     pending.metadata["record_id"])
                 continue
-            provider.mark_retraining_complete(pending)
+            provider.mark_reset_action_complete(pending)
             completed += 1
             logger.info(
-                "Completed memory retraining CPAD %s for partition %s",
+                "Completed reset-deferred CPAD %s for partition %s",
                 pending.metadata["record_id"],
                 pending.metadata["partition_id"])
         return completed
@@ -1286,7 +1287,7 @@ class SubmitCPADActionHandler:
         """Map action ID (hex code from cpad-convert) to CPER severity level"""
         SEVERITY_MAP = {
             ERROR_INJECTION_ACTION_ID: 'Corrected',
-            SPPR_ACTION_ID: 'Informational',
+            PPR_ACTION_ID: 'Informational',
             PAGE_OFFLINE_ACTION_ID: 'Informational',
             REBOOT_WITH_RETRAINING_ACTION_ID: 'Informational',
         }

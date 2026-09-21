@@ -177,8 +177,8 @@ BMC (plugin) side, and the **listener** pane shows CPERs being downloaded.
    wear — **no action yet**.
 4. **Inject the 2nd corrected DRAM error** (same row 1234, *different* column
    891). The analyzer now sees two distinct columns failing on the same row —
-   evidence of a **failing row** — and emits an **SPPR CPAD** (action `0x8001`)
-   with a confidence that scales with the evidence.
+   evidence of a **failing row** — and emits a **PPR CPAD** (action `0x8001`)
+   selecting runtime soft PPR, with confidence that scales with the evidence.
 5. **Policy gate.** The orchestrator runs the SPPR CPAD through the
    [PolicyEngine](POLICY_ENGINE.md). On approval it submits the CPAD back to the
    BMC (see [CPAD_SUBMISSION.md](CPAD_SUBMISSION.md)); on denial it mints a
@@ -187,9 +187,9 @@ BMC (plugin) side, and the **listener** pane shows CPERs being downloaded.
    informational Action-Event CPERs. These flow back through the same
    download → route → analyze path so the analyzer can confirm the repair.
 
-The Contoso demo also defines Page Offline (`0x8002`) and reboot with memory
-retraining (`0x8003`). Their automatic recommendation policy is not part of the
-guided SPPR walkthrough. See
+The Contoso demo also defines multi-page Page Offline (`0x8002`) and reboot
+with memory retraining (`0x8003`). Their automatic recommendation policy is not
+part of the guided SPPR walkthrough. See
 [Contoso CPAD Actions](analyzers/contoso/contoso-cpad-actions.md) for their
 parameters and completion behavior.
 
@@ -234,7 +234,7 @@ python examples/ras_api_demo/submit_cpad.py cpad_storage/spprTemplate.cpad --ser
 | **CPAD** | Common Platform Action Descriptor — a binary record describing a *proposed action* (e.g. an error injection or a repair) sent **to** an endpoint. The mirror image of a CPER. |
 | **RAS API** | The OCP RAS API (Redfish) that standardizes routing CPERs from endpoints to analyzers and CPADs from analyzers back to endpoints. |
 | **RAS API endpoint** | A RAS-capable hardware source (e.g. a CPU socket) that emits CPERs and accepts CPADs. Advertised under `RASService/RASEndpoints`. |
-| **SPPR** | Soft Post-Package Repair — a DRAM row-repair action (CPAD action `0x8001`) that remaps a failing row to a spare. |
+| **SPPR** | Soft Post-Package Repair — runtime type `0x01` of Contoso PPR action `0x8001`; remaps a failing row to a spare. |
 | **Analyzer** | A vendor-supplied `analyzer-<vendor>.py` plugin that decodes its own CPERs and, when warranted, emits a remediation CPAD. |
 | **Orchestrator** | The coordinator ([`analysis_orchestrator.py`](analysis_orchestrator.py)) that discovers analyzers/hosts, routes CPERs to analyzers, and runs policy → submit. |
 | **Policy Engine** | The Server Fleet Operator's gate ([POLICY_ENGINE.md](POLICY_ENGINE.md)) that approves or denies a proposed CPAD before it is submitted. |

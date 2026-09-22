@@ -200,8 +200,22 @@ def _action_request_for_event(
         parameters=None):
     if parameters is None:
         if action_id == action_parameters.PPR_ACTION_ID:
+            error = event["memory_error"]
+            subcomponent = error["subcomponent"]
+            additional = error["additional"]
             parameters = {
-                "ppr_type": action_parameters.PPR_TYPE_SOFT_RUNTIME}
+                "ppr_type": action_parameters.PPR_TYPE_SOFT_RUNTIME,
+                "chiplet": subcomponent["chiplet"],
+                "controller": subcomponent["controller"],
+                "channel": additional["channel"],
+                "dimm": additional["dimm"],
+                "subchannel": additional["subchannel"],
+                "rank": additional["rank"],
+                "device": additional["device"],
+                "bank_group": additional["bank_group"],
+                "bank": additional["bank"],
+                "row": additional["row"],
+            }
         elif action_id == action_parameters.PAGE_OFFLINE_ACTION_ID:
             parameters = {
                 "page_ranges": [{
@@ -247,11 +261,11 @@ def test_discovers_three_stub_shims():
                for shim in shims.values())
 
 
-def test_rejects_legacy_shim_api_version():
+def test_rejects_version_2_shim_contract():
     with tempfile.TemporaryDirectory() as directory:
         shim_dir = Path(directory)
         (shim_dir / "analyzer_legacy.py").write_text(
-            "SHIM_INFO = {'api_version': 1, 'name': 'Legacy', "
+            "SHIM_INFO = {'api_version': 2, 'name': 'Legacy', "
             "'version': '1', 'dram_manufacturer_ids': [[128, 44]]}\n"
             "def analyze_memory_events(events): return []\n")
 
@@ -259,18 +273,18 @@ def test_rejects_legacy_shim_api_version():
 
         assert shims == {}
         assert len(errors) == 1
-        assert "unsupported api_version 1" in errors[0]
+        assert "unsupported api_version 2" in errors[0]
 
 
 def test_multi_id_shim_registration_is_atomic_on_conflict():
     with tempfile.TemporaryDirectory() as directory:
         shim_dir = Path(directory)
         (shim_dir / "analyzer_a.py").write_text(
-            "SHIM_INFO = {'api_version': 2, 'name': 'A', 'version': '1', "
+            "SHIM_INFO = {'api_version': 3, 'name': 'A', 'version': '1', "
             "'dram_manufacturer_ids': [[128, 206]]}\n"
             "def analyze_memory_events(events): return []\n")
         (shim_dir / "analyzer_b.py").write_text(
-            "SHIM_INFO = {'api_version': 2, 'name': 'B', 'version': '1', "
+            "SHIM_INFO = {'api_version': 3, 'name': 'B', 'version': '1', "
             "'dram_manufacturer_ids': [[128, 44], [128, 206]]}\n"
             "def analyze_memory_events(events): return []\n")
 
@@ -667,23 +681,22 @@ def test_rejects_invalid_shim_action_request_structure():
     assert "identify one input" in result["invocations"][0]["error"]
 
 
-def test_rejects_invalid_shim_action_parameters():
+def test_rejects_incomplete_shim_ppr_parameters():
     analyzer = ContosoAnalyzer()
 
-    def missing_ppr_type(events):
-        return [_action_request_for_event(
-            events[0],
-            action_id=action_parameters.PPR_ACTION_ID,
-            parameters={},
-        )]
+    def missing_ppr_row(events):
+        request = _action_request_for_event(
+            events[0], action_id=action_parameters.PPR_ACTION_ID)
+        del request["parameters"]["row"]
+        return [request]
 
     analyzer.memory_shims = {
-        tuple(MICRON): FakeShim(result=missing_ppr_type),
+        tuple(MICRON): FakeShim(result=missing_ppr_row),
     }
     result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
 
     assert result["cpads"] == []
-    assert "ppr_type" in result["invocations"][0]["error"]
+    assert "row" in result["invocations"][0]["error"]
 
 
 def test_builds_and_deduplicates_shim_action_requests():
@@ -708,7 +721,7 @@ def test_builds_and_deduplicates_shim_action_requests():
         action_parameters.CONTOSO_ACTION_PARAMETER_GUID)
 
 
-def test_vendor_action_uses_referenced_coordinates_and_newest_partition():
+def test_vendor_action_uses_supplied_parameters_and_newest_partition():
     analyzer = ContosoAnalyzer()
     analyzer.sppr_template_path = (
         RAS_DEMO_DIR / "cpad_storage" / "spprTemplate.json")
@@ -717,11 +730,17 @@ def test_vendor_action_uses_referenced_coordinates_and_newest_partition():
     prior = _memory_cper(record_id=1)
     events = decode_memory_events(_records(newest, prior))
     source = events[1]
-    source["memory_error"]["additional"]["row"] = 9876
+    assert source["memory_error"]["additional"]["row"] == 1234
+    parameters = _action_request_for_event(
+        source,
+        action_id=action_parameters.PPR_ACTION_ID,
+    )["parameters"]
+    parameters["row"] = 9876
     request = _action_request_for_event(
         source,
         action_id=action_parameters.PPR_ACTION_ID,
         parameters={
+            **parameters,
             "ppr_type": action_parameters.PPR_TYPE_SOFT_BOOT_TIME,
         },
     )
@@ -736,6 +755,38 @@ def test_vendor_action_uses_referenced_coordinates_and_newest_partition():
     assert decoded["ppr_type"] == (
         action_parameters.PPR_TYPE_SOFT_BOOT_TIME)
     assert decoded["row"] == 9876
+
+
+def test_action_body_is_independent_of_source_cper_context():
+    analyzer = ContosoAnalyzer()
+    first_events = decode_memory_events(_records(_memory_cper(record_id=1)))
+    second_cper = _memory_cper(record_id=99)
+    second_cper["header"]["partitionID"] = "different-partition"
+    second_events = decode_memory_events(_records(second_cper))
+    second_events[0]["memory_error"]["additional"]["row"] = 4321
+    parameters = _action_request_for_event(
+        first_events[0],
+        action_id=action_parameters.PPR_ACTION_ID,
+    )["parameters"]
+
+    first_request = _action_request_for_event(
+        first_events[0],
+        action_id=action_parameters.PPR_ACTION_ID,
+        parameters=copy.deepcopy(parameters),
+    )
+    second_request = _action_request_for_event(
+        second_events[0],
+        action_id=action_parameters.PPR_ACTION_ID,
+        parameters=copy.deepcopy(parameters),
+    )
+    first_cpad = analyzer._build_shim_action_cpad(
+        first_request, first_events)
+    second_cpad = analyzer._build_shim_action_cpad(
+        second_request, second_events)
+
+    assert first_cpad["sections"] == second_cpad["sections"]
+    assert first_cpad["header"]["partitionID"] == PARTITION_ID
+    assert second_cpad["header"]["partitionID"] == "different-partition"
 
 
 def test_large_page_offline_request_builds_multiple_correlated_cpads():

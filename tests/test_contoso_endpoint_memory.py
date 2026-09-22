@@ -174,7 +174,22 @@ def _submission_handler(
             "is_newest": True,
         }])[0]
         if action_id == SPPR_ACTION_ID:
-            parameters = {"ppr_type": ppr_type}
+            error = source_event["memory_error"]
+            subcomponent = error["subcomponent"]
+            additional = error["additional"]
+            parameters = {
+                "ppr_type": ppr_type,
+                "chiplet": subcomponent["chiplet"],
+                "controller": subcomponent["controller"],
+                "channel": additional["channel"],
+                "dimm": additional["dimm"],
+                "subchannel": additional["subchannel"],
+                "rank": additional["rank"],
+                "device": additional["device"],
+                "bank_group": additional["bank_group"],
+                "bank": additional["bank"],
+                "row": additional["row"],
+            }
         elif action_id == PAGE_OFFLINE_ACTION_ID:
             if page_ranges is None:
                 page_ranges = [{
@@ -188,7 +203,7 @@ def _submission_handler(
         else:
             parameters = {}
         action_body = action_encoder.encode_action_parameters(
-            action_id, source_event, parameters)
+            action_id, parameters)
         cpad["sectionDescriptors"][0]["sectionType"] = {
             "data": CONTOSO_ACTION_PARAMETER_GUID,
             "type": "Unknown",
@@ -394,7 +409,6 @@ def test_chunked_page_offline_reports_batch_and_chunk():
     } for index in range(10_000)]
     bodies = action_encoder.encode_action_parameter_bodies(
         PAGE_OFFLINE_ACTION_ID,
-        source_event,
         {"page_ranges": pages},
     )
     cpad["sections"][0]["Unknown"]["data"] = base64.b64encode(

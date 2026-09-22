@@ -16,26 +16,19 @@ import contoso_action_parameters as analyzer_codec  # noqa: E402
 from src.plugins.ras import contoso_action_parameters as endpoint_codec  # noqa: E402
 
 
-def _event(address=0x12345000):
+def _ppr_parameters(ppr_type=analyzer_codec.PPR_TYPE_SOFT_RUNTIME):
     return {
-        "cper_file": "source.cper",
-        "section_index": 2,
-        "event_type": "memory_error",
-        "memory_error": {
-            "subcomponent": {"chiplet": 1, "controller": 0},
-            "error_status": {"addressValid": True},
-            "error_address": address,
-            "additional": {
-                "channel": 1,
-                "dimm": 0,
-                "subchannel": 1,
-                "rank": 2,
-                "device": 3,
-                "bank_group": 4,
-                "bank": 2,
-                "row": 1234,
-            },
-        },
+        "ppr_type": ppr_type,
+        "chiplet": 1,
+        "controller": 0,
+        "channel": 1,
+        "dimm": 0,
+        "subchannel": 1,
+        "rank": 2,
+        "device": 3,
+        "bank_group": 4,
+        "bank": 2,
+        "row": 1234,
     }
 
 
@@ -60,8 +53,7 @@ def test_ppr_roundtrip_matches_endpoint_codec_for_every_type():
     for ppr_type in analyzer_codec.PPR_TYPES:
         body = analyzer_codec.encode_action_parameters(
             analyzer_codec.PPR_ACTION_ID,
-            _event(),
-            {"ppr_type": ppr_type},
+            _ppr_parameters(ppr_type),
         )
 
         analyzer_parameters = analyzer_codec.decode_action_parameters(
@@ -91,7 +83,6 @@ def test_ppr_roundtrip_matches_endpoint_codec_for_every_type():
 def test_single_page_and_retraining_payloads_are_independent():
     page_body = analyzer_codec.encode_action_parameters(
         analyzer_codec.PAGE_OFFLINE_ACTION_ID,
-        _event(),
         {
             "page_ranges": [{
                 "start_address": 0x12345000,
@@ -100,7 +91,7 @@ def test_single_page_and_retraining_payloads_are_independent():
         },
     )
     retrain_body = analyzer_codec.encode_action_parameters(
-        analyzer_codec.REBOOT_WITH_RETRAINING_ACTION_ID, _event(), {})
+        analyzer_codec.REBOOT_WITH_RETRAINING_ACTION_ID, {})
 
     assert len(page_body) == 21
     page_parameters = endpoint_codec.decode_cpad_action_parameters(
@@ -132,12 +123,10 @@ def test_page_offline_selects_smallest_encoding():
     } for index in range(10)]
     scattered_body = analyzer_codec.encode_action_parameters(
         analyzer_codec.PAGE_OFFLINE_ACTION_ID,
-        _event(),
         {"page_ranges": scattered},
     )
     contiguous_body = analyzer_codec.encode_action_parameters(
         analyzer_codec.PAGE_OFFLINE_ACTION_ID,
-        _event(),
         {
             "page_ranges": [{
                 "start_address": 0x20000000,
@@ -151,7 +140,6 @@ def test_page_offline_selects_smallest_encoding():
     } for index in range(2048)]
     bitmap_body = analyzer_codec.encode_action_parameters(
         analyzer_codec.PAGE_OFFLINE_ACTION_ID,
-        _event(),
         {"page_ranges": alternating},
     )
 
@@ -177,7 +165,6 @@ def test_large_sparse_page_request_is_split_into_correlated_chunks():
 
     bodies = analyzer_codec.encode_action_parameter_bodies(
         analyzer_codec.PAGE_OFFLINE_ACTION_ID,
-        _event(),
         {"page_ranges": pages},
     )
     decoded = [
@@ -201,7 +188,6 @@ def test_large_sparse_page_request_is_split_into_correlated_chunks():
 def test_page_ranges_are_canonicalized_and_bounded_to_52_bits():
     body = analyzer_codec.encode_action_parameters(
         analyzer_codec.PAGE_OFFLINE_ACTION_ID,
-        _event(),
         {
             "page_ranges": [
                 {"start_address": 0x2000, "page_count": 2},
@@ -219,7 +205,6 @@ def test_page_ranges_are_canonicalized_and_bounded_to_52_bits():
     try:
         analyzer_codec.encode_action_parameters(
             analyzer_codec.PAGE_OFFLINE_ACTION_ID,
-            _event(),
             {
                 "page_ranges": [{
                     "start_address": 1 << 52,
@@ -235,7 +220,6 @@ def test_page_ranges_are_canonicalized_and_bounded_to_52_bits():
     try:
         analyzer_codec.encode_action_parameters(
             analyzer_codec.PAGE_OFFLINE_ACTION_ID,
-            _event(),
             {
                 "page_ranges": [{
                     "start_address": 0x1001,
@@ -253,13 +237,26 @@ def test_ppr_requires_exactly_one_capability_bit():
     try:
         analyzer_codec.encode_action_parameters(
             analyzer_codec.PPR_ACTION_ID,
-            _event(),
-            {"ppr_type": 0x03},
+            _ppr_parameters(0x03),
         )
     except ValueError as exc:
         assert "one of 0x01, 0x02, or 0x04" in str(exc)
     else:
         raise AssertionError("combined PPR type bits were accepted")
+
+
+def test_ppr_requires_every_explicit_parameter():
+    parameters = _ppr_parameters()
+    del parameters["row"]
+
+    try:
+        analyzer_codec.encode_action_parameters(
+            analyzer_codec.PPR_ACTION_ID, parameters)
+    except ValueError as exc:
+        assert "must contain exactly" in str(exc)
+        assert "row" in str(exc)
+    else:
+        raise AssertionError("PPR request missing row was accepted")
 
 
 if __name__ == "__main__":

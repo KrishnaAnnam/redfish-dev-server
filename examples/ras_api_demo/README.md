@@ -28,6 +28,8 @@ management using standard Redfish interfaces on the BMC.
 | [POLICY_ENGINE.md](POLICY_ENGINE.md) | The operator policy gate that approves/denies proposed actions |
 | [analyzers/contoso/Analyzer-Design.md](analyzers/contoso/Analyzer-Design.md) | How the example Contoso CPER analyzer works |
 | [analyzers/contoso/contoso-cper-sections.md](analyzers/contoso/contoso-cper-sections.md) | Binary layout of the Contoso CPER sections (reference) |
+| [analyzers/contoso/contoso-cpad-actions.md](analyzers/contoso/contoso-cpad-actions.md) | Contoso action IDs, binary parameters, execution timing, and multi-page Page Offline encoding |
+| [analyzers/contoso/memory_shims/memory-vendor-analyzer-shim.md](analyzers/contoso/memory_shims/memory-vendor-analyzer-shim.md) | Common interface and end-to-end flow for all DRAM-vendor analyzer shims |
 | [analyzers/contoso/error-injector-contoso.md](analyzers/contoso/error-injector-contoso.md) | The vendor error-injection tool and its JSON injection spec |
 
 ## Prerequisites

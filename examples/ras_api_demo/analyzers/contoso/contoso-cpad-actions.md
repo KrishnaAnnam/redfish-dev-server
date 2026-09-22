@@ -27,29 +27,29 @@ numeric proprietary ActionID.
 
 Error Injection is the only action that creates an error CPER.
 
-## Lifecycle
+## CPAD Action Processing on the Contoso Endpoint
 
 ```mermaid
 flowchart TD
-    CPAD[Contoso CPAD] --> ID{ActionID}
+    CPAD["Contoso CPAD"] --> ID{"ActionID"}
 
-    ID -->|0x0006| Inject[Inject simulated error]
-    ID -->|0x8001| PPR{PPR type}
-    ID -->|0x8002| Offline[Forward Page Offline to OS]
-    ID -->|0x8003| Queue[Queue retraining for PartitionID]
+    ID -->|0x0006| Inject["Inject simulated<br/>error"]
+    ID -->|0x8001| PPR{"PPR type"}
+    ID -->|0x8002| Offline["Forward Page Offline<br/>to OS"]
+    ID -->|0x8003| Queue["Queue retraining<br/>for PartitionID"]
 
-    Inject --> ErrorCPER[Create error CPER]
-    Inject --> Immediate[Create Platform Action Event]
+    Inject --> ErrorCPER["Create error CPER"]
+    Inject --> Immediate["Create Platform<br/>Action Event"]
     PPR -->|Runtime soft| Immediate
-    PPR -->|Boot-time soft / hard| PPRQueue[Queue PPR for PartitionID]
+    PPR -->|Boot-time<br/>soft / hard| PPRQueue["Queue PPR<br/>for PartitionID"]
     Offline --> Immediate
 
-    Reset[On / Restart / PowerCycle] --> Machine[Reset whole machine]
-    Machine --> Partitions[Reset every configured SoC partition]
-    Partitions --> Retrain[Retrain all memory controllers in affected SoC]
+    Reset["On / Restart /<br/>PowerCycle"] --> Machine["Reset whole<br/>machine"]
+    Machine --> Partitions["Reset every configured<br/>SoC partition"]
+    Partitions --> Retrain["Retrain all memory<br/>controllers in<br/>affected SoC"]
     Queue --> Retrain
-    Retrain --> Deferred[Create Platform Action Event]
-    Partitions --> BootPPR[Apply queued boot-time PPR]
+    Retrain --> Deferred["Create Platform<br/>Action Event"]
+    Partitions --> BootPPR["Apply queued<br/>boot-time PPR"]
     PPRQueue --> BootPPR
     BootPPR --> Deferred
 ```
@@ -109,6 +109,11 @@ uint8_t  bank_group;
 uint8_t  bank;
 uint32_t row;
 ```
+
+Every field above is an explicit action parameter. A memory-vendor analyzer
+that recommends PPR must return `ppr_type` and all target coordinates. The
+Contoso CPAD builder validates and encodes those values; it does not copy them
+from the memory-error section referenced for CPAD header and FRU context.
 
 `ppr_type` uses the same bit value as the memory CPER's
 `memory_repair_capabilities` field:
@@ -223,10 +228,11 @@ uint16_t chunk_index;
 uint16_t chunk_count;
 ```
 
-The batch ID is derived deterministically from the source CPER reference and
-canonical page set. Each chunk is independently idempotent and produces its
-own Platform Action Event. Chunking does not promise all-or-nothing behavior;
-failed chunks can be retried without repeating successful chunks.
+The batch ID is derived deterministically from the action request's canonical
+page set rather than from memory-error section-body data. Each chunk is
+independently idempotent and produces its own Platform Action Event. Chunking
+does not promise all-or-nothing behavior; failed chunks can be retried without
+repeating successful chunks.
 
 Multiple CPADs are preferred over multiple sections in one large CPAD because
 they bound the Redfish request size and simplify policy, retry, and
@@ -242,9 +248,9 @@ demo does not model a later OS acknowledgment or maintain an offline-page
 inventory. The endpoint immediately emits a Platform Action Event.
 
 The analyzer exposes a Page Offline CPAD builder. Automatic selection policy is
-not yet defined. The direct builder creates a one-page range from the referenced
-error address. A memory-vendor shim can request multiple explicit
-`page_ranges`; the same encoder handles both paths.
+not yet defined. An analyzer that recommends Page Offline must place every page
+range in the action request. The CPAD builder never obtains missing page
+addresses from the referenced memory-error section.
 
 The analyzer and endpoint independently validate the representation. Addresses
 must be below `2^52`; ranges must not overflow the 40-bit PFN space; PFN lists
@@ -296,16 +302,17 @@ policy is not yet defined.
 - `create_page_offline_cpad_from_memory_event`
 - `create_reboot_with_retraining_cpad_from_memory_event`
 
-The compatibility-named `create_sppr_cpad_from_memory_event` creates a generic
-PPR action with `ppr_type=0x01`. Remediation builders encode the independent
-action-parameter section rather than copying the memory-error body. Page
-Offline obtains its physical address from the source event. Retraining uses the
-CPAD PartitionID as its execution scope.
+The compatibility-named `create_sppr_cpad_from_memory_event` is an analyzer-side
+helper: it converts decoded error data into a complete runtime-soft-PPR
+parameter object before invoking the CPAD builder. Remediation builders encode
+the independent action-parameter section without reading the original
+memory-error body. Retraining uses the CPAD PartitionID as its execution scope.
 
 ## Related Documentation
 
 - [Contoso CPER Sections](contoso-cper-sections.md)
 - [Contoso Analyzer Design](Analyzer-Design.md)
+- [Memory Vendor Analyzer Shim Interface](memory_shims/memory-vendor-analyzer-shim.md)
 - [CPAD Submission](../../CPAD_SUBMISSION.md)
 - [Policy Engine](../../POLICY_ENGINE.md)
 - [RAS Plugin](../../../../src/plugins/ras/README.md)

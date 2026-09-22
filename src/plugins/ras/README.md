@@ -44,18 +44,18 @@ own provider without adding their action logic to the generic submit handler.
 
 ```mermaid
 flowchart LR
-    Client[Policy-approved CPAD] --> Submit[SubmitCPAD Redfish action]
-    Submit --> Validate[Validate CPAD envelope]
-    Validate --> Endpoint[Find endpoint by PartitionID]
-    Endpoint --> Owner[Verify CreatorID ownership]
-    Owner --> Select[Select provider by CreatorID]
-    Select --> Provider[Vendor action provider]
+    Client["Policy-approved<br/>CPAD"] --> Submit["SubmitCPAD<br/>Redfish action"]
+    Submit --> Validate["Validate CPAD<br/>envelope"]
+    Validate --> Endpoint["Find endpoint by<br/>PartitionID"]
+    Endpoint --> Owner["Verify CreatorID<br/>ownership"]
+    Owner --> Select["Select provider by<br/>CreatorID"]
+    Select --> Provider["Vendor action<br/>provider"]
 
-    Provider -->|Completed| ActionEvent[Platform Action Event CPER]
-    Provider -->|Pending| Pending[Pending vendor action]
-    Provider -->|Failed| FailedEvent[Failed Platform Action Event CPER]
+    Provider -->|Completed| ActionEvent["Platform Action<br/>Event CPER"]
+    Provider -->|Pending| Pending["Pending vendor<br/>action"]
+    Provider -->|Failed| FailedEvent["Failed Platform<br/>Action Event CPER"]
 
-    Submit -->|ActionID 0x0006 only| ErrorCPER[Error CPER]
+    Submit -->|"ActionID 0x0006<br/>only"| ErrorCPER["Error CPER"]
 ```
 
 HTTP `202 Accepted` means the endpoint accepted the CPAD for processing. It

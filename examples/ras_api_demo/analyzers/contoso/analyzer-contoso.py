@@ -298,8 +298,8 @@ class ContosoAnalyzer:
             source_event,
         )
         return self._build_action_cpads(
-            source_event,
             target_event["header"],
+            source_event.get("section_descriptor", {}),
             request["action_id"],
             request["confidence"],
             request["parameters"],
@@ -1162,14 +1162,14 @@ class ContosoAnalyzer:
                 print(f"  📊 PPR confidence: {confidence}% "
                       f"({distinct_columns} distinct column address(es) on the row)")
             sppr_cpad = self._build_action_cpad(
-                event,
                 cper_data.get("header", {}),
+                event.get("section_descriptor", {}),
                 contoso_action_parameters.PPR_ACTION_ID,
                 confidence,
-                {
-                    "ppr_type":
-                        contoso_action_parameters.PPR_TYPE_SOFT_RUNTIME,
-                },
+                self._ppr_parameters_from_event(
+                    event,
+                    contoso_action_parameters.PPR_TYPE_SOFT_RUNTIME,
+                ),
             )
             if record_location:
                 self._add_to_seen_locations(memory_location)
@@ -1274,8 +1274,8 @@ class ContosoAnalyzer:
             output_stem: Optional[str]) -> Optional[str]:
         """Write paired JSON and binary output for one Contoso memory action."""
         action_cpad = self._build_action_cpad(
-            event,
             cper_data.get("header", {}),
+            event.get("section_descriptor", {}),
             action_id,
             confidence,
             parameters,
@@ -1324,34 +1324,55 @@ class ContosoAnalyzer:
             raise ValueError(
                 f"section {section_index} is not a Contoso memory error")
         return self._build_action_cpad(
-            event,
             cper_data.get("header", {}),
+            event.get("section_descriptor", {}),
             contoso_action_parameters.PPR_ACTION_ID,
             confidence,
-            {
-                "ppr_type":
-                    contoso_action_parameters.PPR_TYPE_SOFT_RUNTIME,
-            },
+            self._ppr_parameters_from_event(
+                event,
+                contoso_action_parameters.PPR_TYPE_SOFT_RUNTIME,
+            ),
         )
+
+    @staticmethod
+    def _ppr_parameters_from_event(
+            event: Dict[str, Any], ppr_type: int) -> Dict[str, int]:
+        """Materialize complete PPR parameters from decoded analysis input."""
+        error = event.get("memory_error", {})
+        subcomponent = error.get("subcomponent", {})
+        additional = error.get("additional", {})
+        return {
+            "ppr_type": ppr_type,
+            "chiplet": subcomponent.get("chiplet"),
+            "controller": subcomponent.get("controller"),
+            "channel": additional.get("channel"),
+            "dimm": additional.get("dimm"),
+            "subchannel": additional.get("subchannel"),
+            "rank": additional.get("rank"),
+            "device": additional.get("device"),
+            "bank_group": additional.get("bank_group"),
+            "bank": additional.get("bank"),
+            "row": additional.get("row"),
+        }
 
     def _build_action_cpad(
             self,
-            source_event: Dict[str, Any],
-            target_header: Dict[str, Any],
+            header_context: Dict[str, Any],
+            fru_context: Dict[str, Any],
             action_id: str,
             confidence: int,
             parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Build one CPAD for an action that does not require chunking."""
         cpads = self._build_action_cpads(
-            source_event, target_header, action_id, confidence, parameters)
+            header_context, fru_context, action_id, confidence, parameters)
         if len(cpads) != 1:
             raise ValueError("Contoso action requires multiple CPADs")
         return cpads[0]
 
     def _build_action_cpads(
             self,
-            source_event: Dict[str, Any],
-            target_header: Dict[str, Any],
+            header_context: Dict[str, Any],
+            fru_context: Dict[str, Any],
             action_id: str,
             confidence: int,
             parameters: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -1369,11 +1390,11 @@ class ContosoAnalyzer:
             return str(data) if data else ''
 
         for field in ('platformID', 'creatorID', 'partitionID'):
-            value = target_header.get(field)
+            value = header_context.get(field)
             if value:
                 action_cpad['header'][field] = _extract_id(value)
 
-        cper_timestamp_str = target_header.get(
+        cper_timestamp_str = header_context.get(
             'timestamp', datetime.now().isoformat())
         try:
             dt = datetime.fromisoformat(cper_timestamp_str.replace('Z', '+00:00'))
@@ -1385,10 +1406,9 @@ class ContosoAnalyzer:
         action_cpad['header']['timestamp'] = new_timestamp
         action_cpad['header']['recordID'] = time.time_ns()
         action_desc = action_cpad['sectionDescriptors'][0]
-        source_desc = source_event.get("section_descriptor", {})
         for field in ("fruID", "fruText"):
-            if field in source_desc:
-                action_desc[field] = source_desc[field]
+            if field in fru_context:
+                action_desc[field] = fru_context[field]
 
         action_definitions = {
             contoso_action_parameters.PPR_ACTION_ID:
@@ -1408,7 +1428,7 @@ class ContosoAnalyzer:
         }
 
         bodies = contoso_action_parameters.encode_action_parameter_bodies(
-            action_id, source_event, parameters)
+            action_id, parameters)
         CPAD_SINGLE_SECTION_OFFSET = 202
         cpads = []
         base_record_id = action_cpad['header']['recordID']

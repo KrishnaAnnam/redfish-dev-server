@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import struct
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Tuple
 
 
 CONTOSO_ACTION_PARAMETER_GUID = "a813b17b-db08-416b-810c-172668affb28"
@@ -27,6 +27,19 @@ _PARAMETER_VERSION = 1
 _HEADER_FORMAT = "<BBHBBH"
 _HEADER_SIZE = struct.calcsize(_HEADER_FORMAT)
 _PPR_FORMAT = "<BHHBBBBBBBI"
+_PPR_FIELDS = (
+    "ppr_type",
+    "chiplet",
+    "controller",
+    "channel",
+    "dimm",
+    "subchannel",
+    "rank",
+    "device",
+    "bank_group",
+    "bank",
+    "row",
+)
 
 PHYSICAL_ADDRESS_BITS = 52
 PAGE_SHIFT = 12
@@ -58,12 +71,6 @@ def _require_int(
     if not minimum <= value <= maximum:
         raise ValueError(f"{name} must be in the range {minimum}..{maximum}")
     return value
-
-
-def _memory_error(event: Dict[str, Any]) -> Dict[str, Any]:
-    if event.get("event_type") != "memory_error":
-        raise ValueError("Contoso action requires a memory-error source event")
-    return event["memory_error"]
 
 
 def _pack_header(payload: bytes) -> bytes:
@@ -182,13 +189,10 @@ def _candidate_encoding(
     return min(candidates, default=None)
 
 
-def _batch_id(event: Dict[str, Any], ranges: List[Tuple[int, int]]) -> int:
+def _batch_id(ranges: List[Tuple[int, int]]) -> int:
     digest = hashlib.sha256()
-    header = event.get("header", {})
-    for field in ("creatorID", "platformID", "partitionID", "recordID"):
-        digest.update(str(header.get(field, "")).encode("utf-8"))
-        digest.update(b"\0")
-    digest.update(str(event.get("section_index", 0)).encode("ascii"))
+    digest.update(PAGE_OFFLINE_ACTION_ID.encode("ascii"))
+    digest.update(b"\0")
     for start, count in ranges:
         digest.update(start.to_bytes(PFN_BYTES, "little"))
         digest.update(struct.pack("<Q", count))
@@ -247,7 +251,6 @@ def _encode_page_chunk(
 
 
 def _page_offline_bodies(
-        event: Dict[str, Any],
         parameters: Dict[str, Any]) -> List[bytes]:
     ranges = _split_large_ranges(_normalized_page_ranges(parameters))
     whole = _candidate_encoding(ranges, chunked=False)
@@ -273,7 +276,7 @@ def _page_offline_bodies(
     if len(chunks) > 0xFFFF:
         raise ValueError("Page Offline request requires too many CPAD chunks")
 
-    batch_id = _batch_id(event, ranges)
+    batch_id = _batch_id(ranges)
     bodies = []
     for index, chunk in enumerate(chunks):
         candidate = _candidate_encoding(chunk, chunked=True)
@@ -287,12 +290,52 @@ def _page_offline_bodies(
     return bodies
 
 
+def _encode_ppr_parameters(parameters: Dict[str, Any]) -> List[bytes]:
+    if set(parameters) != set(_PPR_FIELDS):
+        raise ValueError(
+            "PPR parameters must contain exactly " + ", ".join(_PPR_FIELDS))
+    ppr_type = _require_int(parameters["ppr_type"], "ppr_type", 1, 4)
+    if ppr_type not in PPR_TYPES:
+        raise ValueError("ppr_type must be one of 0x01, 0x02, or 0x04")
+    payload = struct.pack(
+        _PPR_FORMAT,
+        ppr_type,
+        _require_int(parameters.get("chiplet"), "chiplet", 0, 0xFFFF),
+        _require_int(
+            parameters.get("controller"), "controller", 0, 0xFFFF),
+        _require_int(parameters.get("channel"), "channel", 0, 0xFF),
+        _require_int(parameters.get("dimm"), "dimm", 0, 0xFF),
+        _require_int(parameters.get("subchannel"), "subchannel", 0, 0xFF),
+        _require_int(parameters.get("rank"), "rank", 0, 0xFF),
+        _require_int(parameters.get("device"), "device", 0, 0xFF),
+        _require_int(parameters.get("bank_group"), "bank_group", 0, 0xFF),
+        _require_int(parameters.get("bank"), "bank", 0, 0xFF),
+        _require_int(parameters.get("row"), "row", 0, 0xFFFFFFFF),
+    )
+    return [_pack_header(payload)]
+
+
+def _encode_retraining_parameters(parameters: Dict[str, Any]) -> List[bytes]:
+    if parameters:
+        raise ValueError(
+            "Reboot with Memory Retraining parameters must be empty")
+    return [_pack_header(b"")]
+
+
+ACTION_PARAMETER_CODECS: Dict[
+    str, Callable[[Dict[str, Any]], List[bytes]]
+] = {
+    PPR_ACTION_ID: _encode_ppr_parameters,
+    PAGE_OFFLINE_ACTION_ID: _page_offline_bodies,
+    REBOOT_WITH_RETRAINING_ACTION_ID: _encode_retraining_parameters,
+}
+
+
 def encode_action_parameters(
         action_id: str,
-        event: Dict[str, Any],
         parameters: Dict[str, Any]) -> bytes:
-    """Build one action-specific payload from a referenced decoded CPER event."""
-    bodies = encode_action_parameter_bodies(action_id, event, parameters)
+    """Build one action-specific payload from complete action parameters."""
+    bodies = encode_action_parameter_bodies(action_id, parameters)
     if len(bodies) != 1:
         raise ValueError(
             "action requires multiple CPADs; use encode_action_parameter_bodies")
@@ -301,50 +344,15 @@ def encode_action_parameters(
 
 def encode_action_parameter_bodies(
         action_id: str,
-        event: Dict[str, Any],
         parameters: Dict[str, Any]) -> List[bytes]:
-    """Build one or more action bodies from a referenced decoded CPER event."""
+    """Build one or more action bodies from complete action parameters."""
     if not isinstance(parameters, dict):
         raise ValueError("action parameters must be an object")
-    error = _memory_error(event)
-    additional = error["additional"]
-    subcomponent = error["subcomponent"]
-
-    if action_id == PPR_ACTION_ID:
-        if set(parameters) != {"ppr_type"}:
-            raise ValueError("PPR parameters must contain only ppr_type")
-        ppr_type = _require_int(parameters["ppr_type"], "ppr_type", 1, 4)
-        if ppr_type not in PPR_TYPES:
-            raise ValueError("ppr_type must be one of 0x01, 0x02, or 0x04")
-        payload = struct.pack(
-            _PPR_FORMAT,
-            ppr_type,
-            _require_int(subcomponent.get("chiplet"), "chiplet", 0, 0xFFFF),
-            _require_int(
-                subcomponent.get("controller"), "controller", 0, 0xFFFF),
-            _require_int(additional.get("channel"), "channel", 0, 0xFF),
-            _require_int(additional.get("dimm"), "dimm", 0, 0xFF),
-            _require_int(
-                additional.get("subchannel"), "subchannel", 0, 0xFF),
-            _require_int(additional.get("rank"), "rank", 0, 0xFF),
-            _require_int(additional.get("device"), "device", 0, 0xFF),
-            _require_int(
-                additional.get("bank_group"), "bank_group", 0, 0xFF),
-            _require_int(additional.get("bank"), "bank", 0, 0xFF),
-            _require_int(additional.get("row"), "row", 0, 0xFFFFFFFF),
-        )
-        return [_pack_header(payload)]
-
-    if action_id == PAGE_OFFLINE_ACTION_ID:
-        return _page_offline_bodies(event, parameters)
-
-    if action_id == REBOOT_WITH_RETRAINING_ACTION_ID:
-        if parameters:
-            raise ValueError(
-                "Reboot with Memory Retraining parameters must be empty")
-        return [_pack_header(b"")]
-
-    raise ValueError(f"unsupported Contoso action {action_id}")
+    try:
+        codec = ACTION_PARAMETER_CODECS[action_id]
+    except KeyError as exc:
+        raise ValueError(f"unsupported Contoso action {action_id}") from exc
+    return codec(parameters)
 
 
 def decode_action_parameters(action_id: str, body: bytes) -> Dict[str, int]:

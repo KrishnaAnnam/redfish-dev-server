@@ -1,7 +1,7 @@
 """Stub shim for SK Hynix memory-vendor analysis."""
 
 SHIM_INFO = {
-    "api_version": 2,
+    "api_version": 3,
     "name": "SK Hynix Memory Analyzer Shim",
     "version": "0.1.0",
     "dram_manufacturer_ids": [[0x80, 0xAD]],

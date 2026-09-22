@@ -1,7 +1,7 @@
 """Stub shim for Micron memory-vendor analysis."""
 
 SHIM_INFO = {
-    "api_version": 2,
+    "api_version": 3,
     "name": "Micron Memory Analyzer Shim",
     "version": "0.1.0",
     "dram_manufacturer_ids": [[0x80, 0x2C]],

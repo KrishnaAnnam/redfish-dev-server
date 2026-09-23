@@ -139,10 +139,12 @@ def test_contoso_memory_action_builders_emit_distinct_action_ids():
     analyzer = ContosoAnalyzer.__new__(ContosoAnalyzer)
     analyzer.sppr_template_path = (
         ANALYZER_PATH.parents[2] / "cpad_storage" / "spprTemplate.json")
+    converted_cpads = []
 
     class StubDecoder:
         @staticmethod
-        def _convert_json_to_binary_cpad(_json_path, binary_path):
+        def _convert_json_to_binary_cpad(json_path, binary_path):
+            converted_cpads.append(json.loads(Path(json_path).read_text()))
             Path(binary_path).write_bytes(b"CPAD")
             return binary_path
 
@@ -159,11 +161,7 @@ def test_contoso_memory_action_builders_emit_distinct_action_ids():
 
         assert Path(page_path).read_bytes() == b"CPAD"
         assert Path(retrain_path).read_bytes() == b"CPAD"
-        page_json = json.loads(
-            (analyzer.output_dir / "page_page_offline_cpad.json").read_text())
-        retrain_json = json.loads(
-            (analyzer.output_dir /
-             "retrain_reboot_with_retraining_cpad.json").read_text())
+        page_json, retrain_json = converted_cpads
         assert page_json["sectionDescriptors"][0]["actionID"] == (
             contoso_catalog.PAGE_OFFLINE_ACTION)
         assert retrain_json["sectionDescriptors"][0]["actionID"] == (
@@ -174,6 +172,7 @@ def test_contoso_memory_action_builders_emit_distinct_action_ids():
         assert retrain_json["sectionDescriptors"][0]["sectionType"]["data"] == (
             ANALYZER_MODULE.contoso_action_parameters.
             CONTOSO_ACTION_PARAMETER_GUID)
+        assert list(analyzer.output_dir.glob("*.json")) == []
         ppr_body = base64.b64decode(
             ppr_json["sections"][0]["Unknown"]["data"], validate=True)
         ppr_parameters = (

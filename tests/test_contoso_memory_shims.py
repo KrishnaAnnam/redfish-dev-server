@@ -827,16 +827,19 @@ def test_large_page_offline_request_builds_multiple_correlated_cpads():
         0, 1, 2, 3]
 
 
-def test_emits_paired_shim_json_and_binary_files():
+def test_emits_only_binary_shim_files():
     with tempfile.TemporaryDirectory() as directory:
         analyzer = ContosoAnalyzer(output_dir=directory)
         event = decode_memory_events(_records(_memory_cper()))[0]
         shim = FakeShim()
         cpad = _cpad_for_event(event)
+        converted_cpads = []
 
         class Decoder:
             @staticmethod
             def _convert_json_to_binary_cpad(json_path, binary_path):
+                converted_cpads.append(json.loads(
+                    Path(json_path).read_text()))
                 Path(binary_path).write_bytes(b"CPAD")
                 return binary_path
 
@@ -844,10 +847,10 @@ def test_emits_paired_shim_json_and_binary_files():
         outputs = analyzer.emit_shim_cpads([(shim, cpad)], "source")
 
         binary = Path(outputs[0])
-        paired_json = binary.with_suffix(".json")
         assert binary.name == "source_micron_1_cpad.cpad"
         assert binary.read_bytes() == b"CPAD"
-        assert json.loads(paired_json.read_text())["header"] == cpad["header"]
+        assert converted_cpads[0]["header"] == cpad["header"]
+        assert list(Path(directory).glob("*.json")) == []
 
 
 def test_one_vendor_emission_failure_preserves_other_vendor_outputs():
@@ -886,8 +889,7 @@ def test_one_vendor_emission_failure_preserves_other_vendor_outputs():
         assert len(errors) == 1
         assert result["handled_manufacturers"] == {tuple(MICRON)}
         assert result["failed_manufacturers"] == {tuple(SAMSUNG)}
-        assert (Path(directory) / "source_micron_802c_1_cpad.json").exists()
-        assert not (Path(directory) / "source_samsung_80ce_1_cpad.json").exists()
+        assert list(Path(directory).glob("*.json")) == []
 
 
 def test_multi_id_shim_outputs_have_distinct_names():
@@ -999,7 +1001,7 @@ def test_vendor_action_takes_precedence_over_sibling_generation_failure():
     assert "Recommendation:     No action emitted" not in report
 
 
-def test_orchestrator_pairs_each_binary_with_matching_json():
+def test_orchestrator_routes_binary_cpads_without_json_sidecars():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         analyzer_dir = root / "analyzer"
@@ -1009,28 +1011,45 @@ def test_orchestrator_pairs_each_binary_with_matching_json():
         cper_path = destination / "newest.cper"
         cper_path.write_bytes(b"CPER")
         (analyzer_dir / "run_analysis.json").write_text("{}")
+        unexpected_json = analyzer_dir / "run_micron_1_cpad.json"
+        unexpected_json.write_text("{}")
         for stem in ("run_micron_1_cpad", "run_samsung_1_cpad"):
-            (analyzer_dir / f"{stem}.json").write_text("{}")
             (analyzer_dir / f"{stem}.cpad").write_bytes(b"CPAD")
 
         orchestrator = AnalysisOrchestrator.__new__(AnalysisOrchestrator)
-        pairs = []
-        orchestrator._policy_and_submit = lambda **kwargs: pairs.append(kwargs)
+        routed = []
+        orchestrator._policy_and_submit = lambda **kwargs: routed.append(kwargs)
 
         orchestrator._handle_outputs(analyzer_dir, cper_path)
 
-        assert [(pair["cpad_binary"].stem, pair["cpad_json"].stem)
-                for pair in pairs] == [
-            ("run_micron_1_cpad", "run_micron_1_cpad"),
-            ("run_samsung_1_cpad", "run_samsung_1_cpad"),
+        assert [item["cpad_binary"].stem for item in routed] == [
+            "run_micron_1_cpad",
+            "run_samsung_1_cpad",
         ]
+        assert (destination / "run_analysis.json").exists()
+        assert not unexpected_json.exists()
+        assert not (destination / unexpected_json.name).exists()
 
 
-def test_orchestrator_never_submits_unpaired_binary_without_policy():
+def test_orchestrator_sends_binary_cpad_to_policy_and_honors_denial():
     with tempfile.TemporaryDirectory() as directory:
-        binary = Path(directory) / "unpaired.cpad"
+        binary = Path(directory) / "proposed.cpad"
         binary.write_bytes(b"CPAD")
         orchestrator = AnalysisOrchestrator.__new__(AnalysisOrchestrator)
+
+        class DeniedDecision:
+            reason = "not permitted"
+
+            def __bool__(self):
+                return False
+
+        class Policy:
+            def __init__(self):
+                self.calls = []
+
+            def evaluate_cpad(self, path):
+                self.calls.append(path)
+                return DeniedDecision()
 
         class Submitter:
             def __init__(self):
@@ -1039,18 +1058,20 @@ def test_orchestrator_never_submits_unpaired_binary_without_policy():
             def submit(self, *args, **kwargs):
                 self.called = True
 
-        orchestrator.policy_engine = None
+        orchestrator.policy_engine = Policy()
         orchestrator.submitter = Submitter()
         rejections = []
         orchestrator._emit_policy_rejection_cper = (
             lambda cpad, decision: rejections.append((cpad, decision)))
 
         with contextlib.redirect_stdout(io.StringIO()):
-            orchestrator._policy_and_submit(
-                cpad_binary=binary, cpad_json=None)
+            orchestrator._policy_and_submit(cpad_binary=binary)
 
+        assert orchestrator.policy_engine.calls == [str(binary)]
         assert orchestrator.submitter.called is False
-        assert rejections == [(binary, None)]
+        assert len(rejections) == 1
+        assert rejections[0][0] == binary
+        assert isinstance(rejections[0][1], DeniedDecision)
 
 
 if __name__ == "__main__":

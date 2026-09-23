@@ -49,8 +49,8 @@ the analyzer with it. The analyzer processes the CPERs and writes its outputs
 collects whatever this run produced):
 
 - exactly **one `.json`** — the analysis result/report, and
-- **zero or more paired CPAD outputs** — each action has one
-  `<name>_cpad.json` and one `<name>_cpad.cpad` file.
+- **zero or more binary CPAD outputs** — each action has one
+  `<name>_cpad.cpad` file.
 
 Exit code is 0 on success, non-zero on failure.
 
@@ -283,11 +283,11 @@ bitmap encoding. The CPAD envelope targets the most recent memory-error
 PartitionID in the shim's event window. Large page sets may create multiple
 batch-correlated CPADs. Exact duplicate resulting CPADs are emitted once.
 
-Each CPAD is written as a paired JSON/binary output named
-`<source>_<vendor>_<manufacturer-id>_<sequence>_cpad.{json,cpad}`. Including
-the manufacturer ID prevents collisions when one shim registers multiple IDs.
-The AO pairs files by stem, evaluates each JSON CPAD against policy, and submits
-its matching binary CPAD.
+Each CPAD is written as a binary output named
+`<source>_<vendor>_<manufacturer-id>_<sequence>_cpad.cpad`. Including the
+manufacturer ID prevents collisions when one shim registers multiple IDs. The
+AO passes each binary CPAD to policy, which decodes its header and section
+descriptors before deciding whether the same binary may be submitted.
 
 A valid empty action-request list means the vendor shim successfully analyzed
 the events and recommends no action. The default failing-row detector does not

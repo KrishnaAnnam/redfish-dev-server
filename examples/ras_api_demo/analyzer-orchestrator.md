@@ -117,10 +117,10 @@ inclusive range `[timestamp − prior_days, timestamp]`.
 - Before invoking an analyzer, the AO **deletes any pre-existing `.json`/`.cpad`
   files** from the analyzer's own directory, so anything present afterward is
   definitively this run's output.
-- Each run produces one analysis manifest and zero or more paired
-  `<name>_cpad.json`/`<name>_cpad.cpad` action outputs.
+- Each run produces one analysis manifest and zero or more binary
+  `<name>_cpad.cpad` action outputs.
 - On success (`_handle_outputs`):
-  - a produced `.json` is **moved** into the triggering CPER's directory;
+  - the analysis `.json` is **moved** into the triggering CPER's directory;
   - a produced `.cpad` is **moved** into the same directory, then passed to
     `_policy_and_submit`.
 - `_policy_and_submit` evaluates the CPAD with the injected `policy_engine`
@@ -142,7 +142,7 @@ A new analyzer `analyzer-<vendor>.py` must support:
    newest-first, `newest_cper`, `creator_id`, `newest_timestamp`, `prior_days`),
    analyze, and write outputs **next to the script**:
    - exactly one `.json` (analysis result), and
-  - zero or more paired CPAD JSON/binary outputs, created only when warranted.
+  - zero or more binary `.cpad` outputs, created only when warranted.
 3. Exit code 0 on success, non-zero on failure.
 
 See [analyzers/contoso/Analyzer-Design.md](analyzers/contoso/Analyzer-Design.md)

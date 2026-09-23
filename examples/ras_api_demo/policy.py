@@ -12,16 +12,17 @@ Tables (see ``policy_tables/`` and POLICY_ENGINE.md):
   * actions.json   — CreatorID -> ActionID -> {name, permitted,
                      [confidence_threshold], supported_platforms}
 
-Standalone module — no server dependencies.  Operates on local JSON files.
+Standalone module — no server dependencies.  Decodes local binary CPADs and
+evaluates them against local JSON policy tables.
 
 Usage (standalone):
-    python examples/ras_api_demo/policy.py path/to/cpad.json
-    python examples/ras_api_demo/policy.py --creators c.json --actions a.json cpad.json
+    python examples/ras_api_demo/policy.py path/to/action.cpad
+    python examples/ras_api_demo/policy.py --creators c.json --actions a.json action.cpad
 
 Usage (from orchestrator):
     from policy import PolicyEngine
     engine = PolicyEngine()
-    decision = engine.evaluate_cpad("path/to/cpad.json")
+    decision = engine.evaluate_cpad("path/to/action.cpad")
     if decision.allowed:
         ...
 """
@@ -33,6 +34,8 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from cper_decoder import CperDecoder
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,7 @@ class PolicyDecision:
     platform_id: str = ""
     action_id: str = ""
     action_name: Optional[str] = None
+    fru_text: str = ""
     confidence: int = 0
     threshold: Optional[int] = None       # applied confidence threshold (None if not gated)
     # Platform Action codes to stamp on the rejection CPER (only used on deny).
@@ -73,10 +77,11 @@ class PolicyEngine:
 
     Loads a trusted-creator table and an action table (indexed by CreatorID and
     ActionID) from JSON files, then evaluates each CPAD's header and section
-    descriptors against them.  It never inspects the opaque CPAD section body.
+    descriptors against them. It never interprets the opaque CPAD section body.
     """
 
-    def __init__(self, creators_path=None, actions_path=None, verbose=True):
+    def __init__(self, creators_path=None, actions_path=None, verbose=True,
+                 decoder=None):
         """Initialize the policy engine and load the policy tables.
 
         Args:
@@ -85,12 +90,15 @@ class PolicyEngine:
             actions_path:  Path to the action table JSON
                            (defaults to policy_tables/actions.json).
             verbose:       Whether to display detailed output.
+            decoder:       Optional binary CPAD decoder for dependency
+                           injection; defaults to CperDecoder.
         """
         self.verbose = verbose
         self.creators_path = Path(creators_path) if creators_path else DEFAULT_CREATORS_PATH
         self.actions_path = Path(actions_path) if actions_path else DEFAULT_ACTIONS_PATH
         self.creators = self._load_table(self.creators_path)
         self.actions = self._load_table(self.actions_path)
+        self.decoder = decoder or CperDecoder(verbose=False)
 
     @staticmethod
     def _load_table(path):
@@ -109,10 +117,10 @@ class PolicyEngine:
     # ─── Public API ─────────────────────────────────────────────────────
 
     def evaluate_cpad(self, cpad_file_path) -> "PolicyDecision":
-        """Evaluate a CPAD JSON file against the policy tables.
+        """Evaluate a binary CPAD file against the policy tables.
 
         Args:
-            cpad_file_path: Path to the CPAD JSON file.
+            cpad_file_path: Path to the binary CPAD file.
 
         Returns:
             PolicyDecision: allowed/denied plus the reason and the codes to
@@ -122,11 +130,10 @@ class PolicyEngine:
         if not cpad_path.exists():
             return PolicyDecision(False, reason=f"CPAD file not found: {cpad_path}")
 
-        try:
-            with open(cpad_path, "r") as f:
-                cpad_data = json.load(f)
-        except json.JSONDecodeError as e:
-            return PolicyDecision(False, reason=f"Invalid JSON in CPAD file: {e}")
+        cpad_data = self.decoder.extract_cpad_data(str(cpad_path))
+        if not isinstance(cpad_data, dict):
+            return PolicyDecision(
+                False, reason=f"Could not decode binary CPAD: {cpad_path}")
 
         header = cpad_data.get("header", {})
         creator_id = self._normalize_guid(header.get("creatorID", ""))
@@ -153,7 +160,8 @@ class PolicyEngine:
         creator = self.creators.get(creator_id)
         if not creator or not creator.get("trusted", False):
             return self._deny(creator_id, platform_id, action_id, None, confidence, None,
-                              f"Creator {creator_id} is not a trusted creator")
+                              f"Creator {creator_id} is not a trusted creator",
+                              fru_text)
         if self.verbose:
             print(f"\n   Rule 1: Creator trusted — {creator.get('name', creator_id)}")
 
@@ -161,7 +169,8 @@ class PolicyEngine:
         action = self.actions.get(creator_id, {}).get(action_id)
         if action is None:
             return self._deny(creator_id, platform_id, action_id, None, confidence, None,
-                              f"Action {action_id} is not defined for creator {creator_id}")
+                              f"Action {action_id} is not defined for creator {creator_id}",
+                              fru_text)
         action_name = action.get("name", action_id)
         if self.verbose:
             print(f"   Rule 2: Action known — {action_name}")
@@ -169,7 +178,8 @@ class PolicyEngine:
         # Rule 3 — Action permitted.
         if not action.get("permitted", False):
             return self._deny(creator_id, platform_id, action_id, action_name, confidence, None,
-                              f"Action '{action_name}' is not permitted")
+                              f"Action '{action_name}' is not permitted",
+                              fru_text)
         if self.verbose:
             print(f"   Rule 3: Action permitted")
 
@@ -177,7 +187,8 @@ class PolicyEngine:
         supported = [self._normalize_guid(p) for p in action.get("supported_platforms", [])]
         if platform_id not in supported:
             return self._deny(creator_id, platform_id, action_id, action_name, confidence, None,
-                              f"Platform {platform_id} is not supported for '{action_name}'")
+                              f"Platform {platform_id} is not supported for '{action_name}'",
+                              fru_text)
         if self.verbose:
             print(f"   Rule 4: Platform supported")
 
@@ -187,7 +198,8 @@ class PolicyEngine:
             if confidence < threshold:
                 return self._deny(creator_id, platform_id, action_id, action_name,
                                   confidence, threshold,
-                                  f"Confidence {confidence} is below threshold {threshold}")
+                                  f"Confidence {confidence} is below threshold {threshold}",
+                                  fru_text)
             if self.verbose:
                 print(f"   Rule 5: Confidence {confidence} >= threshold {threshold}")
         elif self.verbose:
@@ -199,6 +211,7 @@ class PolicyEngine:
             print(f"{'─' * 80}")
         return PolicyDecision(True, creator_id=creator_id, platform_id=platform_id,
                               action_id=action_id, action_name=action_name,
+                              fru_text=fru_text,
                               confidence=confidence, threshold=threshold)
 
     def evaluate_multiple_cpads(self, cpad_files) -> List[Tuple[Any, "PolicyDecision"]]:
@@ -208,7 +221,7 @@ class PolicyEngine:
     # ─── Internal Helpers ───────────────────────────────────────────────
 
     def _deny(self, creator_id, platform_id, action_id, action_name,
-              confidence, threshold, reason) -> "PolicyDecision":
+              confidence, threshold, reason, fru_text="") -> "PolicyDecision":
         """Build (and, if verbose, print) a DENIED decision."""
         if self.verbose:
             print(f"\n{'─' * 80}")
@@ -216,7 +229,8 @@ class PolicyEngine:
             print(f"{'─' * 80}")
         return PolicyDecision(False, reason=reason, creator_id=creator_id,
                               platform_id=platform_id, action_id=action_id,
-                              action_name=action_name, confidence=confidence,
+                              action_name=action_name, fru_text=fru_text,
+                              confidence=confidence,
                               threshold=threshold)
 
     @staticmethod
@@ -264,7 +278,8 @@ def main():
     """Command-line interface for standalone policy evaluation."""
     parser = argparse.ArgumentParser(
         description="Evaluate CPAD file(s) against the policy tables.")
-    parser.add_argument("cpad_files", nargs="+", help="CPAD JSON file(s) to evaluate")
+    parser.add_argument(
+        "cpad_files", nargs="+", help="Binary CPAD file(s) to evaluate")
     parser.add_argument("--creators", help="Path to the creators table JSON")
     parser.add_argument("--actions", help="Path to the actions table JSON")
     args = parser.parse_args()

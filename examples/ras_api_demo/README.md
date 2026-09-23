@@ -215,11 +215,11 @@ To reset between runs, the launcher calls
 Some modules can be run independently:
 
 ```bash
-# Run a policy check on one or more CPAD JSON files (rule-by-rule trace).
+# Run a policy check on one or more binary CPAD files (rule-by-rule trace).
 # Exit code is 0 if every CPAD is approved, 1 otherwise.
-python examples/ras_api_demo/policy.py path/to/cpad.json [more.json ...]
+python examples/ras_api_demo/policy.py path/to/action.cpad [more.cpad ...]
 # Optionally override the policy tables:
-python examples/ras_api_demo/policy.py --creators c.json --actions a.json cpad.json
+python examples/ras_api_demo/policy.py --creators c.json --actions a.json action.cpad
 
 # Submit a binary CPAD to the BMC (base64 + JSON). Default server is
 # http://localhost:8000; add --verbose for the step-by-step transcript.

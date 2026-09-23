@@ -92,6 +92,7 @@ def _decode_memory_error(record: Dict[str, Any], window_index: int,
         CONTOSO_MEMORY_SECTION, decoded["bank_name"], error_id)
     additional = copy.deepcopy(decoded["additional"])
     manufacturer_id = additional.get("dram_manufacturer_id")
+    fru = _fru(descriptor)
     return {
         "cper_file": str(record.get("cper_file", "")),
         "section_index": section_index,
@@ -100,7 +101,9 @@ def _decode_memory_error(record: Dict[str, Any], window_index: int,
         "header": copy.deepcopy(cper_data.get("header", {})),
         "section_descriptor": copy.deepcopy(descriptor),
         "section_type": CONTOSO_MEMORY_SECTION,
-        "fru": _fru(descriptor),
+        "fru_id": fru["id"],
+        "fru_text": fru["text"],
+        "fru": fru,
         "dram_manufacturer_id": copy.deepcopy(manufacturer_id),
         "spd_temperature": additional.get("spd_temperature"),
         "memory_error": {
@@ -184,6 +187,8 @@ def _decode_action_event(record: Dict[str, Any], window_index: int,
         "source": _source(record, window_index, section_index),
         "header": copy.deepcopy(cper_data.get("header", {})),
         "section_descriptor": copy.deepcopy(descriptor),
+        "fru_id": action_fru["id"],
+        "fru_text": action_fru["text"],
         "fru": action_fru,
         "dram_manufacturer_id": manufacturer_id,
         "platform_action": {

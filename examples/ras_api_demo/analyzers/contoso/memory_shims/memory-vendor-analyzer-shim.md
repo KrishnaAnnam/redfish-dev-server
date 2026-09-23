@@ -153,6 +153,22 @@ Every event begins with:
 zero-based section within that record. Both fields are present for
 `memory_error` and `platform_action` events.
 
+Every event also exposes the source section's FRU identity directly:
+
+```python
+{
+    "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+    "fru_text": "DIMM A1",
+    "fru": {
+        "id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "text": "DIMM A1",
+    },
+}
+```
+
+The top-level aliases are convenient for vendor adapters; the nested `fru`
+object remains available for compatibility.
+
 The full decoded memory data remains available under `memory_error`, including
 the address, chiplet/controller, DIMM coordinates, DRAM manufacturer,
 temperature, and repair history.
@@ -226,6 +242,11 @@ Large Page Offline requests may produce several independently retryable CPADs.
 The Contoso analyzer chooses PFN-list, range, or bitmap encoding and adds batch
 metadata when chunking is required. The vendor shim describes the desired page
 ranges but does not select the wire encoding.
+
+Standard Power Cycle, Reseat Part, Shuffle Part, and Replace Part requests use
+empty semantic parameters. The CPAD descriptor's FRU ID and FRU text identify a
+part target. Approved standard control-plane actions are stored and reported by
+the Analysis Orchestrator rather than being submitted to the Contoso endpoint.
 
 ## CPAD Builder Contract
 
@@ -325,6 +346,10 @@ The values match the `memory_repair_capabilities` bits in Contoso memory CPERs.
 
 ```python
 {
+    "pages": [
+        0x0000000012345000,
+        0x0000000012347000,
+    ],
     "page_ranges": [
         {
             "start_address": 0x0000000012345000,
@@ -334,11 +359,31 @@ The values match the `memory_repair_capabilities` bits in Contoso memory CPERs.
 }
 ```
 
+`pages` and `page_ranges` are both optional, but at least one must be nonempty.
 Each address must be below `2^52` and aligned to 4 KiB. Page counts must be
-positive. Ranges may overlap or be adjacent in the shim request; the Contoso
-analyzer sorts and combines them before choosing the smallest PFN-list, range,
-or bitmap wire encoding. Very large requests may produce several CPADs sharing
-one batch ID.
+positive. Pages and ranges may overlap; the Contoso analyzer canonicalizes
+their union before choosing the smallest PFN-list, range, or bitmap wire
+encoding. Very large requests may produce several CPADs sharing one batch ID.
+
+The endpoint prints which page or how many pages it offlined, emits the action
+event, and discards the page set. It does not track a cumulative page count and
+does not add Page Offline state to CPERs.
+
+### Standard Control-Plane Actions
+
+```python
+{}
+```
+
+| ActionID | Meaning |
+| --- | --- |
+| `0x0002` | Power Cycle |
+| `0x0003` | Reseat Part |
+| `0x0004` | Shuffle Part / DIMM dance |
+| `0x0005` | Replace Part |
+
+These requests use the referenced CPER's FRU ID and FRU text in the CPAD
+descriptor. They do not encode FRU identity in the action section body.
 
 ### Reboot with Memory Retraining: `0x8003`
 

@@ -9,6 +9,10 @@ from typing import Any, Callable, Dict, Iterable, List, Tuple
 
 CONTOSO_ACTION_PARAMETER_GUID = "a813b17b-db08-416b-810c-172668affb28"
 
+POWER_CYCLE_ACTION_ID = "0x0002"
+RESEAT_PART_ACTION_ID = "0x0003"
+SHUFFLE_PART_ACTION_ID = "0x0004"
+REPLACE_PART_ACTION_ID = "0x0005"
 PPR_ACTION_ID = "0x8001"
 PAGE_OFFLINE_ACTION_ID = "0x8002"
 REBOOT_WITH_RETRAINING_ACTION_ID = "0x8003"
@@ -98,14 +102,28 @@ def _decode_pfn(data: bytes) -> int:
 
 def _normalized_page_ranges(
         parameters: Dict[str, Any]) -> List[Tuple[int, int]]:
-    if set(parameters) != {"page_ranges"}:
+    if not set(parameters).issubset({"pages", "page_ranges"}):
         raise ValueError(
-            "Page Offline parameters must contain only page_ranges")
-    raw_ranges = parameters["page_ranges"]
-    if not isinstance(raw_ranges, list) or not raw_ranges:
-        raise ValueError("page_ranges must be a non-empty list")
+            "Page Offline parameters may contain only pages and page_ranges")
+    raw_pages = parameters.get("pages", [])
+    raw_ranges = parameters.get("page_ranges", [])
+    if not isinstance(raw_pages, list):
+        raise ValueError("pages must be a list")
+    if not isinstance(raw_ranges, list):
+        raise ValueError("page_ranges must be a list")
+    if not raw_pages and not raw_ranges:
+        raise ValueError("pages or page_ranges must be non-empty")
 
     ranges = []
+    for index, address in enumerate(raw_pages):
+        address = _require_int(
+            address, f"pages[{index}]", 0,
+            (1 << PHYSICAL_ADDRESS_BITS) - 1)
+        if address % PAGE_SIZE_BYTES:
+            raise ValueError(
+                "Page Offline physical addresses must be 4 KiB aligned")
+        ranges.append((address >> PAGE_SHIFT, 1))
+
     for index, item in enumerate(raw_ranges):
         if not isinstance(item, dict) or set(item) != {
                 "start_address", "page_count"}:
@@ -322,9 +340,19 @@ def _encode_retraining_parameters(parameters: Dict[str, Any]) -> List[bytes]:
     return [_pack_header(b"")]
 
 
+def _encode_empty_parameters(parameters: Dict[str, Any]) -> List[bytes]:
+    if parameters:
+        raise ValueError("standard action parameters must be empty")
+    return [_pack_header(b"")]
+
+
 ACTION_PARAMETER_CODECS: Dict[
     str, Callable[[Dict[str, Any]], List[bytes]]
 ] = {
+    POWER_CYCLE_ACTION_ID: _encode_empty_parameters,
+    RESEAT_PART_ACTION_ID: _encode_empty_parameters,
+    SHUFFLE_PART_ACTION_ID: _encode_empty_parameters,
+    REPLACE_PART_ACTION_ID: _encode_empty_parameters,
     PPR_ACTION_ID: _encode_ppr_parameters,
     PAGE_OFFLINE_ACTION_ID: _page_offline_bodies,
     REBOOT_WITH_RETRAINING_ACTION_ID: _encode_retraining_parameters,
@@ -385,6 +413,14 @@ def decode_action_parameters(action_id: str, body: bytes) -> Dict[str, int]:
         if result["ppr_type"] not in PPR_TYPES:
             raise ValueError("Contoso PPR type is invalid")
         return result
+    if action_id in {
+            POWER_CYCLE_ACTION_ID,
+            RESEAT_PART_ACTION_ID,
+            SHUFFLE_PART_ACTION_ID,
+            REPLACE_PART_ACTION_ID}:
+        if payload:
+            raise ValueError("standard action parameters must be empty")
+        return {}
     if action_id == PAGE_OFFLINE_ACTION_ID:
         return _decode_page_offline_payload(payload)
     if action_id == REBOOT_WITH_RETRAINING_ACTION_ID:

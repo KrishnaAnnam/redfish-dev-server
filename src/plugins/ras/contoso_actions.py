@@ -301,21 +301,17 @@ class ContosoActionProvider:
         chunk_count = parameters["chunk_count"]
         if chunk_count > 1:
             context = (
-                f"Page Offline batch 0x{parameters['batch_id']:016x}, "
-                f"chunk {parameters['chunk_index'] + 1} of {chunk_count}: "
-                f"{page_count} physical pages were forwarded to the OS"
+                f"Offlined {page_count} physical pages for Page Offline "
+                f"batch 0x{parameters['batch_id']:016x}, "
+                f"chunk {parameters['chunk_index'] + 1} of {chunk_count}"
             )
         elif page_count == 1:
             address = parameters["page_ranges"][0]["start_address"]
             context = (
-                f"Page Offline request for physical address "
-                f"0x{address:016x} was forwarded to the OS"
+                f"Offlined physical page 0x{address:016x}"
             )
         else:
-            context = (
-                f"Page Offline request for {page_count} physical pages "
-                "was forwarded to the OS"
-            )
+            context = f"Offlined {page_count} physical pages"
         return ActionResult(
             status=ACTION_COMPLETED,
             context=context,

@@ -221,6 +221,9 @@ Every event begins with top-level `cper_file` and `section_index` fields. These
 identify the original binary CPER and exact source section. The same values
 remain under `source` for window metadata and compatibility.
 
+Events also expose the source descriptor's FRU identity as top-level `fru_id`
+and `fru_text` fields, while retaining the existing nested `fru` object.
+
 Platform Action Events are not restricted to PPR. A memory shim may recommend
 any RAS action and needs the result to decide whether to recommend a follow-up,
 such as DIMM replacement after a failed repair.

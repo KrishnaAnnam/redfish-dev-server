@@ -116,6 +116,42 @@ def test_single_page_and_retraining_payloads_are_independent():
     ) == {}
 
 
+def test_standard_control_plane_actions_have_empty_payloads():
+    for action_id in (
+            analyzer_codec.POWER_CYCLE_ACTION_ID,
+            analyzer_codec.RESEAT_PART_ACTION_ID,
+            analyzer_codec.SHUFFLE_PART_ACTION_ID,
+            analyzer_codec.REPLACE_PART_ACTION_ID):
+        body = analyzer_codec.encode_action_parameters(action_id, {})
+
+        assert len(body) == 8
+        assert endpoint_codec.decode_cpad_action_parameters(
+            _cpad(action_id, body), action_id) == {}
+
+
+def test_page_offline_accepts_individual_pages_and_ranges():
+    body = analyzer_codec.encode_action_parameters(
+        analyzer_codec.PAGE_OFFLINE_ACTION_ID,
+        {
+            "pages": [0x1000, 0x3000, 0x3000],
+            "page_ranges": [{
+                "start_address": 0x2000,
+                "page_count": 2,
+            }],
+        },
+    )
+    decoded = endpoint_codec.decode_cpad_action_parameters(
+        _cpad(endpoint_codec.PAGE_OFFLINE_ACTION_ID, body),
+        endpoint_codec.PAGE_OFFLINE_ACTION_ID,
+    )
+
+    assert decoded["page_count"] == 3
+    assert decoded["page_ranges"] == [{
+        "start_address": 0x1000,
+        "page_count": 3,
+    }]
+
+
 def test_page_offline_selects_smallest_encoding():
     scattered = [{
         "start_address": 0x10000000 + index * 0x100000,

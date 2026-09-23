@@ -9,6 +9,10 @@ from typing import Any, Dict
 
 CONTOSO_ACTION_PARAMETER_GUID = "a813b17b-db08-416b-810c-172668affb28"
 
+POWER_CYCLE_ACTION_ID = "0x0002"
+RESEAT_PART_ACTION_ID = "0x0003"
+SHUFFLE_PART_ACTION_ID = "0x0004"
+REPLACE_PART_ACTION_ID = "0x0005"
 PPR_ACTION_ID = "0x8001"
 PAGE_OFFLINE_ACTION_ID = "0x8002"
 REBOOT_WITH_RETRAINING_ACTION_ID = "0x8003"
@@ -115,6 +119,15 @@ def decode_cpad_action_parameters(
         if result["ppr_type"] not in PPR_TYPES:
             raise ValueError("Contoso PPR type is invalid")
         return result
+
+    if action_id in {
+            POWER_CYCLE_ACTION_ID,
+            RESEAT_PART_ACTION_ID,
+            SHUFFLE_PART_ACTION_ID,
+            REPLACE_PART_ACTION_ID}:
+        if payload:
+            raise ValueError("standard action parameters must be empty")
+        return {}
 
     if action_id == PAGE_OFFLINE_ACTION_ID:
         return _decode_page_offline_payload(payload)

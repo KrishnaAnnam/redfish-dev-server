@@ -136,12 +136,16 @@ programmatically:
 
 The demo supports these CPAD actions:
 
+- **Power Cycle, Reseat Part, Shuffle Part, and Replace Part CPADs**
+  (`0x0002` through `0x0005`) that are policy checked and routed to the
+  simulated server-fleet control plane rather than the Contoso endpoint.
 - **Error-injection CPADs** (`0x0006`) from the Contoso injector, to create the
   corrected DRAM errors the analyzer then studies.
 - **PPR repair CPADs** (`0x8001`) that the analyzer emits and the
   [PolicyEngine](POLICY_ENGINE.md) approves.
 - **Page Offline CPADs** (`0x8002`) that forward one or more 4 KiB physical
   pages to the simulated OS using compact PFN-list, range, or bitmap encoding.
+  The endpoint prints the result but retains no offline-page state.
 - **Reboot with Memory Retraining CPADs** (`0x8003`) that remain pending until
   `On`, restart, or power-cycle resets the target SoC partition.
 

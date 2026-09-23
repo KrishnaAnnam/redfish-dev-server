@@ -1,5 +1,37 @@
 {
   "11111111-2222-3333-4444-555555555555": {
+    "0x0002": {
+      "name": "Power Cycle",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": [
+        "990f8820-bd4d-5064-58cc-961a053dea79"
+      ]
+    },
+    "0x0003": {
+      "name": "Reseat Part",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": [
+        "990f8820-bd4d-5064-58cc-961a053dea79"
+      ]
+    },
+    "0x0004": {
+      "name": "Shuffle Part",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": [
+        "990f8820-bd4d-5064-58cc-961a053dea79"
+      ]
+    },
+    "0x0005": {
+      "name": "Replace Part",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": [
+        "990f8820-bd4d-5064-58cc-961a053dea79"
+      ]
+    },
     "0x0006": {
       "name": "Error Injection",
       "permitted": true,

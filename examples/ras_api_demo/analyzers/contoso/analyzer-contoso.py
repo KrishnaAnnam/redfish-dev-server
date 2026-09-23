@@ -259,6 +259,10 @@ class ContosoAnalyzer:
             raise ShimContractError(
                 "shim action request section_index must be a non-negative integer")
         if request["action_id"] not in {
+                contoso_action_parameters.POWER_CYCLE_ACTION_ID,
+                contoso_action_parameters.RESEAT_PART_ACTION_ID,
+                contoso_action_parameters.SHUFFLE_PART_ACTION_ID,
+                contoso_action_parameters.REPLACE_PART_ACTION_ID,
                 contoso_action_parameters.PPR_ACTION_ID,
                 contoso_action_parameters.PAGE_OFFLINE_ACTION_ID,
                 contoso_action_parameters.REBOOT_WITH_RETRAINING_ACTION_ID}:
@@ -941,6 +945,10 @@ class ContosoAnalyzer:
                             # Source Action ID
                             action_id = ae_data.get('cpadActionId', 'N/A')
                             ACTION_ID_MAP = {
+                                '0x0002': 'Power Cycle',
+                                '0x0003': 'Reseat Part',
+                                '0x0004': 'Shuffle Part',
+                                '0x0005': 'Replace Part',
                                 '0x0006': 'Memory Error Injection',
                                 '0x8001': 'Post Package Repair (PPR)',
                                 '0x8002': 'Page Offline',
@@ -1411,6 +1419,14 @@ class ContosoAnalyzer:
                 action_desc[field] = fru_context[field]
 
         action_definitions = {
+            contoso_action_parameters.POWER_CYCLE_ACTION_ID:
+                contoso_catalog.POWER_CYCLE_ACTION,
+            contoso_action_parameters.RESEAT_PART_ACTION_ID:
+                contoso_catalog.RESEAT_PART_ACTION,
+            contoso_action_parameters.SHUFFLE_PART_ACTION_ID:
+                contoso_catalog.SHUFFLE_PART_ACTION,
+            contoso_action_parameters.REPLACE_PART_ACTION_ID:
+                contoso_catalog.REPLACE_PART_ACTION,
             contoso_action_parameters.PPR_ACTION_ID:
                 contoso_catalog.PPR_ACTION,
             contoso_action_parameters.PAGE_OFFLINE_ACTION_ID:

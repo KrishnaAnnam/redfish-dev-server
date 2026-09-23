@@ -20,12 +20,21 @@ numeric proprietary ActionID.
 
 | ActionID | Action | Completion | Error CPER | Platform Action Event |
 | --- | --- | --- | --- | --- |
+| `0x0002` | Power Cycle | Control-plane action | No | Control-plane owned |
+| `0x0003` | Reseat Part | Control-plane action | No | Control-plane owned |
+| `0x0004` | Shuffle Part | Control-plane diagnostic action | No | Control-plane owned |
+| `0x0005` | Replace Part | Control-plane action | No | Control-plane owned |
 | `0x0006` | Error Injection | Immediate | Yes | Immediate |
 | `0x8001` | Post Package Repair | Runtime PPR: immediate; boot-time PPR: after reset | No | At completion |
 | `0x8002` | Page Offline | Immediate | No | Immediate |
 | `0x8003` | Reboot with Memory Retraining | On a later SoC reset | No | After reset |
 
 Error Injection is the only action that creates an error CPER.
+
+Standard actions `0x0002` through `0x0005` are approved by policy but routed
+to the server-fleet control plane. They are not submitted to the Contoso SoC
+endpoint. Part actions identify the target through the CPAD descriptor's FRU ID
+and FRU text copied from the referenced CPER section.
 
 ## CPAD Action Processing on the Contoso Endpoint
 
@@ -91,6 +100,23 @@ uint16_t reserved;            // must be zero
 
 This keeps action parameters independent from the memory-error section and
 lets each action codec validate only the fields that the SoC needs.
+
+## Standard Control-Plane Actions
+
+The standard actions use an empty action-parameter payload:
+
+| ActionID | Name | Scope |
+| --- | --- | --- |
+| `0x0002` | Power Cycle | Whole machine |
+| `0x0003` | Reseat Part | Referenced FRU |
+| `0x0004` | Shuffle Part | Referenced FRU; diagnostic use |
+| `0x0005` | Replace Part | Referenced FRU |
+
+The memory-vendor analyzer returns an empty `parameters` object for these
+actions. The Contoso analyzer builds the CPAD descriptor using the source
+section's `fruID` and exact trimmed `fruText`. For a DIMM dance involving
+several modules, the analyzer returns one Shuffle Part request per DIMM; the
+control plane decides the final slot rotation.
 
 ## `0x8001`: Post Package Repair
 
@@ -243,9 +269,11 @@ needed because the requested operation is unchanged.
 ### Endpoint behavior
 
 The endpoint simulates sending the page-offline request from the SoC to the
-operating system. Success means the SoC accepted and forwarded the request; the
-demo does not model a later OS acknowledgment or maintain an offline-page
-inventory. The endpoint immediately emits a Platform Action Event.
+operating system. It prints either the single physical page or the number of
+pages represented by the CPAD and immediately emits a Platform Action Event.
+The endpoint deliberately does not retain an offline-page inventory or add
+offlined-page state to later CPERs. Repeated requests therefore remain
+successful in this demo.
 
 The analyzer exposes a Page Offline CPAD builder. Automatic selection policy is
 not yet defined. An analyzer that recommends Page Offline must place every page

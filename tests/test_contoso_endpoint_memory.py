@@ -355,7 +355,7 @@ def test_page_offline_accepts_one_physical_page():
         "start_address": 0x12345000,
         "page_count": 1,
     }]
-    assert "forwarded to the OS" in result.context
+    assert result.context == "Offlined physical page 0x0000000012345000"
 
 
 def test_page_offline_emits_action_event_without_error_cper():
@@ -371,8 +371,7 @@ def test_page_offline_emits_action_event_without_error_cper():
         "PlatformActionEvent"]
     assert action_event["cpadActionId"] == PAGE_OFFLINE_ACTION_ID
     assert base64.b64decode(action_event["additionalContext"]).decode() == (
-        "Page Offline request for physical address 0x0000000012345000 "
-        "was forwarded to the OS")
+        "Offlined physical page 0x0000000012345000")
 
 
 def test_page_offline_for_multiple_pages_reports_page_count():
@@ -391,7 +390,7 @@ def test_page_offline_for_multiple_pages_reports_page_count():
     action_event = handler.log_service_handler.records[0]["sections"][0][
         "PlatformActionEvent"]
     assert base64.b64decode(action_event["additionalContext"]).decode() == (
-        "Page Offline request for 10 physical pages was forwarded to the OS")
+        "Offlined 10 physical pages")
 
 
 def test_chunked_page_offline_reports_batch_and_chunk():

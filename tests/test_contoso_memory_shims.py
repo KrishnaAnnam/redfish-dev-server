@@ -312,6 +312,8 @@ def test_decodes_complete_memory_error():
         "is_newest": True,
     }
     assert event["fru"] == {"id": FRU_ID, "text": FRU_TEXT}
+    assert event["fru_id"] == FRU_ID
+    assert event["fru_text"] == FRU_TEXT
     assert event["dram_manufacturer_id"] == MICRON
     assert event["memory_error"]["bank"] == "DRAM Errors"
     assert event["memory_error"]["name"] == "Corrected Memory ECC Error"

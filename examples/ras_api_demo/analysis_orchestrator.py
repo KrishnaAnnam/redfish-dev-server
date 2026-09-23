@@ -48,6 +48,12 @@ from cper_decoder import CperDecoder
 
 # Resolve paths relative to project root (Demos/RasApi/ → project root)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+CONTROL_PLANE_ACTIONS = {
+    "0x0002": "Power Cycle",
+    "0x0003": "Reseat Part",
+    "0x0004": "Shuffle Part",
+    "0x0005": "Replace Part",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -1016,14 +1022,23 @@ class AnalysisOrchestrator:
             self._emit_policy_rejection_cper(cpad_binary, decision)
             return
 
-        print("\n   ✅ Policy allowed — the SPPR CPAD may be submitted.")
+        action_id, fru_text = self._cpad_action_context(cpad_json)
+        action_name = CONTROL_PLANE_ACTIONS.get(action_id)
+        if action_name is not None:
+            target = fru_text or "the requested target"
+            print(f"\n   ✅ Policy allowed — {action_name} approved for {target}.")
+            print("   This is a server-fleet control-plane action. The approved CPAD")
+            print("   was stored, but it will not be submitted to the Contoso endpoint.")
+            return
+
+        print("\n   ✅ Policy allowed — the CPAD may be submitted.")
 
         print("\n" + "=" * 80)
         print("\t\t\t\tSUBMIT CPAD")
         print("=" * 80)
 
-        print("\n   Submitting sends the CPAD back to the endpoint, which triggers the actual")
-        print("   RAS action (SPPR) on the hardware — closing the detect → analyze → act loop.")
+        print("\n   Submitting sends the CPAD back to the endpoint, which triggers the")
+        print("   requested RAS action — closing the detect → analyze → act loop.")
 
         if self.submitter is None:
             print("\n   ⓘ No submitter configured — skipping submission.")
@@ -1031,7 +1046,28 @@ class AnalysisOrchestrator:
 
         self.submitter.submit(
             str(cpad_binary), verbose_steps=True,
-            source_label="Analyzer-generated SPPR CPAD")
+            source_label="Analyzer-generated CPAD")
+
+    @staticmethod
+    def _cpad_action_context(cpad_json: Optional[Path]):
+        """Return normalized ActionID and FRU text from a CPAD JSON file."""
+        if cpad_json is None:
+            return "", ""
+        try:
+            with open(cpad_json, encoding="utf-8") as stream:
+                cpad = json.load(stream)
+            descriptor = cpad.get("sectionDescriptors", [{}])[0]
+            action = descriptor.get("actionID", descriptor.get("actionId", ""))
+            if isinstance(action, dict):
+                action = action.get("code", "")
+            try:
+                number = int(str(action), 0)
+                action_id = f"0x{number:04x}"
+            except ValueError:
+                action_id = str(action).strip().lower()
+            return action_id, str(descriptor.get("fruText", "")).strip()
+        except (OSError, json.JSONDecodeError, IndexError, TypeError):
+            return "", ""
 
     def _emit_policy_rejection_cper(self, cpad_binary: Path, decision):
         """Mint a POLICY_REJECTED Platform Action CPER from a denied CPAD and

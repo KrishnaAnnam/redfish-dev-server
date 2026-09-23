@@ -30,7 +30,7 @@ flowchart TD
     Source["Find source event for<br/>header and FRU context"]
     Envelope["Build CPAD header<br/>and descriptor"]
     Codec["Encode action-specific<br/>body"]
-    Json["Complete<br/>CPAD JSON"]
+    Model["Complete in-memory<br/>CPAD model"]
     Binary["Binary CPAD"]
 
     VendorInput --> VendorAnalysis
@@ -41,9 +41,9 @@ flowchart TD
     Source --> Envelope
     Request --> Envelope
     Request --> Codec
-    Envelope --> Json
-    Codec --> Json
-    Json --> Binary
+    Envelope --> Model
+    Codec --> Model
+    Model --> Binary
 ```
 
 The diagram begins after the shim has translated canonical Contoso events into
@@ -83,9 +83,9 @@ internal data model without duplicating Contoso protocol code.
 | [`memory_events.py`](../memory_events.py) | Decodes Contoso memory sections and Platform Action Events into canonical memory events. |
 | [`contract.py`](contract.py) | Discovers shims, enforces the supported API version, deep-copies inputs, and validates the returned list shape. |
 | `analyzer_<vendor>.py` | Adapts canonical events to one vendor analyzer and converts vendor decisions into Contoso action requests. |
-| [`analyzer-contoso.py`](../analyzer-contoso.py) | Filters same-vendor history, validates source references, builds complete CPAD JSON, and emits paired JSON/binary files. |
+| [`analyzer-contoso.py`](../analyzer-contoso.py) | Filters same-vendor history, validates source references, builds complete CPADs, and emits binary `.cpad` files. |
 | [`contoso_action_parameters.py`](../contoso_action_parameters.py) | Validates and encodes action request parameters without reading decoded CPER events. |
-| [`cper_decoder.py`](../../../cper_decoder.py) | Invokes libcper to convert complete CPAD JSON into the binary `.cpad` submitted to the BMC. |
+| [`cper_decoder.py`](../../../cper_decoder.py) | Invokes libcper to encode binary CPADs and decode their standard envelope for policy. |
 
 ## Discovery
 
@@ -230,7 +230,7 @@ For every returned action request, the Contoso analyzer:
 5. Encodes only the supplied parameters into the shared Contoso
    action-parameter section.
 6. Populates section offsets, lengths, ActionID, confidence, and CPAD header.
-7. Writes paired JSON and binary `.cpad` files.
+7. Writes a binary `.cpad` file; conversion JSON remains temporary.
 
 The shared action-parameter section GUID is:
 

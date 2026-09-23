@@ -6,13 +6,14 @@ Server Fleet Operator's gate that decides whether a **proposed RAS action**
 
 It is **table-driven**: all policy lives in two JSON files under
 [`policy_tables/`](policy_tables), which the engine loads at construction. The
-engine itself is small, self-contained, and has **no server dependencies** — it
-reads local JSON and returns a decision.
+engine itself is small, self-contained, and has **no server dependencies**. It
+decodes the binary CPAD with cperlib, reads local JSON policy tables, and
+returns a decision.
 
 ## Where it sits in the pipeline
 
 ```
-vendor analyzer  ──►  emits a CPAD (a proposed action)
+vendor analyzer  ──►  emits a binary CPAD (a proposed action)
                           │
                    PolicyEngine.evaluate_cpad()   ◄── operator policy gate (tables)
                           │
@@ -28,21 +29,26 @@ vendor analyzer  ──►  emits a CPAD (a proposed action)
 A CPAD is only a *recommendation*. The analyzer never acts on its own; the
 operator's policy engine must approve it before `CPADSubmitter` sends it back to
 the reporting host. Driven from `AnalysisOrchestrator._policy_and_submit()`,
-which calls `policy_engine.evaluate_cpad(cpad_json)` and, on denial, emits a
+which calls `policy_engine.evaluate_cpad(cpad_binary)` and, on denial, emits a
 rejection CPER (see [Rejections](#rejections-policy_rejected-cper)).
 
 ## What it inspects (and what it does not)
 
-The engine reads only the CPAD's **header** and **section descriptors**:
+The engine decodes the binary CPAD in memory, then reads only its **header** and
+**section descriptors**:
 
 - `header.creatorID`, `header.platformID`, `header.partitionID`
 - `sectionDescriptors[].actionId` / `actionID.code`, `sectionDescriptors[].confidence`, and `fruText`
 
-It never parses the opaque vendor **section body**. So it can tell *that* an
+It never interprets the opaque vendor **section body**. So it can tell *that* an
 action is, say, an error injection or PPR (from the action id in the section
 descriptor), but not the private details inside the section. That keeps
 proprietary vendor data private while still letting the operator gate on
 identity, action type, target platform, and confidence.
+
+Analyzers do not emit JSON CPAD sidecars. Any JSON representation used while
+assembling a CPAD is temporary; the policy engine obtains its decoded view
+directly from the binary `.cpad`.
 
 ## The policy tables
 
@@ -194,7 +200,7 @@ plumbing.
 |-------|---------|
 | `allowed` | Approved (`True`) or denied (`False`) |
 | `reason` | Human-readable denial reason (`None` when allowed) |
-| `creator_id`, `platform_id`, `action_id`, `action_name` | Normalized values read from the CPAD |
+| `creator_id`, `platform_id`, `action_id`, `action_name`, `fru_text` | Normalized action context read from the CPAD |
 | `confidence`, `threshold` | The CPAD confidence and the applied threshold (`None` if not gated) |
 | `return_code`, `reason_code` | Platform Action codes to stamp on a rejection CPER |
 
@@ -204,7 +210,7 @@ plumbing.
 from policy import PolicyEngine
 
 engine = PolicyEngine()                      # loads policy_tables/*.json
-decision = engine.evaluate_cpad("cpad.json") # -> PolicyDecision (truthy if allowed)
+decision = engine.evaluate_cpad("action.cpad") # -> PolicyDecision (truthy if allowed)
 if decision.allowed:
     ...
 else:
@@ -220,8 +226,8 @@ results = engine.evaluate_multiple_cpads([p1, p2])   # [(path, PolicyDecision), 
 ## Standalone CLI
 
 ```bash
-python examples/ras_api_demo/policy.py path/to/cpad.json [more.json ...]
-python examples/ras_api_demo/policy.py --creators c.json --actions a.json cpad.json
+python examples/ras_api_demo/policy.py path/to/action.cpad [more.cpad ...]
+python examples/ras_api_demo/policy.py --creators c.json --actions a.json action.cpad
 ```
 
 Prints a rule-by-rule trace and a final `APPROVED` / `DENIED` per file; exit code

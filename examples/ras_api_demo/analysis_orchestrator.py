@@ -16,8 +16,8 @@ Pipeline:
 - For each newly collected CPER (pushed via :meth:`notify_new_cpers`), select
   the owning analyzer, gather a directory-scoped lookback window, and invoke the
   analyzer with an input file.
-- Collect the analyzer's outputs: move a produced ``.json`` next to the CPER,
-  and route a produced ``.cpad`` through the policy engine and (on approval)
+- Collect the analyzer's outputs: move its analysis ``.json`` next to the CPER,
+  and route each binary ``.cpad`` through the policy engine and (on approval)
   the submitter.
 
 Usage (standalone):
@@ -120,8 +120,8 @@ class AnalysisOrchestrator:
     - For each newly collected CPER (pushed via ``notify_new_cpers``), extract
       its CreatorID/timestamp, select the owning analyzer, gather a directory
       scoped lookback window, and invoke the analyzer with an input file.
-    - Collect the analyzer's outputs: move a produced ``.json`` next to the
-      CPER, and route a produced ``.cpad`` through the policy engine and
+    - Collect the analyzer's outputs: move its analysis ``.json`` next to the
+      CPER, and route each binary ``.cpad`` through the policy engine and
       (on approval) the submitter.
 
     CPER decoding reuses CperDecoder (cperlib).  Policy evaluation and CPAD
@@ -145,7 +145,8 @@ class AnalysisOrchestrator:
             output_dir:       Root output directory (Analyzer_output_files created underneath).
             analyzers_dir:    Directory to scan for analyzer plugins
                               (defaults to Demos/RasApi/analyzers).
-            policy_engine:    Optional object exposing evaluate_cpad(json_path) -> bool.
+            policy_engine:    Optional object exposing
+                              evaluate_cpad(binary_path) -> bool.
             submitter:        Optional object exposing submit(cpad_path, ...).
             listener_host:    Host of the SDK event listener's control socket.
             listener_port:    Port of the SDK event listener's control socket.
@@ -957,24 +958,35 @@ class AnalysisOrchestrator:
     def _handle_outputs(self, analyzer_dir: Path, cper_path: Path):
         """Collect analyzer outputs and route them.
 
-        - A produced .json is moved next to the triggering CPER.
-        - A produced .cpad is moved next to the triggering CPER (same place as
-          the JSON), then routed through the policy engine and (on approval)
-          the submitter.  Moving (rather than copying) avoids leaving build
-          artifacts in the analyzer's source directory.
+        - The analysis .json is moved next to the triggering CPER.
+        - A produced .cpad is moved next to the triggering CPER, then routed
+          through the policy engine and (on approval) the submitter.
+        - CPAD JSON sidecars violate the analyzer contract and are discarded.
+          Moving (rather than copying) avoids leaving build artifacts in the
+          analyzer's source directory.
         """
         dest_dir = cper_path.parent
-        json_outputs = sorted(analyzer_dir.glob("*.json"))
+        all_json_outputs = sorted(analyzer_dir.glob("*.json"))
+        cpad_json_outputs = [
+            path for path in all_json_outputs
+            if path.stem.endswith("_cpad")
+        ]
+        json_outputs = [
+            path for path in all_json_outputs
+            if not path.stem.endswith("_cpad")
+        ]
         cpad_outputs = sorted(analyzer_dir.glob("*.cpad"))
 
         print(f"\n   Step 5 — Collect and store the analyzer's outputs")
-        moved_json = {}
+        for produced in cpad_json_outputs:
+            print(f"   ⚠️  Discarding unexpected CPAD JSON output "
+                  f"{produced.name}; analyzers must emit binary CPADs only.")
+            produced.unlink(missing_ok=True)
+
         for produced in json_outputs:
             dest = dest_dir / produced.name
             shutil.move(str(produced), str(dest))
-            moved_json[produced.stem] = dest
-            label = "CPAD JSON" if produced.stem.endswith("_cpad") else "Analysis JSON"
-            print(f"   📄 {label} → {dest}")
+            print(f"   📄 Analysis JSON → {dest}")
 
         if not cpad_outputs:
             return
@@ -985,12 +997,9 @@ class AnalysisOrchestrator:
             print(f"   📦 CPAD         → {dest}")
             print(f"   A CPAD is a *proposed RAS action*. The analyzer recommends it, but it does")
             print(f"   not act on its own — it must clear policy before anything happens.")
-            paired_json = moved_json.get(produced.stem)
-            if paired_json is None:
-                print(f"   ⚠️  No matching CPAD JSON for {produced.name} — denying by default.")
-            self._policy_and_submit(cpad_binary=dest, cpad_json=paired_json)
+            self._policy_and_submit(cpad_binary=dest)
 
-    def _policy_and_submit(self, *, cpad_binary: Path, cpad_json: Optional[Path]):
+    def _policy_and_submit(self, *, cpad_binary: Path):
         """Evaluate a CPAD against policy and, on approval, submit it."""
         print("\n" + "=" * 80)
         print("\t\t\t\tPOLICY CHECK")
@@ -1004,25 +1013,40 @@ class AnalysisOrchestrator:
         print("   blast-radius rules) to gate the action.")
 
         decision = None
-        if cpad_json is None:
-            print("\n   ⚠️  No CPAD JSON available to evaluate — denying by default.")
-            allowed = False
-        elif self.policy_engine is not None:
-            decision = self.policy_engine.evaluate_cpad(str(cpad_json))
+        if self.policy_engine is not None:
+            decision = self.policy_engine.evaluate_cpad(str(cpad_binary))
             allowed = bool(decision)
         else:
             print("\n   ⓘ No policy engine configured — skipping policy check.")
             allowed = True
 
         if not allowed:
-            reason = decision.reason if decision is not None else "no CPAD JSON to evaluate"
+            reason = (
+                getattr(decision, "reason", None)
+                or "binary CPAD could not be evaluated"
+            )
             print(f"\n   ❌ Policy denied — {reason}")
             print("   Emitting a POLICY_REJECTED Platform Action CPER and delivering it to")
             print("   the pipeline so it is stored alongside the host's CPERs and analyzed.")
             self._emit_policy_rejection_cper(cpad_binary, decision)
             return
 
-        action_id, fru_text = self._cpad_action_context(cpad_json)
+        action_id = str(getattr(decision, "action_id", "") or "")
+        fru_text = str(getattr(decision, "fru_text", "") or "")
+        if not action_id:
+            cpad_data = self._make_decoder().extract_cpad_data(
+                str(cpad_binary))
+            if cpad_data is None:
+                print("\n   ❌ CPAD denied — binary CPAD could not be decoded "
+                      "for action routing.")
+                self._emit_policy_rejection_cper(cpad_binary, decision)
+                return
+            action_id, fru_text = self._cpad_action_context(cpad_data)
+            if not action_id:
+                print("\n   ❌ CPAD denied — decoded CPAD has no ActionID.")
+                self._emit_policy_rejection_cper(cpad_binary, decision)
+                return
+
         action_name = CONTROL_PLANE_ACTIONS.get(action_id)
         if action_name is not None:
             target = fru_text or "the requested target"
@@ -1049,14 +1073,10 @@ class AnalysisOrchestrator:
             source_label="Analyzer-generated CPAD")
 
     @staticmethod
-    def _cpad_action_context(cpad_json: Optional[Path]):
-        """Return normalized ActionID and FRU text from a CPAD JSON file."""
-        if cpad_json is None:
-            return "", ""
+    def _cpad_action_context(cpad_data: Dict[str, Any]):
+        """Return normalized ActionID and FRU text from a decoded CPAD."""
         try:
-            with open(cpad_json, encoding="utf-8") as stream:
-                cpad = json.load(stream)
-            descriptor = cpad.get("sectionDescriptors", [{}])[0]
+            descriptor = cpad_data.get("sectionDescriptors", [{}])[0]
             action = descriptor.get("actionID", descriptor.get("actionId", ""))
             if isinstance(action, dict):
                 action = action.get("code", "")
@@ -1066,7 +1086,7 @@ class AnalysisOrchestrator:
             except ValueError:
                 action_id = str(action).strip().lower()
             return action_id, str(descriptor.get("fruText", "")).strip()
-        except (OSError, json.JSONDecodeError, IndexError, TypeError):
+        except (AttributeError, IndexError, TypeError):
             return "", ""
 
     def _emit_policy_rejection_cper(self, cpad_binary: Path, decision):
@@ -1138,7 +1158,7 @@ class AnalysisOrchestrator:
     # ─── Helpers ────────────────────────────────────────────────────────
 
     def _make_decoder(self) -> CperDecoder:
-        """Create a CperDecoder used only for cperlib decoding during routing."""
+        """Create a CperDecoder for cperlib decoding during routing."""
         return CperDecoder(verbose=False)
 
     # ─── Backward-compatible entry point ────────────────────────────────

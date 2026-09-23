@@ -32,7 +32,7 @@ The AO interacts with this script through two command-line modes:
    this script (the AO clears stale ``.json``/``.cpad`` files beforehand and
    collects whatever this run produces):
     - exactly one analysis ``.json`` manifest, and
-    - zero or more paired ``*_cpad.json``/``*.cpad`` action outputs.
+    - zero or more binary ``*.cpad`` action outputs.
 
 A standalone developer mode is also available:
 
@@ -49,6 +49,7 @@ import copy
 import base64
 import builtins
 import argparse
+import tempfile
 import time
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -386,7 +387,7 @@ class ContosoAnalyzer:
 
     def emit_shim_cpads(self, shim_cpads, source_stem: str,
                         vendor_id=None):
-        """Write paired shim CPAD JSON/binary outputs and return binary paths."""
+        """Write binary shim CPAD outputs and return their paths."""
         outputs = []
         generated = []
         try:
@@ -396,13 +397,9 @@ class ContosoAnalyzer:
                 if vendor_id is not None:
                     vendor_suffix = f"_{vendor_id[0]:02x}{vendor_id[1]:02x}"
                 stem = f"{source_stem}_{vendor}{vendor_suffix}_{index}_cpad"
-                json_path = self.output_dir / f"{stem}.json"
                 binary_path = self.output_dir / f"{stem}.cpad"
-                generated.extend((json_path, binary_path))
-                with open(json_path, 'w') as stream:
-                    json.dump(cpad, stream, indent=2)
-                converted = self.decoder._convert_json_to_binary_cpad(
-                    str(json_path), str(binary_path))
+                generated.append(binary_path)
+                converted = self._write_binary_cpad(cpad, binary_path)
                 if not converted:
                     raise ShimContractError(
                         f"could not convert {shim.name} CPAD {index} to binary")
@@ -412,6 +409,29 @@ class ContosoAnalyzer:
             for path in generated:
                 path.unlink(missing_ok=True)
             raise
+
+    def _write_binary_cpad(self, cpad, binary_path: Path) -> Optional[str]:
+        """Convert an in-memory CPAD to binary without emitting JSON."""
+        binary_path = Path(binary_path)
+        temporary_json = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode='w', suffix='.cpad.json',
+                    delete=False) as stream:
+                json.dump(cpad, stream)
+                temporary_json = Path(stream.name)
+            result = self.decoder._convert_json_to_binary_cpad(
+                str(temporary_json), str(binary_path))
+            if not result:
+                binary_path.unlink(missing_ok=True)
+                return None
+            return str(binary_path)
+        except Exception:
+            binary_path.unlink(missing_ok=True)
+            raise
+        finally:
+            if temporary_json is not None:
+                temporary_json.unlink(missing_ok=True)
 
     def emit_shim_cpad_groups(self, shim_result, source_stem: str):
         """Emit each vendor's CPADs atomically without affecting other vendors."""
@@ -1187,20 +1207,15 @@ class ContosoAnalyzer:
             if not base_name:
                 base_name = (Path(original_file).stem if original_file else
                              f"cper_{header.get('recordID', 'unknown')}")
-            sppr_json_path = self.output_dir / f"{base_name}_sppr_cpad.json"
             sppr_binary_path = self.output_dir / f"{base_name}_sppr_cpad.cpad"
-            with open(sppr_json_path, 'w') as stream:
-                json.dump(sppr_cpad, stream, indent=2)
             try:
-                binary_result = self.decoder._convert_json_to_binary_cpad(
-                    str(sppr_json_path), str(sppr_binary_path))
+                binary_result = self._write_binary_cpad(
+                    sppr_cpad, sppr_binary_path)
             except Exception:
-                sppr_json_path.unlink(missing_ok=True)
                 sppr_binary_path.unlink(missing_ok=True)
                 raise
             if binary_result:
                 return str(sppr_binary_path)
-            sppr_json_path.unlink(missing_ok=True)
             sppr_binary_path.unlink(missing_ok=True)
             if self.verbose:
                 print("  ⚠️  Binary conversion failed; no PPR CPAD emitted")
@@ -1280,7 +1295,7 @@ class ContosoAnalyzer:
             confidence: int,
             original_file: Optional[str],
             output_stem: Optional[str]) -> Optional[str]:
-        """Write paired JSON and binary output for one Contoso memory action."""
+        """Write one binary CPAD for a Contoso memory action."""
         action_cpad = self._build_action_cpad(
             cper_data.get("header", {}),
             event.get("section_descriptor", {}),
@@ -1295,20 +1310,14 @@ class ContosoAnalyzer:
                 Path(original_file).stem if original_file
                 else f"cper_{header.get('recordID', 'unknown')}"
             )
-        json_path = self.output_dir / f"{base_name}_{suffix}_cpad.json"
         binary_path = self.output_dir / f"{base_name}_{suffix}_cpad.cpad"
-        with open(json_path, 'w') as stream:
-            json.dump(action_cpad, stream, indent=2)
         try:
-            result = self.decoder._convert_json_to_binary_cpad(
-                str(json_path), str(binary_path))
+            result = self._write_binary_cpad(action_cpad, binary_path)
         except Exception:
-            json_path.unlink(missing_ok=True)
             binary_path.unlink(missing_ok=True)
             raise
         if result:
             return str(binary_path)
-        json_path.unlink(missing_ok=True)
         binary_path.unlink(missing_ok=True)
         return None
 
@@ -1665,7 +1674,7 @@ def run_analysis(input_file: str) -> int:
     print(f"{IND}│  Contoso CPER Analyzer (vendor plugin — runs as its own process)     │")
     print(f"{IND}└─────────────────────────────────────────────────────────────────────┘")
 
-    # The engine writes its outputs (analysis JSON, SPPR CPAD JSON/binary)
+    # The engine writes its outputs (analysis JSON and binary CPADs)
     # into our own directory so the AO can collect them afterward.
     analyzer = ContosoAnalyzer(output_dir=str(SCRIPT_DIR), verbose=False)
 

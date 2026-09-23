@@ -9,7 +9,10 @@ vendor's analysis logic — it only converts between binary and JSON.
 
 Consumers:
 - The Analysis Orchestrator uses it to decode a CPER's header (CreatorID,
-  timestamp, Platform/Partition IDs) for routing.
+  timestamp, Platform/Partition IDs) for routing and to inspect binary CPAD
+  envelopes when policy is disabled.
+- The Policy Engine uses it to decode binary CPAD headers and section
+  descriptors for evaluation.
 - Analyzer plugins use it to decode CPERs and to emit binary CPADs.
 """
 
@@ -120,6 +123,54 @@ class CperDecoder:
             print(f"   ✗ Error converting to binary CPAD: {e}")
             return None
 
+    def _convert_binary_cpad_to_json(
+            self, binary_path: str) -> Optional[Dict[str, Any]]:
+        """Convert a binary .cpad file to a decoded CPAD object."""
+        cpad_convert, build_dir = self._locate_cpad_convert()
+        if not cpad_convert:
+            print("   ✗ cpad-convert tool not found at "
+                  "src/plugins/ras/libcper/build/")
+            return None
+
+        try:
+            env = os.environ.copy()
+            env['LD_LIBRARY_PATH'] = (
+                build_dir + ':' + env.get('LD_LIBRARY_PATH', ''))
+
+            abs_binary_path = str(Path(binary_path).resolve())
+            cmd = [cpad_convert, 'to-json', abs_binary_path]
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=build_dir,
+                env=env,
+            )
+            stdout, stderr = proc.communicate(timeout=10)
+
+            if proc.returncode != 0:
+                err_msg = stderr.decode(
+                    'utf-8', errors='replace').strip()
+                print(f"   ✗ cpad-convert failed: {err_msg}")
+                return None
+
+            json_text = stdout.decode('utf-8', errors='replace')
+            cpad_data = json.loads(json_text)
+            if not isinstance(cpad_data, dict):
+                print("   ✗ cpad-convert did not return a JSON object")
+                return None
+            return cpad_data
+
+        except subprocess.TimeoutExpired:
+            print("   ✗ cpad-convert timed out after 10 seconds")
+            return None
+        except json.JSONDecodeError as e:
+            print(f"   ✗ cpad-convert output is not valid JSON: {e}")
+            return None
+        except OSError as e:
+            print(f"   ✗ Error converting binary CPAD: {e}")
+            return None
+
     def _convert_binary_cper_to_json(self, binary_path: str) -> Optional[Dict[str, Any]]:
         """Convert a binary .cper file to JSON using cperlib's cper-convert tool.
 
@@ -188,4 +239,14 @@ class CperDecoder:
             return cper_data
         if self.verbose:
             print(f"   ⚠️  cper-convert did not produce valid CPER JSON for {file_path}")
+        return None
+
+    def extract_cpad_data(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Extract a decoded CPAD from a binary .cpad file."""
+        cpad_data = self._convert_binary_cpad_to_json(file_path)
+        if cpad_data and 'header' in cpad_data:
+            return cpad_data
+        if self.verbose:
+            print(f"   ⚠️  cpad-convert did not produce a valid decoded CPAD for "
+                  f"{file_path}")
         return None

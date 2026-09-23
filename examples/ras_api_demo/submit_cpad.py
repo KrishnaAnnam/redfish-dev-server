@@ -277,8 +277,7 @@ class CPADSubmitter:
     def submit_sppr_cpads(self, analyzer_output_dir):
         """Submit analyzer-generated SPPR CPAD file(s).
 
-        Looks in the given directory for *_sppr_cpad.cpad (binary) or
-        *_sppr_cpad.json (fallback) files.
+        Looks in the given directory for binary *_sppr_cpad.cpad files.
 
         Args:
             analyzer_output_dir: Path to the Analyzer_output_files directory.
@@ -296,16 +295,9 @@ class CPADSubmitter:
             print(f"\n⚠️  Analyzer output directory not found: {analyzer_output_dir}")
             return 0
 
-        # Prefer binary SPPR CPAD files, fall back to JSON
-        sppr_binary_files = list(analyzer_output_dir.glob("*_sppr_cpad.cpad"))
-        sppr_json_files = list(analyzer_output_dir.glob("*_sppr_cpad.json"))
-
-        if sppr_binary_files:
-            sppr_files = sppr_binary_files
+        sppr_files = list(analyzer_output_dir.glob("*_sppr_cpad.cpad"))
+        if sppr_files:
             print(f"   Found {len(sppr_files)} binary SPPR CPAD file(s)")
-        elif sppr_json_files:
-            sppr_files = sppr_json_files
-            print(f"   Found {len(sppr_files)} JSON SPPR CPAD file(s) (binary not available)")
         else:
             print(f"\n⚠️  No SPPR CPAD files found in {analyzer_output_dir}")
             print(f"   (SPPR CPADs are only created for CMC notifications on Platform Memory 2 errors)")
@@ -319,9 +311,6 @@ class CPADSubmitter:
             print(f"{'─' * 80}")
 
             print(f"\n🚀 Initiating SPPR CPAD submission...")
-
-            if sppr_file.suffix.lower() != '.cpad':
-                print(f"   Note: Using JSON format — binary CPAD generation not yet available")
 
             success = self.submit(
                 sppr_file, verbose_steps=True,

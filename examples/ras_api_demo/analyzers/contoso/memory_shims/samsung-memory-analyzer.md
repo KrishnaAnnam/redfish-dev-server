@@ -11,22 +11,17 @@ Implementation: [`analyzer_samsung.py`](analyzer_samsung.py)
 The shim calls the Samsung analysis seam as:
 
 ```python
-result = analyze(records, config=config)
+result = analyze(records)
 ```
 
 `records` is a newest-first list containing `memory_error` and
 `platform_action` records. A Platform Action record may therefore appear before
-the older memory error that caused the action. `config` is a separate object:
+the older memory error that caused the action. No configuration object is
+passed across the adapter interface.
 
-```python
-{
-    "spare_rows_per_bank": 16,
-}
-```
-
-The shim deep-copies the default configuration for each invocation. The demo
-value represents Samsung's knowledge of the DRAM organization; it is not read
-from the Contoso CPER.
+The number of spare rows per bank is Samsung proprietary data owned by
+`analyze()`. It is not read from the Contoso CPER, stored in the adapter, or
+included in the records passed to the analyzer.
 
 ## Complete memory-error input record
 
@@ -86,7 +81,6 @@ error:
         "soft_runtime": True,
         "soft_boot_time": True,
         "hard_boot_time": True,
-        "repairs_per_bank": 14,
         "target_bank_repair_count": 2,
         "repair_history": [
             {
@@ -134,10 +128,11 @@ rejects a memory-error record unless `dimm.dram_manufacturer_id` is
   boot-time soft PPR, and `0x04` for boot-time hard PPR.
 - `ppr.target_bank_repair_count` is the count for the exact target tuple
   `(subchannel, rank, device, bank_group, bank)`.
-- `ppr.repairs_per_bank` is Samsung-owned analysis data. It is calculated as
-  `max(0, config["spare_rows_per_bank"] - target_bank_repair_count)`.
 - `ppr.repair_history` contains every repair entry supplied by the endpoint,
   not only the target bank.
+- The adapter intentionally does not provide a total or remaining spare-row
+  count. The Samsung analyzer combines its proprietary device knowledge with
+  `target_bank_repair_count` internally.
 - Each `beats.mask_by_dq[dq]` value is a 16-bit beat mask for one DQ. Bit
   `beat` is set when that DQ failed on that beat.
 - `beats.mask_64` concatenates the DQ masks with DQ 0 in the least-significant
@@ -523,7 +518,7 @@ emits the binary CPAD.
 
 ## Analysis seam
 
-The current `analyze(records, config=None)` implementation is intentionally
+The current `analyze(records)` implementation is intentionally
 conservative:
 
 ```python

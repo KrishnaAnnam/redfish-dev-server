@@ -449,5 +449,8 @@ action-parameter layouts and completion timing.
 See [Contoso Analyzer Design](../Analyzer-Design.md) for event-window
 selection, same-vendor history filtering, and fallback behavior.
 
+See [Samsung Memory Analyzer Adapter](samsung-memory-analyzer.md) for the
+Samsung-specific record and decision models.
+
 See [CPAD Submission](../../../CPAD_SUBMISSION.md) for policy and Redfish
 submission after the Contoso analyzer emits a CPAD.

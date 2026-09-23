@@ -257,8 +257,11 @@ def test_discovers_three_stub_shims():
 
     assert errors == []
     assert set(shims) == {(0x80, 0x2C), (0x80, 0xCE), (0x80, 0xAD)}
-    assert all(shim.analyze([{"event_type": "memory_error"}]) == []
-               for shim in shims.values())
+    samsung_event = decode_memory_events(
+        _records(_memory_cper(SAMSUNG)))[0]
+    assert shims[tuple(SAMSUNG)].analyze([samsung_event]) == []
+    assert shims[tuple(MICRON)].analyze([]) == []
+    assert shims[(0x80, 0xAD)].analyze([]) == []
 
 
 def test_rejects_version_2_shim_contract():

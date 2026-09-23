@@ -305,8 +305,13 @@ requests.
 
 #### Samsung Analyzer Interface
 
-The stub registers DDR5 SPD manufacturer ID `80 CE` and returns no action
-requests.
+The Samsung adapter registers DDR5 SPD manufacturer ID `80 CE`. It maps
+canonical events into Samsung-oriented memory-error and Platform Action Event
+records, including FRU text, PPR budget, repair history, and beat summaries.
+Its `analyze(records)` seam is intentionally conservative and
+currently returns no action requests; Samsung-specific analysis can replace
+that function without changing the adapter contract. See
+[Samsung Memory Analyzer Adapter](memory_shims/samsung-memory-analyzer.md).
 
 #### SKHynix Analyzer Interface
 

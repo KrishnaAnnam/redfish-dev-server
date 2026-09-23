@@ -30,6 +30,7 @@ management using standard Redfish interfaces on the BMC.
 | [analyzers/contoso/contoso-cper-sections.md](analyzers/contoso/contoso-cper-sections.md) | Binary layout of the Contoso CPER sections (reference) |
 | [analyzers/contoso/contoso-cpad-actions.md](analyzers/contoso/contoso-cpad-actions.md) | Contoso action IDs, binary parameters, execution timing, and multi-page Page Offline encoding |
 | [analyzers/contoso/memory_shims/memory-vendor-analyzer-shim.md](analyzers/contoso/memory_shims/memory-vendor-analyzer-shim.md) | Common interface and end-to-end flow for all DRAM-vendor analyzer shims |
+| [analyzers/contoso/memory_shims/samsung-memory-analyzer.md](analyzers/contoso/memory_shims/samsung-memory-analyzer.md) | Samsung record model, decision schema, action mapping, PPR budget, and Page Offline requests |
 | [analyzers/contoso/error-injector-contoso.md](analyzers/contoso/error-injector-contoso.md) | The vendor error-injection tool and its JSON injection spec |
 
 ## Prerequisites

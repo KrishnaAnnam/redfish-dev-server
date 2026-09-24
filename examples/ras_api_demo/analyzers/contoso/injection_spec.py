@@ -402,7 +402,9 @@ def to_encoder_fields(spec):
     bank = get_bank(resolve_section(error["sectionType"]), error["errorBank"])
     supplied = section.get("additional", {})
     for name, code in bank["additional"]:
-        if isinstance(code, tuple) and code[0] in ("vector", "repairs"):
+        if name == "spd_temperature":
+            default = None
+        elif isinstance(code, tuple) and code[0] in ("vector", "repairs"):
             default = []
         elif isinstance(code, tuple) and code[0] == "string":
             default = ""

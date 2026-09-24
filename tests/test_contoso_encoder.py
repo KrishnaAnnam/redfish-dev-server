@@ -371,6 +371,51 @@ def test_unspecified_spd_temperature_roundtrips_as_none():
     assert decoded["additional"]["spd_temperature"] is None
 
 
+def test_omitted_spd_temperature_roundtrips_as_none():
+    spec = spec_model.build_template(
+        "Memory Controller - First Generation",
+        "Corrected Memory ECC Error")
+    del spec["section"]["additional"]["spd_temperature"]
+
+    fields = spec_model.to_encoder_fields(spec)
+    body = encoder.pack_section_body(
+        "Memory Controller - First Generation", "DRAM Errors", fields)
+    decoded = encoder.unpack_section_body(
+        "Memory Controller - First Generation", body)
+
+    assert decoded["additional"]["spd_temperature"] is None
+
+
+def test_encoder_defaults_missing_spd_temperature_to_none():
+    spec = spec_model.build_template(
+        "Memory Controller - First Generation",
+        "Corrected Memory ECC Error")
+    fields = spec_model.to_encoder_fields(spec)
+    del fields["additional"]["spd_temperature"]
+
+    body = encoder.pack_section_body(
+        "Memory Controller - First Generation", "DRAM Errors", fields)
+    decoded = encoder.unpack_section_body(
+        "Memory Controller - First Generation", body)
+
+    assert decoded["additional"]["spd_temperature"] is None
+
+
+def test_explicit_zero_spd_temperature_roundtrips_as_zero():
+    spec = spec_model.build_template(
+        "Memory Controller - First Generation",
+        "Corrected Memory ECC Error")
+    spec["section"]["additional"]["spd_temperature"] = 0
+
+    fields = spec_model.to_encoder_fields(spec)
+    body = encoder.pack_section_body(
+        "Memory Controller - First Generation", "DRAM Errors", fields)
+    decoded = encoder.unpack_section_body(
+        "Memory Controller - First Generation", body)
+
+    assert decoded["additional"]["spd_temperature"] == 0
+
+
 def test_decoder_accepts_v14_memory_section_without_temperature():
     body = _memory_body()
     del body[157]

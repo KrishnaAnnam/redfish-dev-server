@@ -22,6 +22,7 @@ import injection_spec as spec_model  # noqa: E402
 from memory_events import decode_memory_events  # noqa: E402
 from src.plugins.ras.action_provider import (  # noqa: E402
     ACTION_COMPLETED,
+    ERROR_INJECTION_ACTION_ID,
     ActionResult,
 )
 from src.plugins.ras.contoso_memory import (  # noqa: E402
@@ -425,18 +426,49 @@ def test_chunked_page_offline_reports_batch_and_chunk():
 
 def test_error_injection_is_the_only_action_that_emits_an_error_cper():
     handler, _cpad = _submission_handler("0x0006")
-    handler._convert_cpad_to_cper = (
-        lambda _cpad, _metadata: {"kind": "injected-error"})
 
     status, _response = handler.handle_submit_cpad(
         "System", _submission_request())
 
     assert status == 202
     assert len(handler.log_service_handler.records) == 2
-    assert handler.log_service_handler.records[0] == {
-        "kind": "injected-error"}
+    assert handler.log_service_handler.records[0]["header"]["severity"] == {
+        "code": 2, "name": "Corrected"}
+    assert "Unknown" in handler.log_service_handler.records[0]["sections"][0]
     assert "PlatformActionEvent" in (
         handler.log_service_handler.records[1]["sections"][0])
+
+
+def test_error_injection_action_id_can_inject_fatal_cpu_error():
+    handler, cpad = _submission_handler(ERROR_INJECTION_ACTION_ID)
+    spec = spec_model.build_template(
+        "CPU Core - First Generation", "Transaction Timeout")
+    body = encoder.pack_section_body(
+        "CPU Core - First Generation",
+        "Core Errors",
+        spec_model.to_encoder_fields(spec),
+    )
+    cpad["sectionDescriptors"][0]["sectionType"] = {
+        "data": catalog.SECTION_TYPES[
+            "CPU Core - First Generation"]["guid"],
+        "type": "Unknown",
+    }
+    cpad["sections"][0]["Unknown"]["data"] = base64.b64encode(
+        body).decode("ascii")
+    metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+    endpoint = handler.endpoint_configuration.endpoint_by_partition(
+        PARTITION_ID)
+
+    result = handler._contoso_action_provider().execute(
+        "System", ERROR_INJECTION_ACTION_ID, cpad, metadata, endpoint)
+
+    assert result.status == ACTION_COMPLETED
+    assert len(result.generated_cpers) == 1
+    generated = result.generated_cpers[0].cper_data
+    assert generated["header"]["severity"] == {
+        "code": 1, "name": "Fatal"}
+    assert generated["sectionDescriptors"][0]["sectionType"]["data"] == (
+        catalog.SECTION_TYPES["CPU Core - First Generation"]["guid"])
 
 
 def test_retraining_waits_for_qualifying_whole_machine_reset():
@@ -679,6 +711,50 @@ def test_another_vendor_can_register_same_proprietary_action_id():
     assert result.context == "Fabrikam-specific 0x8002 action"
 
 
+def test_error_injection_dispatches_to_creator_specific_provider():
+    creator_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    endpoint = {
+        "CreatorID": creator_id,
+        "PartitionID": "fabrikam-partition",
+    }
+    handler = SubmitCPADActionHandler.__new__(SubmitCPADActionHandler)
+    handler.action_providers = {}
+    received = {}
+
+    class FabrikamProvider:
+        creator_ids = frozenset({creator_id})
+
+        @staticmethod
+        def execute(_manager, action_id, cpad, metadata, _endpoint):
+            received.update({
+                "action_id": action_id,
+                "cpad": cpad,
+                "metadata": metadata,
+            })
+            return ActionResult(
+                status=ACTION_COMPLETED,
+                context="Fabrikam interpreted its proprietary injection body",
+            )
+
+    handler.register_action_provider(FabrikamProvider())
+    cpad = {"sections": [{"Unknown": {"data": "opaque"}}]}
+    metadata = {
+        "action_id": ERROR_INJECTION_ACTION_ID,
+        "creator_id": creator_id,
+    }
+
+    result = handler._execute_action(
+        "System", cpad, metadata, endpoint)
+
+    assert received == {
+        "action_id": ERROR_INJECTION_ACTION_ID,
+        "cpad": cpad,
+        "metadata": metadata,
+    }
+    assert result.context == (
+        "Fabrikam interpreted its proprietary injection body")
+
+
 def test_sppr_at_dimm_limit_fails_without_incrementing():
     handler = _handler()
     cpad = _memory_cpad()
@@ -770,8 +846,12 @@ def test_error_injection_can_override_configured_spd_temperature():
 
     handler.log_service_handler = None
     metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+    endpoint = handler.endpoint_configuration.endpoint_by_partition(
+        PARTITION_ID)
 
-    cper = handler._convert_cpad_to_cper(cpad, metadata)
+    result = handler._contoso_action_provider().execute(
+        "System", "0x0006", cpad, metadata, endpoint)
+    cper = result.generated_cpers[0].cper_data
     body = base64.b64decode(
         cper["sections"][0]["Unknown"]["data"], validate=True)
     decoded = encoder.unpack_section_body(
@@ -784,8 +864,12 @@ def test_unspecified_injection_temperature_uses_configured_default():
     handler, cpad = _submission_handler("0x0006")
     handler.log_service_handler = None
     metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+    endpoint = handler.endpoint_configuration.endpoint_by_partition(
+        PARTITION_ID)
 
-    cper = handler._convert_cpad_to_cper(cpad, metadata)
+    result = handler._contoso_action_provider().execute(
+        "System", "0x0006", cpad, metadata, endpoint)
+    cper = result.generated_cpers[0].cper_data
     body = base64.b64decode(
         cper["sections"][0]["Unknown"]["data"], validate=True)
     decoded = encoder.unpack_section_body(
@@ -987,6 +1071,88 @@ def test_failed_ppr_submission_emits_failed_action_event_and_returns_accepted():
     assert action_event["actionReturnCode"] == "0x01"
     assert handler.submission_history[-1]["decision"] == "ACTION_FAILED"
     assert handler.memory_repair_state.entries_for_dimm(0, 0, 0, 1)[0]["count"] == 16
+
+
+def test_multi_section_ppr_executes_and_reports_each_fru():
+    handler, cpad = _submission_handler(SPPR_ACTION_ID)
+    second_descriptor = copy.deepcopy(cpad["sectionDescriptors"][0])
+    second_descriptor["fruID"] = (
+        "97fb9d52-b648-497d-b092-903b8925f6e8")
+    second_descriptor["fruText"] = "DIMM B1"
+    second_parameters = {
+        "ppr_type": PPR_TYPE_SOFT_RUNTIME,
+        "chiplet": 0,
+        "controller": 0,
+        "channel": 0,
+        "dimm": 1,
+        "subchannel": 0,
+        "rank": 0,
+        "device": 3,
+        "bank_group": 2,
+        "bank": 4,
+        "row": 4321,
+    }
+    second_body = action_encoder.encode_action_parameters(
+        SPPR_ACTION_ID, second_parameters)
+    cpad["header"]["sectionCount"] = 2
+    cpad["sectionDescriptors"].append(second_descriptor)
+    cpad["sections"].append({
+        "Unknown": {
+            "data": base64.b64encode(second_body).decode("ascii"),
+        },
+    })
+    metadata = {
+        "record_id": 42,
+        "creator_id": CONTOSO_CREATOR_ID,
+        "platform_id": cpad["header"]["platformID"],
+        "partition_id": PARTITION_ID,
+        "record_length": 48,
+        "section_count": 2,
+        "action_id": SPPR_ACTION_ID,
+        "fru_id": cpad["sectionDescriptors"][0]["fruID"],
+        "fru_text": cpad["sectionDescriptors"][0]["fruText"],
+        "confidence": 80,
+        "sections": [
+            {
+                "section_index": 0,
+                "action_id": SPPR_ACTION_ID,
+                "fru_id": cpad["sectionDescriptors"][0]["fruID"],
+                "fru_text": cpad["sectionDescriptors"][0]["fruText"],
+                "confidence": 80,
+                "urgency": False,
+            },
+            {
+                "section_index": 1,
+                "action_id": SPPR_ACTION_ID,
+                "fru_id": second_descriptor["fruID"],
+                "fru_text": second_descriptor["fruText"],
+                "confidence": 80,
+                "urgency": False,
+            },
+        ],
+    }
+
+    class MultiSectionCpadHandler:
+        @staticmethod
+        def validate_and_extract(_cpad):
+            return True, metadata, None
+
+    handler.cpad_handler = MultiSectionCpadHandler()
+    handler._convert_binary_cpad_to_json = lambda _raw: cpad
+
+    status, response = handler.handle_submit_cpad(
+        "System", _submission_request())
+
+    assert status == 202
+    assert response["TaskState"] == "Completed"
+    assert [item["SectionIndex"] for item in response["SectionResults"]] == [
+        0, 1]
+    assert [item["FRUText"] for item in response["SectionResults"]] == [
+        "DIMM A1", "DIMM B1"]
+    assert [
+        record["sections"][0]["PlatformActionEvent"]["cpadSectionIndex"]
+        for record in handler.log_service_handler.records
+    ] == [0, 1]
 
 
 if __name__ == "__main__":

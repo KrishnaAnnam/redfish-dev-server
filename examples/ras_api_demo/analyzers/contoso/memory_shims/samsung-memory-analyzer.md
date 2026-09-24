@@ -1,7 +1,7 @@
 # Samsung Memory Analyzer Adapter
 
 The Samsung shim adapts canonical Contoso memory events to a Samsung-oriented
-record model and translates Samsung decisions into complete version 3 Contoso
+record model and translates Samsung decisions into complete version 5 Contoso
 action requests.
 
 Implementation: [`analyzer_samsung.py`](analyzer_samsung.py)
@@ -247,14 +247,24 @@ fields:
         "confidence": 92,
         "reason": "Repeated corrected errors on one DRAM row",
     },
-    "actions": [],
+    "cpads": [],
     "advisories": [],
 }
 ```
 
-`fault` may be `None`. `actions` and `advisories` must be lists. The shim
+`fault` may be `None`. `cpads` and `advisories` must be lists. The shim
 currently treats `fault` and `advisories` as Samsung-owned diagnostic output;
-only `actions` are translated into Contoso action requests.
+only `cpads[].actions` are translated into grouped Contoso section requests.
+
+Each CPAD proposal contains one or more actions:
+
+```python
+{
+    "actions": [
+        # Action objects documented below.
+    ],
+}
+```
 
 Every action object must contain exactly:
 
@@ -266,7 +276,11 @@ Every action object must contain exactly:
     },
     "action": "replace_dimm",
     "confidence": 95,
-    "parameters": {},
+    "urgency": True,
+    "parameters": {
+        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_text": "DIMM A1",
+    },
     "reason": "Repair budget exhausted",
 }
 ```
@@ -277,6 +291,7 @@ The action rules are:
 - `source` must identify a `memory_error` record from the current input list;
   a Platform Action record cannot be the source of a new request.
 - `confidence` must be an integer from 0 through 100; booleans are rejected.
+- `urgency` must be a boolean selected by the Samsung analyzer.
 - `parameters` must be an object.
 - `reason` must be a non-empty string. It is diagnostic context and is not
   encoded into the Contoso action request.
@@ -286,11 +301,11 @@ The action rules are:
 | Samsung action | CPAD ActionID | CPAD action | Parameters |
 | --- | ---: | --- | --- |
 | `cold_reboot` | `0x0002` | Power Cycle | Must be `{}` |
-| `reseat_dimm` | `0x0003` | Reseat Part | Must be `{}` |
-| `dance_dimm` | `0x0004` | Shuffle Part | Must be `{}` |
-| `replace_dimm` | `0x0005` | Replace Part | Must be `{}` |
-| `ppr` | `0x8001` | Post Package Repair | Complete PPR type and target |
-| `page_offline` | `0x8002` | Page Offline | `pages`, `page_ranges`, or both |
+| `reseat_dimm` | `0x0003` | Reseat Part | FRU ID and text |
+| `dance_dimm` | `0x0004` | Shuffle Part | FRU ID and text |
+| `replace_dimm` | `0x0005` | Replace Part | FRU ID and text |
+| `ppr` | `0x8001` | Post Package Repair | FRU plus complete PPR type and target |
+| `page_offline` | `0x8002` | Page Offline | FRU plus `pages`, `page_ranges`, or both |
 | `reboot_with_training` | `0x8003` | Reboot with Memory Retraining | Must be `{}` |
 
 ### Power Cycle (`cold_reboot`, `0x0002`)
@@ -303,6 +318,7 @@ The action rules are:
     },
     "action": "cold_reboot",
     "confidence": 90,
+    "urgency": True,
     "parameters": {},
     "reason": "A cold restart is required to recover the platform",
 }
@@ -318,7 +334,11 @@ The action rules are:
     },
     "action": "reseat_dimm",
     "confidence": 91,
-    "parameters": {},
+    "urgency": False,
+    "parameters": {
+        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_text": "DIMM A1",
+    },
     "reason": "The fault pattern indicates a DIMM seating problem",
 }
 ```
@@ -333,7 +353,11 @@ The action rules are:
     },
     "action": "dance_dimm",
     "confidence": 92,
-    "parameters": {},
+    "urgency": False,
+    "parameters": {
+        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_text": "DIMM A1",
+    },
     "reason": "Move the DIMM to isolate the failing component",
 }
 ```
@@ -348,16 +372,21 @@ The action rules are:
     },
     "action": "replace_dimm",
     "confidence": 95,
-    "parameters": {},
+    "urgency": True,
+    "parameters": {
+        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_text": "DIMM A1",
+    },
     "reason": "The available repair budget is exhausted",
 }
 ```
 
-Power Cycle, Reseat Part, Shuffle Part, and Replace Part use the source memory
-error's FRU ID and FRU text in the CPAD section descriptor. They have no action
-body parameters. After policy approval, these standard actions are routed to
-the simulated server-fleet control plane rather than submitted to the Contoso
-endpoint.
+Reseat Part, Shuffle Part, and Replace Part explicitly provide FRU ID and FRU
+text for the CPAD descriptor; their encoded action bodies remain empty. Power
+Cycle may omit FRU parameters and uses the newest CPER's unambiguous FRU as
+correlation context. After policy approval, these standard actions are routed
+to the simulated server-fleet control plane rather than submitted to the
+Contoso endpoint.
 
 ### Post Package Repair (`ppr`, `0x8001`)
 
@@ -369,7 +398,10 @@ endpoint.
     },
     "action": "ppr",
     "confidence": 94,
+    "urgency": False,
     "parameters": {
+        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_text": "DIMM A1",
         "ppr_type": 0x01,
         "chiplet": 0,
         "controller": 0,
@@ -386,7 +418,8 @@ endpoint.
 }
 ```
 
-PPR parameters must contain exactly the eleven fields shown above:
+PPR parameters contain the two FRU fields plus exactly the eleven body fields
+shown above:
 
 | Parameter | Valid values |
 | --- | --- |
@@ -418,7 +451,10 @@ An action may identify individual pages:
     },
     "action": "page_offline",
     "confidence": 88,
+    "urgency": False,
     "parameters": {
+        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_text": "DIMM A1",
         "pages": [
             0x0000000012345000,
             0x0000000012347000,
@@ -438,7 +474,10 @@ It may identify ranges:
     },
     "action": "page_offline",
     "confidence": 89,
+    "urgency": True,
     "parameters": {
+        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_text": "DIMM A1",
         "page_ranges": [
             {
                 "start_address": 0x0000000020000000,
@@ -454,6 +493,8 @@ Or it may use both forms:
 
 ```python
 "parameters": {
+    "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+    "fru_text": "DIMM A1",
     "pages": [
         0x0000000012345000,
         0x0000000012347000,
@@ -467,11 +508,17 @@ Or it may use both forms:
 },
 ```
 
-Only `pages` and `page_ranges` are permitted. At least one list must be
-non-empty. Every physical address must be an integer in the 52-bit physical
-address space and aligned to 4 KiB. `page_count` must be an integer from 1
-through `4294967295`, and the resulting range must remain within the 52-bit
-address space.
+Beyond the two FRU fields, only `pages` and `page_ranges` are permitted. At
+least one page list must be non-empty. Every physical address must be an
+integer in the 52-bit physical address space and aligned to 4 KiB.
+`page_count` must be an integer from 1 through `4294967295`, and the resulting
+range must remain within the 52-bit address space.
+
+In addition to `pages` and `page_ranges`, every Page Offline action requires
+`fru_id` and `fru_text`. All pages represented by one action must belong to
+that FRU. Pages belonging to another FRU require another action and therefore
+another CPAD section. The adapter rejects overlapping pages assigned to
+different FRUs.
 
 The Contoso analyzer canonicalizes overlapping or adjacent pages, selects the
 smallest PFN-list, range, or bitmap encoding, and divides large requests into
@@ -489,13 +536,15 @@ include offlined-page state in later CPERs.
     },
     "action": "reboot_with_training",
     "confidence": 93,
+    "urgency": True,
     "parameters": {},
     "reason": "Retrain memory on the next system reset",
 }
 ```
 
-The parameter object must be empty. The endpoint records a pending retraining
-request and performs it on the next supported system reset.
+The parameter object may be empty. The framework then uses the newest CPER's
+single unambiguous FRU as correlation context. The endpoint records a pending
+retraining request and performs it on the next supported system reset.
 
 ## Translation to the Contoso request
 
@@ -503,18 +552,28 @@ For example, the Samsung `replace_dimm` action above becomes:
 
 ```python
 {
-    "cper_file": "record-17.cper",
-    "section_index": 2,
-    "action_id": "0x0005",
-    "confidence": 95,
-    "parameters": {},
+    "sections": [{
+        "cper_file": "record-17.cper",
+        "section_index": 2,
+        "action_id": "0x0005",
+        "confidence": 95,
+        "urgency": True,
+        "parameters": {
+            "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+            "fru_text": "DIMM A1",
+        },
+    }],
 }
 ```
 
-The adapter maps the action name to its ActionID, moves the two source fields
-to the top level, copies the confidence and parameters, and validates that the
-source identifies an input memory error. The Contoso analyzer then builds and
-emits the binary CPAD.
+The adapter preserves each Samsung CPAD grouping, maps action names to
+ActionIDs, moves the two source fields to each section request, and copies
+confidence, urgency, and parameters. The Contoso analyzer then builds and
+emits one binary multi-section CPAD per proposal.
+
+Confidence and urgency are inputs to server-fleet policy. Policy may reject an
+action based on either field and may prioritize an approved urgent action. The
+endpoint does not use either field when executing the action.
 
 ## Analysis seam
 
@@ -524,7 +583,7 @@ conservative:
 ```python
 {
     "fault": None,
-    "actions": [],
+    "cpads": [],
     "advisories": [],
 }
 ```

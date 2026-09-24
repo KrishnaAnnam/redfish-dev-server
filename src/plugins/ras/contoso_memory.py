@@ -27,24 +27,27 @@ _SPD_TEMPERATURE_OFFSET = 69
 _SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT = -128
 
 
-def is_contoso_memory_cpad(cpad_data: Dict[str, Any]) -> bool:
+def is_contoso_memory_cpad(
+        cpad_data: Dict[str, Any], section_index: int = 0) -> bool:
     descriptors = cpad_data.get("sectionDescriptors", [])
-    if not descriptors:
+    if not 0 <= section_index < len(descriptors):
         return False
-    section_type = descriptors[0].get("sectionType", {})
+    section_type = descriptors[section_index].get("sectionType", {})
     guid = section_type.get("data") if isinstance(section_type, dict) else None
     return (isinstance(guid, str) and
             guid.lower() == CONTOSO_MEMORY_SECTION_GUID)
 
 
-def _section_body(cpad_data: Dict[str, Any]) -> bytes:
+def _section_body(
+        cpad_data: Dict[str, Any], section_index: int = 0) -> bytes:
     descriptors = cpad_data.get("sectionDescriptors", [])
     sections = cpad_data.get("sections", [])
-    if not descriptors or not sections:
+    if (not 0 <= section_index < len(descriptors)
+            or not 0 <= section_index < len(sections)):
         raise ValueError("CPAD has no section")
-    if not is_contoso_memory_cpad(cpad_data):
+    if not is_contoso_memory_cpad(cpad_data, section_index):
         raise ValueError("CPAD does not contain a Contoso memory section")
-    encoded = sections[0].get("Unknown", {}).get("data")
+    encoded = sections[section_index].get("Unknown", {}).get("data")
     if not encoded:
         raise ValueError("Contoso memory section has no body")
     try:
@@ -105,8 +108,9 @@ def active_memory_bank(body: bytes) -> str:
     return "dram" if dram_active else "other"
 
 
-def active_cpad_memory_bank(cpad_data: Dict[str, Any]) -> str:
-    return active_memory_bank(_section_body(cpad_data))
+def active_cpad_memory_bank(
+        cpad_data: Dict[str, Any], section_index: int = 0) -> str:
+    return active_memory_bank(_section_body(cpad_data, section_index))
 
 
 def decode_memory_coordinates(body: bytes) -> Dict[str, int]:
@@ -134,8 +138,9 @@ def decode_memory_coordinates(body: bytes) -> Dict[str, int]:
     }
 
 
-def decode_cpad_memory_coordinates(cpad_data: Dict[str, Any]) -> Dict[str, int]:
-    return decode_memory_coordinates(_section_body(cpad_data))
+def decode_cpad_memory_coordinates(
+        cpad_data: Dict[str, Any], section_index: int = 0) -> Dict[str, int]:
+    return decode_memory_coordinates(_section_body(cpad_data, section_index))
 
 
 def decode_memory_error_address(body: bytes) -> int:
@@ -148,8 +153,9 @@ def decode_memory_error_address(body: bytes) -> int:
     return struct.unpack_from("<Q", body, _SECTION_HEADER_SIZE + 8)[0]
 
 
-def decode_cpad_memory_error_address(cpad_data: Dict[str, Any]) -> int:
-    return decode_memory_error_address(_section_body(cpad_data))
+def decode_cpad_memory_error_address(
+        cpad_data: Dict[str, Any], section_index: int = 0) -> int:
+    return decode_memory_error_address(_section_body(cpad_data, section_index))
 
 
 def _fixed_ascii(value: str, capacity: int) -> bytes:
@@ -226,9 +232,10 @@ def overlay_memory_state(
 def overlay_cpad_memory_state(
         cpad_data: Dict[str, Any],
         state: MemoryRepairState,
-        allow_spd_temperature_override: bool = False) -> bytes:
+        allow_spd_temperature_override: bool = False,
+        section_index: int = 0) -> bytes:
     return overlay_memory_state(
-        _section_body(cpad_data),
+        _section_body(cpad_data, section_index),
         state,
         allow_spd_temperature_override=allow_spd_temperature_override,
     )

@@ -10,8 +10,10 @@ from .action_provider import (
     ACTION_COMPLETED,
     ACTION_FAILED,
     ACTION_PENDING,
+    ERROR_INJECTION_ACTION_ID,
     ActionResult,
 )
+from .contoso_error_injection import build_contoso_injected_error
 from .contoso_action_parameters import (
     PAGE_OFFLINE_ACTION_ID,
     PPR_ACTION_ID,
@@ -69,6 +71,7 @@ class ContosoActionProvider:
 
     creator_ids = frozenset({CONTOSO_CREATOR_ID})
     action_ids = frozenset({
+        ERROR_INJECTION_ACTION_ID,
         PPR_ACTION_ID,
         PAGE_OFFLINE_ACTION_ID,
         REBOOT_WITH_RETRAINING_ACTION_ID,
@@ -81,7 +84,7 @@ class ContosoActionProvider:
         self.endpoint_configuration = endpoint_configuration
         self.memory_repair_states = memory_repair_states
         self._pending_reset_actions: Dict[
-            Tuple[str, str, int], PendingResetAction] = {}
+            Tuple[str, str, int, int], PendingResetAction] = {}
 
     def execute(
             self,
@@ -97,7 +100,23 @@ class ContosoActionProvider:
                 return_code=0x01,
                 reason=f"unsupported Contoso action {action_id}",
             )
-        if not is_contoso_action_cpad(cpad_data):
+        if action_id == ERROR_INJECTION_ACTION_ID:
+            try:
+                generated = build_contoso_injected_error(
+                    cpad_data, metadata, self.memory_repair_states)
+            except ValueError as exc:
+                return ActionResult(
+                    status=ACTION_FAILED,
+                    return_code=0x01,
+                    reason=str(exc),
+                )
+            return ActionResult(
+                status=ACTION_COMPLETED,
+                context="Contoso error injection completed",
+                generated_cpers=(generated,),
+            )
+        if not is_contoso_action_cpad(
+                cpad_data, metadata.get("section_index", 0)):
             return ActionResult(
                 status=ACTION_FAILED,
                 return_code=0x01,
@@ -108,7 +127,7 @@ class ContosoActionProvider:
             )
         try:
             parameters = decode_cpad_action_parameters(
-                cpad_data, action_id)
+                cpad_data, action_id, metadata.get("section_index", 0))
         except ValueError as exc:
             return ActionResult(
                 status=ACTION_FAILED,
@@ -344,6 +363,7 @@ class ContosoActionProvider:
             metadata["partition_id"],
             metadata["creator_id"].lower(),
             metadata["record_id"],
+            metadata.get("section_index", 0),
         )
         if key not in self._pending_reset_actions:
             self._pending_reset_actions[key] = PendingResetAction(

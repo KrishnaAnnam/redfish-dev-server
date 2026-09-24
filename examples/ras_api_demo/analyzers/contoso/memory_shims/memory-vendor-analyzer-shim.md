@@ -13,10 +13,10 @@ The vendor analyzer does not need to understand the Contoso CPAD envelope,
 binary action-section layouts, section offsets, GUIDs, or Base64 encoding.
 Those remain Contoso responsibilities.
 
-> **API version 3:** Memory-vendor analyzers must return every semantic
-> parameter required by the action section body. Version 2 shims are rejected
-> because they allowed PPR coordinates to be inferred from the referenced
-> CPER.
+> **API version 5:** Memory-vendor analyzers return grouped CPAD proposals.
+> Every section carries complete action parameters, confidence, urgency, and
+> explicit FRU identity when the action targets a FRU. Version 4 shims are
+> rejected because they cannot describe multi-section CPADs.
 
 ## Overall Flow
 
@@ -68,7 +68,7 @@ missing action-body fields from the original CPER.
 | --- | --- |
 | Contoso analyzer | Decode CPERs, select same-vendor history, construct canonical events, validate source references, and build complete CPADs. |
 | Memory-vendor shim | Translate between canonical events/action requests and one vendor analyzer's API without dropping required action parameters. |
-| Memory-vendor analyzer | Diagnose DRAM faults and return every parameter required by each recommended action. |
+| Memory-vendor analyzer | Diagnose DRAM faults and return every parameter, confidence, and urgency required by each recommended action. |
 | Contoso CPAD builder | Populate the CPAD envelope from CPER context and encode the supplied PPR, Page Offline, or retraining parameters without inferring section-body values. |
 | Server-fleet policy | Decide whether a generated CPAD may be submitted. |
 | Contoso endpoint | Validate and execute the approved action and emit a Platform Action Event. |
@@ -94,7 +94,7 @@ register one or more exact DRAM manufacturer IDs:
 
 ```python
 SHIM_INFO = {
-    "api_version": 3,
+    "api_version": 5,
     "name": "Example Memory Analyzer",
     "version": "1.0.0",
     "dram_manufacturer_ids": [[0x80, 0x2C]],
@@ -110,9 +110,9 @@ def analyze_memory_events(events: list[dict]) -> list[dict]:
 
 Inputs are deep-copied before invocation.
 
-API version 3 returns action requests containing every action-body parameter,
-rather than complete CPAD documents. Shims declaring an older API version are
-rejected explicitly.
+API version 5 returns CPAD proposals containing one or more section requests.
+The Contoso analyzer still owns the binary envelope and section encoding.
+Shims declaring an older API version are rejected explicitly.
 
 ## Adapter Pattern
 
@@ -126,15 +126,13 @@ def analyze_memory_events(events):
         for event in events
     ]
     vendor_decision = vendor_analyzer.analyze(vendor_records)
-    return _to_contoso_action_requests(vendor_decision, events)
+    return _to_contoso_cpad_proposals(vendor_decision, events)
 ```
 
 `_to_vendor_record()` may flatten, rename, or derive fields for the vendor
-tool. `_to_contoso_action_requests()` must preserve the original source
-reference, translate only executable Contoso actions, and include every field
-needed in each action section body. Recommendations such as DIMM replacement
-that have no Contoso ActionID should remain vendor advisories or report
-findings rather than being disguised as CPAD actions.
+tool. `_to_contoso_cpad_proposals()` must preserve source references and CPAD
+grouping, translate only executable Contoso actions, and include every field
+needed by each descriptor and action section body.
 
 ## Event Source Reference
 
@@ -178,38 +176,53 @@ action result under `platform_action`. A correlated action event also carries
 the original memory target. This lets a vendor analyzer determine whether an
 earlier recommendation succeeded before suggesting a follow-up action.
 
-## Action Requests
+## CPAD Proposals and Section Requests
 
-A shim returns zero or more dictionaries with exactly this shape:
+A shim returns zero or more CPAD proposal dictionaries. Each proposal contains
+the sections that must be emitted together:
 
 ```python
 {
-    "cper_file": "/path/to/original.cper",
-    "section_index": 0,
-    "action_id": "0x8001",
-    "confidence": 90,
-    "parameters": {
-        "ppr_type": 0x01,
-        "chiplet": 0,
-        "controller": 0,
-        "channel": 0,
-        "dimm": 1,
-        "subchannel": 0,
-        "rank": 0,
-        "device": 3,
-        "bank_group": 2,
-        "bank": 3,
-        "row": 1234,
-    },
+    "sections": [
+        {
+            "cper_file": "/path/to/original.cper",
+            "section_index": 0,
+            "action_id": "0x8001",
+            "confidence": 90,
+            "urgency": True,
+            "parameters": {
+                "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+                "fru_text": "DIMM A1",
+                "ppr_type": 0x01,
+                "chiplet": 0,
+                "controller": 0,
+                "channel": 0,
+                "dimm": 1,
+                "subchannel": 0,
+                "rank": 0,
+                "device": 3,
+                "bank_group": 2,
+                "bank": 3,
+                "row": 1234,
+            },
+        },
+    ],
 }
 ```
 
 Rules:
 
+- `sections` must be a non-empty list.
+- Sections grouped into one proposal must use the same ActionID and execution
+  domain.
 - `cper_file` and `section_index` must identify one input `memory_error`.
 - `action_id` must be a supported Contoso remediation action.
 - `confidence` is an integer from 0 through 100.
-- `parameters` contains the complete action-specific section-body input.
+- `urgency` is a strict boolean selected by the vendor analyzer.
+- FRU-targeting actions require `parameters.fru_id` and
+  `parameters.fru_text`.
+- `parameters` contains the remaining complete action-specific section-body
+  input.
 - Returning `[]` means analysis succeeded and no action is recommended.
 - Raising an exception means the shim failed; default Contoso analysis may run.
 
@@ -219,18 +232,25 @@ and binary encoding.
 
 ## How Requests Become CPADs
 
-For every returned action request, the Contoso analyzer:
+For every returned section request, the Contoso analyzer:
 
 1. Matches `cper_file` and `section_index` to exactly one input memory-error
    event.
-2. Gets FRU identity from that referenced section.
+2. Validates explicit FRU identity for PPR, Page Offline, Reseat, Shuffle, and
+   Replace. Power Cycle and Reboot with Retraining may use the single
+   unambiguous FRU on the newest CPER as correlation context.
 3. Gets PlatformID, CreatorID, and the target PartitionID from the newest
    relevant memory-error event.
-4. Validates the ActionID, confidence, and action-specific parameters.
+4. Validates the ActionID, confidence, urgency, and action-specific parameters.
 5. Encodes only the supplied parameters into the shared Contoso
    action-parameter section.
-6. Populates section offsets, lengths, ActionID, confidence, and CPAD header.
+6. Populates one descriptor per request, including its FRU ID, FRU text,
+   ActionID, confidence, and urgency.
 7. Writes a binary `.cpad` file; conversion JSON remains temporary.
+
+Every CPAD section descriptor has valid FRU ID and FRU text. For machine- or
+partition-scoped actions, a fallback FRU is diagnostic context and does not
+narrow the action's execution target.
 
 The shared action-parameter section GUID is:
 
@@ -243,10 +263,11 @@ The Contoso analyzer chooses PFN-list, range, or bitmap encoding and adds batch
 metadata when chunking is required. The vendor shim describes the desired page
 ranges but does not select the wire encoding.
 
-Standard Power Cycle, Reseat Part, Shuffle Part, and Replace Part requests use
-empty semantic parameters. The CPAD descriptor's FRU ID and FRU text identify a
-part target. Approved standard control-plane actions are stored and reported by
-the Analysis Orchestrator rather than being submitted to the Contoso endpoint.
+Reseat Part, Shuffle Part, and Replace Part requests carry only `fru_id` and
+`fru_text`; their encoded bodies remain empty. Power Cycle has an empty
+parameter object and receives fallback FRU context. Approved standard
+control-plane actions are stored and reported by the Analysis Orchestrator
+rather than being submitted to the Contoso endpoint.
 
 ## CPAD Builder Contract
 
@@ -270,9 +291,40 @@ build_action_cpads(
     fru_context,
     action_id,
     confidence,
+    urgency,
     parameters,
 )
 ```
+
+Confidence and urgency are analyzer-provided inputs to server-fleet policy.
+Policy may deny an action based on either field and may prioritize an approved
+urgent action. The endpoint does not use either field when executing the
+action.
+
+## FRU resolution
+
+FRU-targeting actions (`0x0003`, `0x0004`, `0x0005`, `0x8001`, and `0x8002`)
+must provide both common descriptor parameters:
+
+```python
+{
+    "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+    "fru_text": "DIMM A1",
+}
+```
+
+The adapter removes these fields before action-body encoding. The pair must
+match the referenced memory-error event. FRU text must fit in the CPAD
+descriptor's 19-byte text payload.
+
+Power Cycle and Reboot with Retraining may omit the pair. The framework then
+uses the one unique FRU from the newest CPER. Missing or ambiguous newest-CPER
+FRU data is an error.
+
+Every Page Offline section identifies exactly one FRU. All pages and ranges in
+that section must belong to that FRU. Different FRUs require different
+sections, ranges are canonicalized within each section, and overlapping pages
+assigned to different FRUs are rejected.
 
 Action-specific validation and encoding are isolated by ActionID:
 
@@ -408,12 +460,15 @@ def analyze_memory_events(events):
     error = newest_error["memory_error"]
     subcomponent = error["subcomponent"]
     location = error["additional"]
-    return [{
+    return [{"sections": [{
         "cper_file": newest_error["cper_file"],
         "section_index": newest_error["section_index"],
         "action_id": "0x8001",
         "confidence": 90,
+        "urgency": False,
         "parameters": {
+            "fru_id": newest_error["fru_id"],
+            "fru_text": newest_error["fru_text"],
             "ppr_type": 0x02,
             "chiplet": subcomponent["chiplet"],
             "controller": subcomponent["controller"],
@@ -426,7 +481,7 @@ def analyze_memory_events(events):
             "bank": location["bank"],
             "row": location["row"],
         },
-    }]
+    }]}]
 ```
 
 ## Success, Failure, and Fallback

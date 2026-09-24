@@ -15,6 +15,7 @@ an edited spec, and resolves a spec into the low-level values the encoder needs.
 """
 
 import json
+import uuid
 
 from contoso_catalog import (
     SECTION_TYPES,
@@ -228,6 +229,20 @@ def validate_spec(spec):
         return problems
 
     error = spec["error"]
+    cpad = spec["cpad"]
+    fru_id = cpad.get("fruID")
+    fru_text = cpad.get("fruText")
+    try:
+        parsed_fru = uuid.UUID(str(fru_id).strip().strip("{}"))
+        if parsed_fru.int == 0:
+            problems.append("cpad.fruID must not be the zero GUID.")
+    except (ValueError, AttributeError):
+        problems.append("cpad.fruID must be a valid GUID.")
+    if not isinstance(fru_text, str) or not fru_text.strip():
+        problems.append("cpad.fruText must be a non-empty string.")
+    elif len(fru_text.strip().encode("utf-8")) > 19:
+        problems.append("cpad.fruText must fit in 19 UTF-8 bytes.")
+
     section_name = error.get("sectionType")
     bank_name = error.get("errorBank")
     error_name = error.get("errorName")

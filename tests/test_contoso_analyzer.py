@@ -53,10 +53,14 @@ def _analyzer_with_seen(*locations):
 def _contoso_section(section_name, bank_name, fields):
     body = contoso_encoder.pack_section_body(section_name, bank_name, fields)
     return (
-        {"sectionType": {
-            "data": contoso_catalog.SECTION_TYPES[section_name]["guid"],
-            "type": "Unknown",
-        }},
+        {
+            "sectionType": {
+                "data": contoso_catalog.SECTION_TYPES[section_name]["guid"],
+                "type": "Unknown",
+            },
+            "fruID": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+            "fruText": "DIMM A1",
+        },
         {"Unknown": {"data": base64.b64encode(body).decode("ascii")}},
     )
 
@@ -154,7 +158,7 @@ def test_contoso_memory_action_builders_emit_distinct_action_ids():
         ppr_json = analyzer._build_sppr_cpad(
             cper, None, confidence=80, section_index=0)
         page_path = analyzer.create_page_offline_cpad_from_memory_event(
-            event, cper, output_stem="page")
+            event, cper, output_stem="page", urgency=True)
         retrain_path = (
             analyzer.create_reboot_with_retraining_cpad_from_memory_event(
                 event, cper, output_stem="retrain"))
@@ -169,9 +173,13 @@ def test_contoso_memory_action_builders_emit_distinct_action_ids():
         assert page_json["sectionDescriptors"][0]["sectionType"]["data"] == (
             ANALYZER_MODULE.contoso_action_parameters.
             CONTOSO_ACTION_PARAMETER_GUID)
+        assert page_json["header"]["urgency"] == 1
+        assert page_json["sectionDescriptors"][0]["urgency"] == 1
         assert retrain_json["sectionDescriptors"][0]["sectionType"]["data"] == (
             ANALYZER_MODULE.contoso_action_parameters.
             CONTOSO_ACTION_PARAMETER_GUID)
+        assert retrain_json["header"]["urgency"] == 0
+        assert retrain_json["sectionDescriptors"][0]["urgency"] == 0
         assert list(analyzer.output_dir.glob("*.json")) == []
         ppr_body = base64.b64decode(
             ppr_json["sections"][0]["Unknown"]["data"], validate=True)
@@ -548,3 +556,33 @@ def test_failed_platform_action_event_reports_failure():
     assert "Recommendation:     Review Failed Platform Action" in report
     assert "Reason:             Platform Action Failed." in report
     assert "Platform Action Completed" not in report
+
+
+def test_error_injection_action_event_uses_generic_action_name():
+    analyzer = ContosoAnalyzer.__new__(ContosoAnalyzer)
+    analyzer.verbose = False
+    cper_data = {
+        "header": {
+            "severity": {"name": "Platform Action Event", "code": 4},
+        },
+        "sectionDescriptors": [{
+            "sectionType": {"type": "Platform Action Event"},
+            "fruID": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+            "fruText": "CPU Core 3",
+            "severity": {"name": "Platform Action Event", "code": 4},
+        }],
+        "sections": [{
+            "PlatformActionEvent": {
+                "actionReturnCode": "0x00",
+                "cpadActionId": "0x0006",
+            },
+        }],
+    }
+    output = io.StringIO()
+
+    with contextlib.redirect_stdout(output):
+        analyzer.generate_cper_report(cper_data)
+
+    report = output.getvalue()
+    assert "Source Action:    Error Injection (0x0006)" in report
+    assert "Memory Error Injection" not in report

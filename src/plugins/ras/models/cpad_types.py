@@ -8,6 +8,7 @@ Based on the OCP RAS specification.
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
+import uuid
 
 
 @dataclass
@@ -141,22 +142,44 @@ class CPADDocument:
         actual_count = len(self.sectionDescriptors)
         if declared_count != actual_count:
             return False, f"Section count mismatch: header declares {declared_count}, but {actual_count} descriptors present"
+        if len(self.sections) != actual_count:
+            return False, (
+                f"Section body count mismatch: {actual_count} descriptors, "
+                f"but {len(self.sections)} sections present")
         
         # Check sectionDescriptors
         if not self.sectionDescriptors:
             return False, "Empty 'sectionDescriptors' array"
         
-        # Check first descriptor has actionID
-        first_descriptor = self.sectionDescriptors[0]
-        if 'actionID' not in first_descriptor:
-            return False, "Missing 'actionID' in first sectionDescriptor"
-        
-        # Validate actionID structure (should be {"code": "0x...", "name": "..."})
-        action_id = first_descriptor['actionID']
-        if isinstance(action_id, dict):
-            if 'code' not in action_id:
-                return False, "Missing 'code' in actionID object"
-        
+        for index, descriptor in enumerate(self.sectionDescriptors):
+            if 'actionID' not in descriptor:
+                return False, (
+                    f"Missing 'actionID' in sectionDescriptor {index}")
+            action_id = descriptor['actionID']
+            if isinstance(action_id, dict) and 'code' not in action_id:
+                return False, (
+                    f"Missing 'code' in actionID object for "
+                    f"sectionDescriptor {index}")
+            fru_id = descriptor.get('fruID')
+            if not fru_id:
+                return False, (
+                    f"Missing 'fruID' in sectionDescriptor {index}")
+            try:
+                parsed_fru = uuid.UUID(str(fru_id).strip().strip('{}'))
+            except ValueError:
+                return False, (
+                    f"Invalid 'fruID' in sectionDescriptor {index}")
+            if parsed_fru.int == 0:
+                return False, (
+                    f"Zero 'fruID' in sectionDescriptor {index}")
+            fru_text = str(descriptor.get('fruText', '')).strip()
+            if not fru_text:
+                return False, (
+                    f"Missing 'fruText' in sectionDescriptor {index}")
+            if len(fru_text.encode('utf-8')) > 19:
+                return False, (
+                    f"'fruText' exceeds 19 bytes in sectionDescriptor {index}")
+
         return True, None
     
     def get_creator_id(self) -> str:

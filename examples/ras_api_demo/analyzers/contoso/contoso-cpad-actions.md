@@ -33,8 +33,27 @@ Error Injection is the only action that creates an error CPER.
 
 Standard actions `0x0002` through `0x0005` are approved by policy but routed
 to the server-fleet control plane. They are not submitted to the Contoso SoC
-endpoint. Part actions identify the target through the CPAD descriptor's FRU ID
-and FRU text copied from the referenced CPER section.
+endpoint. Every action section has FRU ID and FRU text in its descriptor. FRU-targeting
+actions supply them explicitly; machine- or partition-scoped actions may use
+the newest CPER's single unambiguous FRU as correlation context.
+
+## Policy metadata
+
+Analyzer-generated CPADs carry confidence and urgency for the server-fleet
+policy engine:
+
+- Each descriptor's `confidence` is an integer from 0 through 100.
+- Each descriptor's `urgency` is `0` or `1` for that action.
+- `header.urgency` is the logical OR of all descriptor urgency values.
+
+Policy may reject an action based on confidence or urgency and may prioritize
+an approved urgent action. The Contoso endpoint does not use either field when
+executing an approved ActionID and its parameters.
+
+Memory-vendor CPADs may contain multiple sections with the same ActionID and
+execution domain. Each section can target a different FRU. Page Offline
+sections follow a one-FRU rule: every page or range in one section belongs to
+the descriptor FRU, and different FRUs require different sections.
 
 ## CPAD Action Processing on the Contoso Endpoint
 
@@ -68,8 +87,11 @@ Event reports whether the endpoint action completed.
 
 ## `0x0006`: Error Injection
 
-The injector supplies a Contoso error section describing the error to
-simulate. The endpoint creates:
+ActionID `0x0006` identifies only the Error Injection operation. It does not
+identify memory, CPU, severity, or a particular error. The Contoso CreatorID,
+section type, and proprietary section body describe the specific error to
+simulate, and only the Contoso injector, analyzer, and endpoint interpret those
+details. The endpoint creates:
 
 1. The requested error CPER.
 2. A Platform Action Event CPER reporting the injection result.

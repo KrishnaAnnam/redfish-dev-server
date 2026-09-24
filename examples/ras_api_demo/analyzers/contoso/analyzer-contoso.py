@@ -51,6 +51,7 @@ import builtins
 import argparse
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, List
@@ -95,6 +96,22 @@ from memory_controller_analyzer import MemoryControllerAnalyzer  # noqa: E402
 # The Contoso Memory Controller proprietary CPER section-type GUID.
 CONTOSO_MEMORY_SECTION = "Memory Controller - First Generation"
 CONTOSO_MEMORY_GUID = contoso_catalog.SECTION_TYPES[CONTOSO_MEMORY_SECTION]["guid"].lower()
+CPAD_HEADER_SIZE = 128
+CPAD_SECTION_DESCRIPTOR_SIZE = 74
+FRU_PARAMETER_FIELDS = frozenset({"fru_id", "fru_text"})
+FRU_TARGET_ACTION_IDS = frozenset({
+    contoso_action_parameters.RESEAT_PART_ACTION_ID,
+    contoso_action_parameters.SHUFFLE_PART_ACTION_ID,
+    contoso_action_parameters.REPLACE_PART_ACTION_ID,
+    contoso_action_parameters.PPR_ACTION_ID,
+    contoso_action_parameters.PAGE_OFFLINE_ACTION_ID,
+})
+CONTROL_PLANE_ACTION_IDS = frozenset({
+    contoso_action_parameters.POWER_CYCLE_ACTION_ID,
+    contoso_action_parameters.RESEAT_PART_ACTION_ID,
+    contoso_action_parameters.SHUFFLE_PART_ACTION_ID,
+    contoso_action_parameters.REPLACE_PART_ACTION_ID,
+})
 
 # Reverse of the Contoso severity encoding (register value → name) for reports.
 _CONTOSO_SEV_NAME = {v: k for k, v in contoso_catalog.SEVERITY_VALUES.items()}
@@ -243,12 +260,12 @@ class ContosoAnalyzer:
         """Validate a vendor action request and return its source error event."""
         required = {
             "cper_file", "section_index", "action_id",
-            "confidence", "parameters",
+            "confidence", "urgency", "parameters",
         }
         if set(request) != required:
             raise ShimContractError(
                 "shim action request must contain exactly cper_file, "
-                "section_index, action_id, confidence, and parameters")
+                "section_index, action_id, confidence, urgency, and parameters")
         cper_file = request["cper_file"]
         section_index = request["section_index"]
         if not isinstance(cper_file, str) or not cper_file:
@@ -274,6 +291,9 @@ class ContosoAnalyzer:
                 or not 0 <= confidence <= 100):
             raise ShimContractError(
                 "shim action confidence must be an integer from 0 through 100")
+        if not isinstance(request["urgency"], bool):
+            raise ShimContractError(
+                "shim action urgency must be a boolean")
         if not isinstance(request["parameters"], dict):
             raise ShimContractError(
                 "shim action parameters must be an object")
@@ -290,31 +310,184 @@ class ContosoAnalyzer:
                 "input memory-error event")
         return matches[0]
 
-    def _build_shim_action_cpads(
-            self, request: Dict[str, Any],
+    @staticmethod
+    def _validated_fru(fru_id: Any, fru_text: Any) -> Dict[str, str]:
+        """Return canonical descriptor FRU fields or raise."""
+        if not isinstance(fru_id, str) or not fru_id.strip():
+            raise ShimContractError("fru_id must be a non-empty GUID string")
+        try:
+            parsed = uuid.UUID(fru_id.strip().strip("{}"))
+        except (ValueError, AttributeError) as exc:
+            raise ShimContractError("fru_id must be a valid GUID") from exc
+        if parsed.int == 0:
+            raise ShimContractError("fru_id must not be the zero GUID")
+        if not isinstance(fru_text, str) or not fru_text.strip():
+            raise ShimContractError("fru_text must be a non-empty string")
+        text = fru_text.strip()
+        if len(text.encode("utf-8")) > 19:
+            raise ShimContractError(
+                "fru_text must fit in the CPAD descriptor's 19-byte text field")
+        return {"fruID": str(parsed), "fruText": text}
+
+    def _newest_event_fru(
+            self, events: List[Dict[str, Any]]) -> Dict[str, str]:
+        """Return the one unambiguous FRU on the newest CPER."""
+        pairs = {}
+        for event in events:
+            source = event.get("source", {})
+            if source.get("window_index") != 0:
+                continue
+            fru_id = event.get("fru_id")
+            fru_text = event.get("fru_text")
+            if not fru_id and not fru_text:
+                continue
+            fru = self._validated_fru(fru_id, fru_text)
+            pairs[(fru["fruID"], fru["fruText"])] = fru
+        if not pairs:
+            raise ShimContractError(
+                "newest CPER does not contain FRU ID and FRU text")
+        if len(pairs) != 1:
+            raise ShimContractError(
+                "newest CPER contains multiple FRUs; action must specify one")
+        return next(iter(pairs.values()))
+
+    def _resolve_action_fru(
+            self,
+            request: Dict[str, Any],
+            source_event: Dict[str, Any],
+            events: List[Dict[str, Any]]) -> tuple[Dict[str, str], Dict[str, Any]]:
+        """Resolve descriptor FRU data and remove it from body parameters."""
+        parameters = copy.deepcopy(request["parameters"])
+        has_id = "fru_id" in parameters
+        has_text = "fru_text" in parameters
+        if has_id != has_text:
+            raise ShimContractError(
+                "fru_id and fru_text must be supplied together")
+        if has_id:
+            fru = self._validated_fru(
+                parameters.pop("fru_id"), parameters.pop("fru_text"))
+            source_fru = self._validated_fru(
+                source_event.get("fru_id"), source_event.get("fru_text"))
+            if fru != source_fru:
+                raise ShimContractError(
+                    "explicit FRU must match the referenced memory-error event")
+        elif request["action_id"] in FRU_TARGET_ACTION_IDS:
+            raise ShimContractError(
+                f"action {request['action_id']} requires fru_id and fru_text")
+        else:
+            fru = self._newest_event_fru(events)
+        return fru, parameters
+
+    @staticmethod
+    def _execution_domain(action_id: str) -> str:
+        return (
+            "control_plane"
+            if action_id in CONTROL_PLANE_ACTION_IDS
+            else "endpoint"
+        )
+
+    def _build_shim_proposal_cpads(
+            self, proposal: Dict[str, Any],
             events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Build complete CPADs for one validated vendor action request."""
-        source_event = self._shim_action_source(request, events)
+        """Build one grouped vendor proposal into one or more CPADs."""
+        if not isinstance(proposal, dict) or set(proposal) != {"sections"}:
+            raise ShimContractError(
+                "shim CPAD proposal must contain exactly sections")
+        requests = proposal["sections"]
+        if not isinstance(requests, list) or not requests:
+            raise ShimContractError(
+                "shim CPAD proposal sections must be a non-empty list")
+        if any(not isinstance(request, dict) for request in requests):
+            raise ShimContractError(
+                "shim CPAD proposal sections must be action request objects")
+
+        action_ids = {request.get("action_id") for request in requests}
+        if len(action_ids) != 1:
+            raise ShimContractError(
+                "all sections in one CPAD proposal must use the same action_id")
+        domains = {
+            self._execution_domain(request.get("action_id"))
+            for request in requests
+        }
+        if len(domains) != 1:
+            raise ShimContractError(
+                "one CPAD proposal cannot mix execution domains")
+
         target_event = next(
             (
                 event for event in events
                 if event.get("event_type") == "memory_error"
             ),
-            source_event,
+            None,
         )
-        return self._build_action_cpads(
-            target_event["header"],
-            source_event.get("section_descriptor", {}),
-            request["action_id"],
-            request["confidence"],
-            request["parameters"],
-        )
+        if target_event is None:
+            raise ShimContractError(
+                "shim CPAD proposal requires an input memory error")
+
+        sections = []
+        for request in requests:
+            source_event = self._shim_action_source(request, events)
+            fru_context, body_parameters = self._resolve_action_fru(
+                request, source_event, events)
+            bodies = contoso_action_parameters.encode_action_parameter_bodies(
+                request["action_id"], body_parameters)
+            if len(requests) > 1 and len(bodies) != 1:
+                raise ShimContractError(
+                    "a chunked action cannot share a CPAD proposal")
+            for body in bodies:
+                sections.append({
+                    "action_id": request["action_id"],
+                    "confidence": request["confidence"],
+                    "urgency": request["urgency"],
+                    "fru_context": fru_context,
+                    "body": body,
+                })
+
+        if len(requests) > 1:
+            self._validate_page_offline_fru_ranges(requests)
+
+        if len(requests) == 1 and len(sections) > 1:
+            return [
+                self._build_multi_action_cpad(
+                    target_event["header"], [section])
+                for section in sections
+            ]
+        return [self._build_multi_action_cpad(
+            target_event["header"], sections)]
+
+    @staticmethod
+    def _validate_page_offline_fru_ranges(
+            requests: List[Dict[str, Any]]) -> None:
+        """Reject overlapping Page Offline ranges assigned to different FRUs."""
+        if not requests or requests[0].get(
+                "action_id") != contoso_action_parameters.PAGE_OFFLINE_ACTION_ID:
+            return
+        claimed = []
+        for request in requests:
+            parameters = {
+                key: value for key, value in request["parameters"].items()
+                if key not in FRU_PARAMETER_FIELDS
+            }
+            ranges = contoso_action_parameters._normalized_page_ranges(
+                parameters)
+            fru = (
+                request["parameters"]["fru_id"],
+                request["parameters"]["fru_text"],
+            )
+            for start, count in ranges:
+                end = start + count
+                for other_start, other_end, other_fru in claimed:
+                    if fru != other_fru and start < other_end and other_start < end:
+                        raise ShimContractError(
+                            "Page Offline ranges for different FRUs overlap")
+                claimed.append((start, end, fru))
 
     def _build_shim_action_cpad(
             self, request: Dict[str, Any],
             events: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Compatibility helper for an action request that fits one CPAD."""
-        cpads = self._build_shim_action_cpads(request, events)
+        cpads = self._build_shim_proposal_cpads(
+            {"sections": [request]}, events)
         if len(cpads) != 1:
             raise ValueError("vendor action request requires multiple CPADs")
         return cpads[0]
@@ -340,14 +513,14 @@ class ContosoAnalyzer:
                 returned = shim.analyze(vendor_events)
                 validated = []
                 request_fingerprints = set()
-                for request in returned:
+                for proposal in returned:
                     request_fingerprint = json.dumps(
-                        request, sort_keys=True, separators=(',', ':'))
+                        proposal, sort_keys=True, separators=(',', ':'))
                     if request_fingerprint in request_fingerprints:
                         continue
                     request_fingerprints.add(request_fingerprint)
-                    for cpad in self._build_shim_action_cpads(
-                            request, vendor_events):
+                    for cpad in self._build_shim_proposal_cpads(
+                            proposal, vendor_events):
                         fingerprint = json.dumps(
                             cpad, sort_keys=True, separators=(',', ':'))
                         validated.append((fingerprint, cpad))
@@ -969,7 +1142,7 @@ class ContosoAnalyzer:
                                 '0x0003': 'Reseat Part',
                                 '0x0004': 'Shuffle Part',
                                 '0x0005': 'Replace Part',
-                                '0x0006': 'Memory Error Injection',
+                                '0x0006': 'Error Injection',
                                 '0x8001': 'Post Package Repair (PPR)',
                                 '0x8002': 'Page Offline',
                                 '0x8003': 'Reboot with Memory Retraining',
@@ -1164,7 +1337,8 @@ class ContosoAnalyzer:
             self, event: Dict[str, Any], cper_data: Dict[str, Any],
             original_file: Optional[str] = None,
             output_stem: Optional[str] = None,
-            record_location: bool = True) -> Optional[str]:
+            record_location: bool = True,
+            urgency: bool = False) -> Optional[str]:
         """Run default row analysis for one decoded DRAM error event."""
         try:
             memory_error = event.get('memory_error', {})
@@ -1194,6 +1368,7 @@ class ContosoAnalyzer:
                 event.get("section_descriptor", {}),
                 contoso_action_parameters.PPR_ACTION_ID,
                 confidence,
+                urgency,
                 self._ppr_parameters_from_event(
                     event,
                     contoso_action_parameters.PPR_TYPE_SOFT_RUNTIME,
@@ -1248,7 +1423,8 @@ class ContosoAnalyzer:
             cper_data: Dict[str, Any],
             original_file: Optional[str] = None,
             output_stem: Optional[str] = None,
-            confidence: int = 100) -> Optional[str]:
+            confidence: int = 100,
+            urgency: bool = False) -> Optional[str]:
         """Create a Page Offline CPAD for a 4 KiB-aligned physical address."""
         return self._create_memory_action_cpad_output(
             event,
@@ -1262,6 +1438,7 @@ class ContosoAnalyzer:
             },
             "page_offline",
             confidence,
+            urgency,
             original_file,
             output_stem,
         )
@@ -1272,7 +1449,8 @@ class ContosoAnalyzer:
             cper_data: Dict[str, Any],
             original_file: Optional[str] = None,
             output_stem: Optional[str] = None,
-            confidence: int = 100) -> Optional[str]:
+            confidence: int = 100,
+            urgency: bool = False) -> Optional[str]:
         """Create a partition-scoped reboot-with-retraining CPAD."""
         return self._create_memory_action_cpad_output(
             event,
@@ -1281,6 +1459,7 @@ class ContosoAnalyzer:
             {},
             "reboot_with_retraining",
             confidence,
+            urgency,
             original_file,
             output_stem,
         )
@@ -1293,6 +1472,7 @@ class ContosoAnalyzer:
             parameters: Dict[str, Any],
             suffix: str,
             confidence: int,
+            urgency: bool,
             original_file: Optional[str],
             output_stem: Optional[str]) -> Optional[str]:
         """Write one binary CPAD for a Contoso memory action."""
@@ -1301,6 +1481,7 @@ class ContosoAnalyzer:
             event.get("section_descriptor", {}),
             action_id,
             confidence,
+            urgency,
             parameters,
         )
         header = cper_data.get('header', {})
@@ -1321,8 +1502,10 @@ class ContosoAnalyzer:
         binary_path.unlink(missing_ok=True)
         return None
 
-    def _build_sppr_cpad(self, cper_data: Dict[str, Any], original_file: Optional[str],
-                         confidence: int, section_index: int = 0) -> Dict[str, Any]:
+    def _build_sppr_cpad(
+            self, cper_data: Dict[str, Any], original_file: Optional[str],
+            confidence: int, section_index: int = 0,
+            urgency: bool = False) -> Dict[str, Any]:
         """Compatibility wrapper that builds a runtime soft-PPR CPAD."""
         events = decode_memory_events([{
             "cper_data": cper_data,
@@ -1345,6 +1528,7 @@ class ContosoAnalyzer:
             event.get("section_descriptor", {}),
             contoso_action_parameters.PPR_ACTION_ID,
             confidence,
+            urgency,
             self._ppr_parameters_from_event(
                 event,
                 contoso_action_parameters.PPR_TYPE_SOFT_RUNTIME,
@@ -1378,10 +1562,12 @@ class ContosoAnalyzer:
             fru_context: Dict[str, Any],
             action_id: str,
             confidence: int,
+            urgency: bool,
             parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Build one CPAD for an action that does not require chunking."""
         cpads = self._build_action_cpads(
-            header_context, fru_context, action_id, confidence, parameters)
+            header_context, fru_context, action_id, confidence, urgency,
+            parameters)
         if len(cpads) != 1:
             raise ValueError("Contoso action requires multiple CPADs")
         return cpads[0]
@@ -1392,8 +1578,38 @@ class ContosoAnalyzer:
             fru_context: Dict[str, Any],
             action_id: str,
             confidence: int,
+            urgency: bool,
             parameters: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Build complete CPADs with independent Contoso action bodies."""
+        if not isinstance(urgency, bool):
+            raise ValueError("Contoso action urgency must be a boolean")
+        fru = self._validated_fru(
+            fru_context.get("fruID"), fru_context.get("fruText"))
+        bodies = contoso_action_parameters.encode_action_parameter_bodies(
+            action_id, parameters)
+        return [
+            self._build_multi_action_cpad(
+                header_context,
+                [{
+                    "action_id": action_id,
+                    "confidence": confidence,
+                    "urgency": urgency,
+                    "fru_context": fru,
+                    "body": body,
+                }],
+                record_id_offset=index,
+            )
+            for index, body in enumerate(bodies)
+        ]
+
+    def _build_multi_action_cpad(
+            self,
+            header_context: Dict[str, Any],
+            sections: List[Dict[str, Any]],
+            record_id_offset: int = 0) -> Dict[str, Any]:
+        """Build one CPAD containing one or more independently targeted sections."""
+        if not sections:
+            raise ValueError("Contoso CPAD must contain at least one section")
         if not self.sppr_template_path.exists():
             raise FileNotFoundError(
                 f"SPPR template not found: {self.sppr_template_path}")
@@ -1419,13 +1635,13 @@ class ContosoAnalyzer:
             new_timestamp = new_dt.strftime('%Y-%m-%dT%H:%M:%S+00:00')
         except Exception:
             new_timestamp = datetime.now().strftime('%Y-%m-%dT%H:%M:%S+00:00')
-
         action_cpad['header']['timestamp'] = new_timestamp
-        action_cpad['header']['recordID'] = time.time_ns()
-        action_desc = action_cpad['sectionDescriptors'][0]
-        for field in ("fruID", "fruText"):
-            if field in fru_context:
-                action_desc[field] = fru_context[field]
+        action_cpad['header']['timestamp'] = new_timestamp
+        action_cpad['header']['recordID'] = time.time_ns() + record_id_offset
+        action_cpad['header']['sectionCount'] = len(sections)
+        action_cpad['header']['urgency'] = int(any(
+            section["urgency"] for section in sections))
+        action_cpad['header'].pop('confidence', None)
 
         action_definitions = {
             contoso_action_parameters.POWER_CYCLE_ACTION_ID:
@@ -1443,37 +1659,53 @@ class ContosoAnalyzer:
             contoso_action_parameters.REBOOT_WITH_RETRAINING_ACTION_ID:
                 contoso_catalog.REBOOT_WITH_RETRAINING_ACTION,
         }
-        try:
-            action_desc["actionID"] = dict(action_definitions[action_id])
-        except KeyError as exc:
-            raise ValueError(f"unsupported Contoso action {action_id}") from exc
-        action_desc["sectionType"] = {
-            "data": contoso_action_parameters.CONTOSO_ACTION_PARAMETER_GUID,
-            "type": "Unknown",
-        }
-
-        bodies = contoso_action_parameters.encode_action_parameter_bodies(
-            action_id, parameters)
-        CPAD_SINGLE_SECTION_OFFSET = 202
-        cpads = []
-        base_record_id = action_cpad['header']['recordID']
-        for index, body in enumerate(bodies):
-            cpad = copy.deepcopy(action_cpad)
-            cpad['header']['recordID'] = base_record_id + index
-            descriptor = cpad['sectionDescriptors'][0]
-            descriptor['sectionOffset'] = CPAD_SINGLE_SECTION_OFFSET
-            descriptor['sectionLength'] = len(body)
-            descriptor['confidence'] = confidence
-            cpad['header'].pop('confidence', None)
-            cpad['header']['recordLength'] = (
-                CPAD_SINGLE_SECTION_OFFSET + len(body))
-            cpad['sections'] = [{
+        descriptor_template = action_cpad['sectionDescriptors'][0]
+        offset = (
+            CPAD_HEADER_SIZE
+            + len(sections) * CPAD_SECTION_DESCRIPTOR_SIZE
+        )
+        descriptors = []
+        encoded_sections = []
+        for section in sections:
+            if not isinstance(section["urgency"], bool):
+                raise ValueError("Contoso action urgency must be a boolean")
+            try:
+                action_definition = action_definitions[section["action_id"]]
+            except KeyError as exc:
+                raise ValueError(
+                    f"unsupported Contoso action {section['action_id']}") from exc
+            fru = self._validated_fru(
+                section["fru_context"].get("fruID"),
+                section["fru_context"].get("fruText"),
+            )
+            body = section["body"]
+            descriptor = copy.deepcopy(descriptor_template)
+            descriptor.update({
+                "sectionOffset": offset,
+                "sectionLength": len(body),
+                "sectionType": {
+                    "data":
+                        contoso_action_parameters.CONTOSO_ACTION_PARAMETER_GUID,
+                    "type": "Unknown",
+                },
+                "fruID": fru["fruID"],
+                "fruText": fru["fruText"],
+                "actionID": dict(action_definition),
+                "confidence": section["confidence"],
+                "urgency": int(section["urgency"]),
+            })
+            descriptors.append(descriptor)
+            encoded_sections.append({
                 "Unknown": {
                     "data": base64.b64encode(body).decode("ascii"),
                 },
-            }]
-            cpads.append(cpad)
-        return cpads
+            })
+            offset += len(body)
+
+        action_cpad['sectionDescriptors'] = descriptors
+        action_cpad['sections'] = encoded_sections
+        action_cpad['header']['recordLength'] = offset
+        return action_cpad
 
     # ─── Main Analysis Flow ─────────────────────────────────────────────
 

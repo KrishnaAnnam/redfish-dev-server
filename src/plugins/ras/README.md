@@ -63,8 +63,10 @@ does not mean that the action completed. An immediate action produces its
 Platform Action Event during submission. A deferred action produces that event
 when its completion condition occurs.
 
-Error injection (`0x0006`) is the only action that creates an error CPER. No
-other action creates an error CPER.
+Error Injection (`0x0006`) is the only action that creates an error CPER. The
+ActionID does not identify the injected error type; the CreatorID-specific
+endpoint provider interprets the CPAD section type and body. No other action
+creates an error CPER.
 
 See [CPAD Submission](../../../examples/ras_api_demo/CPAD_SUBMISSION.md) for the
 complete transport and acceptance flow.

@@ -37,14 +37,21 @@ rejection CPER (see [Rejections](#rejections-policy_rejected-cper)).
 The engine decodes the binary CPAD in memory, then reads only its **header** and
 **section descriptors**:
 
-- `header.creatorID`, `header.platformID`, `header.partitionID`
-- `sectionDescriptors[].actionId` / `actionID.code`, `sectionDescriptors[].confidence`, and `fruText`
+- `header.creatorID`, `header.platformID`, `header.partitionID`, and
+  `header.urgency`
+- `sectionDescriptors[].actionId` / `actionID.code`,
+  `sectionDescriptors[].confidence`, `sectionDescriptors[].urgency`, and
+  `fruText`
 
 It never interprets the opaque vendor **section body**. So it can tell *that* an
 action is, say, an error injection or PPR (from the action id in the section
 descriptor), but not the private details inside the section. That keeps
 proprietary vendor data private while still letting the operator gate on
-identity, action type, target platform, and confidence.
+identity, action type, target platform, confidence, and urgency.
+
+Confidence and urgency are analyzer-provided policy inputs. Policy may deny an
+action based on either field and may prioritize an approved urgent action. The
+endpoint does not use either field when executing the action.
 
 Analyzers do not emit JSON CPAD sidecars. Any JSON representation used while
 assembling a CPAD is temporary; the policy engine obtains its decoded view
@@ -85,6 +92,7 @@ type from one creator.
     "0x0002": {
       "name": "Power Cycle",
       "permitted": true,
+      "urgency_policy": "any",
       "confidence_threshold": 80,
       "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
     },
@@ -114,6 +122,7 @@ type from one creator.
     "0x8001": {
       "name": "PPR (Post Package Repair)",
       "permitted": true,
+      "urgency_policy": "any",
       "confidence_threshold": 80,
       "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
     },
@@ -140,6 +149,7 @@ type from one creator.
 | `name` | Human-friendly action name (display only) |
 | `permitted` | `true` ⇒ action is allowed; `false` ⇒ denied at Rule 3 |
 | `confidence_threshold` | *Optional.* If present, the CPAD's section-descriptor `confidence` must be `>=` this value. **Omit it to apply no confidence gate** (e.g. error injection). |
+| `urgency_policy` | *Optional.* `any` allows either value, `urgent_only` requires urgent, and `non_urgent_only` rejects urgent. Omitted behaves as `any`. |
 | `supported_platforms` | List of PlatformID GUIDs on which this action is allowed |
 
 **Why `confidence_threshold` is optional:** the policy engine only sees the
@@ -169,6 +179,22 @@ denies on the first failure and records the reason.
 | 3 | **Permitted** | that row's `permitted == true` |
 | 4 | **Platform supported** | `platformID ∈ row.supported_platforms` |
 | 5 | **Confidence** | if the row has `confidence_threshold`, require `confidence >= threshold`; if absent, not evaluated |
+| 6 | **Urgency** | apply `urgency_policy`; omitted or `any` accepts both values |
+
+Every section must pass every rule or the entire CPAD is denied. An urgent
+section must still pass every other rule. For each approved urgent section,
+the policy engine marks it prioritized and prints:
+
+```text
+⚡ Prioritizing approved urgent action
+   Action: Replace Part (0x0005)
+   FRU Text: DIMM A1
+   FRU ID: 75824856-bd36-2cc8-61f4-39bb3276da2a
+```
+
+This signal allows server-fleet workflows to accelerate special data-center
+handling such as DIMM replacement or coordinated reboot. The demo reports the
+priority but does not implement a physical-work queue.
 
 ## Rejections (POLICY_REJECTED CPER)
 
@@ -200,8 +226,10 @@ plumbing.
 |-------|---------|
 | `allowed` | Approved (`True`) or denied (`False`) |
 | `reason` | Human-readable denial reason (`None` when allowed) |
-| `creator_id`, `platform_id`, `action_id`, `action_name`, `fru_text` | Normalized action context read from the CPAD |
+| `creator_id`, `platform_id`, `action_id`, `action_name`, `fru_id`, `fru_text` | Compatibility view of the first section's normalized action context |
 | `confidence`, `threshold` | The CPAD confidence and the applied threshold (`None` if not gated) |
+| `urgency`, `prioritized` | Analyzer urgency and whether an approved action should receive accelerated handling |
+| `section_decisions` | Per-section action, FRU, confidence, urgency, priority, and allow/deny result |
 | `return_code`, `reason_code` | Platform Action codes to stamp on a rejection CPER |
 
 ## API
@@ -239,7 +267,8 @@ Edit the JSON files — no code changes:
 
 - **New trusted vendor** → add a CreatorID entry to `creators.json`.
 - **New action** → add `actions[creatorID][actionID]` with `permitted`,
-  `supported_platforms`, and (optionally) `confidence_threshold`.
+  `supported_platforms`, `urgency_policy`, and (optionally)
+  `confidence_threshold`.
 - **Allow an action on more platforms** → add PlatformIDs to that row's
   `supported_platforms`.
 

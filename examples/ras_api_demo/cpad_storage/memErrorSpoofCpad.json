@@ -27,7 +27,7 @@
         {
             "actionID": {
                 "code": "0x0006",
-                "name": "Inject Memory Error"
+                "name": "Inject Error"
             },
             "flags": {
                 "containmentWarning": false,
@@ -74,7 +74,7 @@
                 },
                 "physicalAddress": 7584754002385014651,
                 "physicalAddressHex": "0x6942759454E18F7B",
-                "physicalAddressMask": 8823605043237379382,
+                "physicalAddressMask": 18446744073709547520,
                 "node": 0,
                 "card": 0,
                 "module": 0,

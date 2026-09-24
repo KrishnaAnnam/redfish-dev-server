@@ -10,7 +10,7 @@ from types import ModuleType
 from typing import Any, Dict, Iterable, List, Tuple
 
 
-SHIM_API_VERSION = 3
+SHIM_API_VERSION = 5
 ManufacturerId = Tuple[int, int]
 
 

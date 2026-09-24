@@ -38,6 +38,8 @@ def _ppr_parameters(event):
     subcomponent = error["subcomponent"]
     additional = error["additional"]
     return {
+        "fru_id": event["fru_id"],
+        "fru_text": event["fru_text"],
         "ppr_type": actions.PPR_TYPE_SOFT_RUNTIME,
         "chiplet": subcomponent["chiplet"],
         "controller": subcomponent["controller"],
@@ -113,6 +115,8 @@ def test_samsung_translates_all_supported_actions():
         "section_index": event["section_index"],
     }
     page_parameters = {
+        "fru_id": event["fru_id"],
+        "fru_text": event["fru_text"],
         "pages": [0x12345000, 0x12347000],
         "page_ranges": [{
             "start_address": 0x20000000,
@@ -121,61 +125,78 @@ def test_samsung_translates_all_supported_actions():
     }
     result = {
         "fault": {"mode": "Row"},
-        "actions": [
-            {
+        "cpads": [
+            {"actions": [{
                 "source": source,
                 "action": "cold_reboot",
                 "confidence": 80,
+                "urgency": True,
                 "parameters": {},
                 "reason": "Power cycle requested",
-            },
-            {
+            }]},
+            {"actions": [{
                 "source": source,
                 "action": "reseat_dimm",
                 "confidence": 81,
-                "parameters": {},
+                "urgency": False,
+                "parameters": {
+                    "fru_id": event["fru_id"],
+                    "fru_text": event["fru_text"],
+                },
                 "reason": "Reseat the DIMM",
-            },
-            {
+            }]},
+            {"actions": [{
                 "source": source,
                 "action": "dance_dimm",
                 "confidence": 82,
-                "parameters": {},
+                "urgency": True,
+                "parameters": {
+                    "fru_id": event["fru_id"],
+                    "fru_text": event["fru_text"],
+                },
                 "reason": "Shuffle the DIMM",
-            },
-            {
+            }]},
+            {"actions": [{
                 "source": source,
                 "action": "replace_dimm",
                 "confidence": 83,
-                "parameters": {},
+                "urgency": False,
+                "parameters": {
+                    "fru_id": event["fru_id"],
+                    "fru_text": event["fru_text"],
+                },
                 "reason": "Replace the DIMM",
-            },
-            {
+            }]},
+            {"actions": [{
                 "source": source,
                 "action": "ppr",
                 "confidence": 84,
+                "urgency": True,
                 "parameters": _ppr_parameters(event),
                 "reason": "Repair the failing row",
-            },
-            {
+            }]},
+            {"actions": [{
                 "source": source,
                 "action": "page_offline",
                 "confidence": 85,
+                "urgency": False,
                 "parameters": page_parameters,
                 "reason": "Offline affected pages",
-            },
-            {
+            }]},
+            {"actions": [{
                 "source": source,
                 "action": "reboot_with_training",
                 "confidence": 86,
+                "urgency": True,
                 "parameters": {},
                 "reason": "Retrain memory",
-            },
+            }]},
         ],
         "advisories": [],
     }
 
-    requests = samsung._to_contoso_action_requests(result, [event])
+    proposals = samsung._to_contoso_cpad_requests(result, [event])
+    requests = [proposal["sections"][0] for proposal in proposals]
 
     assert [request["action_id"] for request in requests] == [
         actions.POWER_CYCLE_ACTION_ID,
@@ -186,6 +207,8 @@ def test_samsung_translates_all_supported_actions():
         actions.PAGE_OFFLINE_ACTION_ID,
         actions.REBOOT_WITH_RETRAINING_ACTION_ID,
     ]
+    assert [request["urgency"] for request in requests] == [
+        True, False, True, False, True, False, True]
     assert requests[4]["parameters"] == _ppr_parameters(event)
     assert requests[5]["parameters"] == page_parameters
 
@@ -200,16 +223,20 @@ def test_samsung_entry_point_adapts_records_and_returns_requests():
         record = records[0]
         return {
             "fault": {"mode": "Row"},
-            "actions": [{
-                "source": {
-                    "cper_file": record["source"]["cper_file"],
-                    "section_index": record["source"]["section_index"],
-                },
-                "action": "replace_dimm",
-                "confidence": 95,
-                "parameters": {},
-                "reason": "Repair budget exhausted",
-            }],
+            "cpads": [{"actions": [{
+                    "source": {
+                        "cper_file": record["source"]["cper_file"],
+                        "section_index": record["source"]["section_index"],
+                    },
+                    "action": "replace_dimm",
+                    "confidence": 95,
+                    "urgency": True,
+                    "parameters": {
+                        "fru_id": record["fru_id"],
+                        "fru_text": record["fru_text"],
+                    },
+                    "reason": "Repair budget exhausted",
+                }]}],
             "advisories": [],
         }
 
@@ -221,13 +248,43 @@ def test_samsung_entry_point_adapts_records_and_returns_requests():
 
     assert captured["records"][0]["fru_text"] == helpers.FRU_TEXT
     assert "repairs_per_bank" not in captured["records"][0]["ppr"]
-    assert requests == [{
+    assert requests == [{"sections": [{
         "cper_file": "record-0.cper",
         "section_index": 0,
         "action_id": actions.REPLACE_PART_ACTION_ID,
         "confidence": 95,
-        "parameters": {},
-    }]
+        "urgency": True,
+        "parameters": {
+            "fru_id": helpers.FRU_ID,
+            "fru_text": helpers.FRU_TEXT,
+        },
+    }]}]
+
+
+def test_samsung_rejects_non_boolean_action_urgency():
+    event = _samsung_event()
+    result = {
+        "fault": None,
+        "cpads": [{"actions": [{
+            "source": {
+                "cper_file": event["cper_file"],
+                "section_index": event["section_index"],
+            },
+            "action": "replace_dimm",
+            "confidence": 95,
+            "urgency": 1,
+            "parameters": {},
+            "reason": "Replace the DIMM",
+        }]}],
+        "advisories": [],
+    }
+
+    try:
+        samsung._to_contoso_cpad_requests(result, [event])
+    except ValueError as exc:
+        assert "urgency must be a boolean" in str(exc)
+    else:
+        raise AssertionError("integer Samsung urgency was accepted")
 
 
 def test_samsung_analyzer_owns_spare_row_budget():
@@ -248,7 +305,11 @@ def test_replace_request_builds_cpad_with_source_fru_text():
         "section_index": event["section_index"],
         "action_id": actions.REPLACE_PART_ACTION_ID,
         "confidence": 95,
-        "parameters": {},
+        "urgency": True,
+        "parameters": {
+            "fru_id": event["fru_id"],
+            "fru_text": event["fru_text"],
+        },
     }
     analyzer = helpers.ContosoAnalyzer()
 

@@ -8,12 +8,13 @@ Endpoint: POST /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASServi
 """
 
 import logging
+import copy
 import struct
 import subprocess
 import tempfile
 import os
 from typing import Dict, Any, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 
@@ -22,21 +23,13 @@ from ..action_provider import (
     ACTION_FAILED,
     ACTION_PENDING,
     ActionResult,
+    STANDARD_ACTION_DESCRIPTIONS,
 )
 from ..cpad_handler import CPADHandler
 from ..contoso_actions import (
     CONTOSO_ACTION_DESCRIPTIONS,
     CONTOSO_CREATOR_ID,
     ContosoActionProvider,
-    PAGE_OFFLINE_ACTION_ID,
-    PPR_ACTION_ID,
-    REBOOT_WITH_RETRAINING_ACTION_ID,
-)
-from ..contoso_memory import (
-    active_cpad_memory_bank,
-    decode_cpad_memory_coordinates,
-    is_contoso_memory_cpad,
-    overlay_cpad_memory_state,
 )
 from ..discovery import PLATFORM_ID as BMC_PLATFORM_ID, RASDiscoveryHandler
 from ..memory_config import MemoryRepairState, RASEndpointConfiguration
@@ -51,45 +44,10 @@ from .event_service import RASEventServiceHandler
 
 logger = logging.getLogger(__name__)
 
-ERROR_INJECTION_ACTION_ID = "0x0006"
 ACTION_DESCRIPTIONS = {
-    ERROR_INJECTION_ACTION_ID: "Injection: spoofing corrected memory error",
+    **STANDARD_ACTION_DESCRIPTIONS,
     **CONTOSO_ACTION_DESCRIPTIONS,
 }
-
-# ── Contoso proprietary severity / notification decoding (endpoint role) ─────
-# The BMC simulates the Contoso RAS API endpoint, so for a Contoso error section
-# it derives the CPER severity and notification type from the *proprietary*
-# section body it was handed in the CPAD.  Body layout (little-endian, packed;
-# see Demos/RasApi/analyzers/contoso/contoso-cper-sections.md):
-#   section header : 8 bytes  (major, minor, bankCount:u16, subcomponent:4)
-#   each error bank: 40 bytes; Error Status Register = first 8 bytes (u64):
-#       bits 61:59 = Contoso severity, bits 15:0 = errorID (0 = no error)
-_CONTOSO_SECTION_HEADER_SIZE = 8
-_CONTOSO_ERROR_BANK_SIZE = 40
-
-# Contoso severity value → CPER severity {code, name} (UEFI codes via libcper).
-_CONTOSO_SEV_TO_CPER = {
-    1: {"code": 1, "name": "Fatal"},          # Contoso Fatal
-    2: {"code": 1, "name": "Fatal"},          # Contoso Uncorrected
-    3: {"code": 0, "name": "Recoverable"},    # Contoso Recoverable
-    4: {"code": 3, "name": "Informational"},  # Contoso Deferred
-    5: {"code": 2, "name": "Corrected"},      # Contoso Corrected
-}
-
-# Rank for choosing the "highest" CPER severity (most severe first).
-_CPER_SEVERITY_RANK = {"Fatal": 3, "Recoverable": 2, "Corrected": 1, "Informational": 0}
-
-# Notification type follows from the (body-derived) CPER severity.
-_NOTIF_CMC = {"guid": "2dce8bb1-bdd7-450e-b9ad-9cf4ebd4f890", "type": "Corrected Machine Check (CMC)"}
-_NOTIF_MCE = {"guid": "e8f56ffe-919c-4cc5-ba88-65abe14913bb", "type": "Machine Check Exception (MCE)"}
-_NOTIFICATION_BY_SEVERITY = {
-    "Corrected": _NOTIF_CMC,
-    "Informational": _NOTIF_CMC,
-    "Recoverable": _NOTIF_MCE,
-    "Fatal": _NOTIF_MCE,
-}
-_DEFAULT_CPER_SEVERITY = {"code": 2, "name": "Corrected"}
 
 # The UEFI CPER specification does NOT define a notification-type GUID for
 # Platform Action Event records (they are a RAS API extension, not a standard
@@ -99,37 +57,6 @@ _NOTIF_PLATFORM_ACTION_EVENT = {
     "guid": "96023f3b-e100-4689-ad1b-f4c1b5bc2a21",
     "type": "Platform Action Event (implementation-defined)",
 }
-
-
-def _contoso_body_severity(body: bytes) -> Dict[str, Any]:
-    """Return the CPER severity {code, name} for a Contoso error section body.
-
-    Scans every error bank; for each bank that logged an error (errorID != 0)
-    it reads the Contoso severity (Error Status Register bits 61:59) and maps it
-    to a CPER severity, returning the highest one found.  Falls back to
-    Corrected if the body cannot be interpreted.
-    """
-    try:
-        bank_count = struct.unpack_from('<H', body, 2)[0]
-    except Exception:
-        return dict(_DEFAULT_CPER_SEVERITY)
-
-    best = None
-    for i in range(bank_count):
-        off = _CONTOSO_SECTION_HEADER_SIZE + _CONTOSO_ERROR_BANK_SIZE * i
-        if off + 8 > len(body):
-            break
-        status = struct.unpack_from('<Q', body, off)[0]
-        if (status & 0xFFFF) == 0:            # errorID 0 → no error in this bank
-            continue
-        cper_sev = _CONTOSO_SEV_TO_CPER.get((status >> 59) & 0x7)
-        if not cper_sev:
-            continue
-        if best is None or _CPER_SEVERITY_RANK[cper_sev["name"]] > _CPER_SEVERITY_RANK[best["name"]]:
-            best = cper_sev
-    return dict(best) if best else dict(_DEFAULT_CPER_SEVERITY)
-
-
 class SubmitCPADActionHandler:
     """Handler for SubmitCPAD action processing."""
     
@@ -270,9 +197,6 @@ class SubmitCPADActionHandler:
             metadata: Dict[str, Any],
             endpoint) -> ActionResult:
         action_id = metadata["action_id"]
-        if action_id == ERROR_INJECTION_ACTION_ID:
-            return self._validate_error_injection(cpad_data, metadata)
-
         creator_id = self._endpoint_creator_id(endpoint).lower()
         provider = getattr(self, "action_providers", {}).get(creator_id)
         if provider is None and creator_id == CONTOSO_CREATOR_ID:
@@ -288,27 +212,6 @@ class SubmitCPADActionHandler:
             )
         return provider.execute(
             manager_id, action_id, cpad_data, metadata, endpoint)
-
-    def _validate_error_injection(
-            self,
-            cpad_data: Dict[str, Any],
-            metadata: Dict[str, Any]) -> ActionResult:
-        if not is_contoso_memory_cpad(cpad_data):
-            return ActionResult(status=ACTION_COMPLETED)
-        try:
-            if active_cpad_memory_bank(cpad_data) == "dram":
-                state = self._memory_state(metadata["partition_id"])
-                target = decode_cpad_memory_coordinates(cpad_data)
-                state.config.get_dimm(
-                    target["chiplet"], target["controller"],
-                    target["channel"], target["dimm"])
-            return ActionResult(status=ACTION_COMPLETED)
-        except ValueError as exc:
-            return ActionResult(
-                status=ACTION_FAILED,
-                return_code=0x01,
-                reason=str(exc),
-            )
     
     def _locate_cpad_convert(self):
         """
@@ -616,6 +519,10 @@ class SubmitCPADActionHandler:
             except Exception as e:
                 logger.error(f"Failed to emit CPAD received event: {e}")
 
+        if len(metadata.get("sections", [])) > 1:
+            return self._handle_multi_section_submission(
+                manager_id, cpad_data, metadata, endpoint)
+
         action_result = self._execute_action(
             manager_id, cpad_data, metadata, endpoint)
         action_return_code = action_result.return_code
@@ -637,33 +544,16 @@ class SubmitCPADActionHandler:
         
         # Step 5: Create LogEntry from CPER (if LogService available)
         log_entry_id = None
-        severity = self._map_action_to_severity(metadata['action_id'])
         action_desc = ACTION_DESCRIPTIONS.get(metadata['action_id'], f"Action {metadata['action_id']}")
         
         if self.log_service_handler:
             try:
                 print(f"\n   Step 5: ActionID {metadata['action_id']} identified as: {action_desc}")
-                
-                # Error injection is the only action that creates an error CPER.
-                if (metadata['action_id'] == ERROR_INJECTION_ACTION_ID and
-                        action_result.status == ACTION_COMPLETED and
-                        action_return_code == 0):
-                    print(f"           Creating {severity} error CPER...")
-                    cper_json_data = self._convert_cpad_to_cper(cpad_data, metadata)
-                    logger.debug(f"Generated CPER JSON data from template")
-                    
-                    cper_binary_path = self._convert_json_to_binary_cper(cper_json_data, metadata)
-                    if cper_binary_path:
-                        logger.info(f"Created binary CPER: {cper_binary_path}")
-                    status, entry_id = self.log_service_handler.add_cper_log_entry(cper_json_data, cper_binary_path)
-                    self._cleanup_temp_path(cper_binary_path)
-                    
-                    if status == 201:
-                        log_entry_id = entry_id
-                        print(f"           ✓ {severity} CPER LogEntry: {entry_id}")
-                        logger.info(f"Created RAS LogEntry: {entry_id}")
-                    else:
-                        print(f"           ✗ {severity} CPER LogEntry status: {status}")
+
+                generated_ids = self._store_generated_cpers(
+                    action_result, metadata)
+                if generated_ids:
+                    log_entry_id = generated_ids[0]
                 
                 if action_result.status != ACTION_PENDING:
                     print(f"           Creating Action Event CPER...")
@@ -723,6 +613,138 @@ class SubmitCPADActionHandler:
             print(f"   Reason: {action_failure_reason}")
         print(f"{'=' * 80}\n")
         return 202, response
+
+    def _handle_multi_section_submission(
+            self,
+            manager_id: str,
+            cpad_data: Dict[str, Any],
+            metadata: Dict[str, Any],
+            endpoint) -> Tuple[int, Dict[str, Any]]:
+        """Execute and report each section of one accepted CPAD."""
+        outcomes = []
+        log_entry_ids = []
+        for section in metadata["sections"]:
+            section_metadata = {
+                **metadata,
+                **section,
+            }
+            result = self._execute_action(
+                manager_id, cpad_data, section_metadata, endpoint)
+            outcomes.append((section_metadata, result))
+            context = result.context or result.reason
+            log_entry_id = None
+            if (self.log_service_handler is not None
+                    and result.status != ACTION_PENDING):
+                generated_ids = self._store_generated_cpers(
+                    result, section_metadata)
+                log_entry_ids.extend(generated_ids)
+                if generated_ids:
+                    log_entry_id = generated_ids[0]
+                log_entry_id = self._store_action_event(
+                    cpad_data,
+                    section_metadata,
+                    result.return_code,
+                    context,
+                ) or log_entry_id
+                if log_entry_id and log_entry_id not in log_entry_ids:
+                    log_entry_ids.append(log_entry_id)
+            decision = (
+                "PENDING" if result.status == ACTION_PENDING
+                else "APPROVED" if result.return_code == 0
+                else "ACTION_FAILED"
+            )
+            self._record_submission(
+                manager_id, section_metadata, decision, log_entry_id)
+
+        any_failed = any(
+            result.status == ACTION_FAILED for _metadata, result in outcomes)
+        any_pending = any(
+            result.status == ACTION_PENDING for _metadata, result in outcomes)
+        task_state = "Pending" if any_pending else "Completed"
+        task_status = "Warning" if any_failed else "OK"
+        task_id = (
+            f"CPAD-{metadata['record_id']}-"
+            f"{int(datetime.now().timestamp())}"
+        )
+        section_results = [
+            {
+                "SectionIndex": section_metadata["section_index"],
+                "ActionId": section_metadata["action_id"],
+                "FRUId": section_metadata["fru_id"],
+                "FRUText": section_metadata["fru_text"],
+                "Status": result.status,
+                "ReturnCode": result.return_code,
+                "Reason": result.reason,
+            }
+            for section_metadata, result in outcomes
+        ]
+        response = {
+            "@odata.type": "#Task.v1_7_1.Task",
+            "@odata.id": f"/redfish/v1/TaskService/Tasks/{task_id}",
+            "Id": task_id,
+            "Name": "Submit Multi-Section CPAD Task",
+            "TaskState": task_state,
+            "TaskStatus": task_status,
+            "StartTime": datetime.now().isoformat(),
+            "SectionResults": section_results,
+        }
+        if log_entry_ids:
+            response["Links"] = {
+                "LogEntries": [
+                    {"@odata.id": (
+                        f"/redfish/v1/Managers/{manager_id}/LogServices/"
+                        f"CPER/Entries/{entry_id}"
+                    )}
+                    for entry_id in log_entry_ids
+                ],
+            }
+        if self.event_handler:
+            try:
+                self.event_handler.emit_cpad_approved(
+                    manager_id,
+                    f"CPAD-{metadata['record_id']}",
+                    metadata["sections"][0]["action_id"],
+                    log_entry_ids[0] if log_entry_ids else None,
+                )
+            except Exception as exc:
+                logger.error(
+                    f"Failed to emit multi-section CPAD approved event: {exc}")
+        return 202, response
+
+    def _store_generated_cpers(
+            self,
+            action_result: ActionResult,
+            metadata: Dict[str, Any]) -> list:
+        """Finalize and store provider-generated CPERs without interpreting them."""
+        if self.log_service_handler is None:
+            return []
+        entry_ids = []
+        for generated in action_result.generated_cpers:
+            cper = copy.deepcopy(generated.cper_data)
+            header = cper.setdefault("header", {})
+            header["recordID"] = self._next_cper_record_id()
+            header["timestamp"] = datetime.now(timezone.utc).isoformat()
+            header["timestampIsPrecise"] = True
+            print(f"           Creating {generated.description} CPER...")
+            binary_path = None
+            try:
+                binary_path = self._convert_json_to_binary_cper(
+                    cper, metadata)
+                status, entry_id = (
+                    self.log_service_handler.add_cper_log_entry(
+                        cper, binary_path))
+            finally:
+                self._cleanup_temp_path(binary_path)
+            if status == 201:
+                entry_ids.append(entry_id)
+                print(
+                    f"           ✓ {generated.description} CPER "
+                    f"LogEntry: {entry_id}")
+            else:
+                print(
+                    f"           ✗ {generated.description} CPER "
+                    f"LogEntry status: {status}")
+        return entry_ids
 
     def _store_action_event(
             self,
@@ -912,7 +934,10 @@ class SubmitCPADActionHandler:
             'timestamp': datetime.now().isoformat(),
             'manager_id': manager_id,
             'record_id': metadata['record_id'],
+            'section_index': metadata.get('section_index', 0),
             'action_id': metadata['action_id'],
+            'fru_id': metadata.get('fru_id', ''),
+            'fru_text': metadata.get('fru_text', ''),
             'creator_id': metadata['creator_id'],
             'platform_id': metadata['platform_id'],
             'confidence': metadata['confidence'],
@@ -978,131 +1003,6 @@ class SubmitCPADActionHandler:
             }
         }
     
-    def _convert_cpad_to_cper(self, cpad_data: Dict[str, Any], metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Convert an error-injection CPAD (Action 0x0006) into an error CPER by
-        copying the vendor-proprietary error section verbatim.
-
-        This models what the SoC does on receipt of an injection CPAD: it logs
-        the injected error in a CPER.  The CPAD's section body IS the error the
-        SoC "logs", so the CPER simply wraps that opaque, vendor-specific
-        section (e.g. a Contoso Memory Controller section) in a corrected-error
-        CPER envelope.  The BMC never needs to understand the proprietary body —
-        only the vendor's analyzer decodes it.
-
-        Args:
-            cpad_data: Original CPAD data (cperlib JSON format).
-            metadata:  Extracted CPAD metadata.
-
-        Returns:
-            dict: CPER data structure ready for cper-convert.
-        """
-        import os
-        import json
-        import time
-        import random
-        import base64
-        from datetime import datetime, timezone
-
-        action_id = metadata['action_id']
-        if action_id != '0x0006':
-            raise ValueError(f"Unsupported action ID for error CPER: {action_id}")
-
-        # The CPER section body lives at a fixed offset for a single-section
-        # CPER (header + one descriptor = 200 bytes; verified against libcper).
-        SINGLE_SECTION_OFFSET = 200
-
-        # Load the Contoso error-CPER envelope template (header + descriptor,
-        # no typed section — the proprietary body is copied in below).
-        template_path = os.path.join(
-            os.path.dirname(__file__), '..', 'templates', 'contosoErrorCperTemplate.json')
-        template_path = os.path.abspath(template_path)
-        if not os.path.exists(template_path):
-            self.logger.error(f"Template file not found: {template_path}")
-            raise FileNotFoundError(f"CPER template not found: {template_path}")
-
-        with open(template_path, 'r') as f:
-            cper = json.load(f)
-
-        cpad_header = cpad_data.get('header', {})
-        cpad_desc = cpad_data.get('sectionDescriptors', [{}])[0]
-        cpad_sections = cpad_data.get('sections', [{}])
-
-        # ── Header: carry identity from the CPAD, BMC-assigned recordID ──
-        # A real endpoint assigns the recordID as it logs the CPER; here the
-        # BMC assigns sequential recordIDs (starting at 1) via the LogService.
-        cper['header']['recordID'] = self._next_cper_record_id()
-        cper['header']['creatorID'] = cpad_header.get('creatorID')
-        cper['header']['platformID'] = cpad_header.get('platformID')
-        if 'partitionID' in cpad_header:
-            cper['header']['partitionID'] = cpad_header.get('partitionID')
-
-        # Timestamp: BMC-assigned at log time (UTC).  A real RAS API endpoint
-        # stamps the CPER when it logs the error; here the BMC does so (the CPAD
-        # carries no meaningful timestamp).
-        cper['header']['timestamp'] = datetime.now(timezone.utc).isoformat()
-        cper['header']['timestampIsPrecise'] = True
-
-        # ── Descriptor: FRU + the proprietary section-type GUID from the CPAD ──
-        cper['sectionDescriptors'][0]['fruID'] = cpad_desc.get('fruID')
-        cper['sectionDescriptors'][0]['fruText'] = cpad_desc.get('fruText')
-        cpad_section_type = cpad_desc.get('sectionType')
-        if isinstance(cpad_section_type, dict) and cpad_section_type.get('data'):
-            cper['sectionDescriptors'][0]['sectionType'] = {
-                'data': cpad_section_type['data'],
-                'type': cpad_section_type.get('type', 'Unknown'),
-            }
-
-        # ── Section body: copy the opaque proprietary bytes verbatim ────────
-        opaque = cpad_sections[0].get('Unknown', {}) if cpad_sections else {}
-        section_b64 = opaque.get('data', '')
-        try:
-            body = (base64.b64decode(section_b64, validate=True)
-                    if section_b64 else b'')
-        except Exception as exc:
-            raise ValueError("CPAD section body is not valid base64") from exc
-        if is_contoso_memory_cpad(cpad_data):
-            try:
-                state = self._memory_state(metadata['partition_id'])
-                body = overlay_cpad_memory_state(
-                    cpad_data,
-                    state,
-                    allow_spd_temperature_override=(
-                        metadata['action_id'] == ERROR_INJECTION_ACTION_ID),
-                )
-                section_b64 = base64.b64encode(body).decode('ascii')
-            except ValueError as exc:
-                raise ValueError(
-                    f"failed to apply authoritative memory inventory: {exc}") from exc
-        cper['sections'] = [{"Unknown": {"data": section_b64}}]
-        body_len = len(body)
-
-        # ── Severity + notification type: derived from the proprietary body ──
-        # The BMC (as the Contoso endpoint) reads the injected error's severity
-        # from the section body.  The per-section descriptor gets that severity;
-        # the header gets the HIGHEST severity of any section; the notification
-        # type follows from the header severity.
-        cper['sectionDescriptors'][0]['severity'] = _contoso_body_severity(body)
-        header_severity = max(
-            (d.get('severity', _DEFAULT_CPER_SEVERITY) for d in cper['sectionDescriptors']),
-            key=lambda s: _CPER_SEVERITY_RANK.get(s.get('name'), -1))
-        cper['header']['severity'] = header_severity
-        cper['header']['notificationType'] = dict(
-            _NOTIFICATION_BY_SEVERITY.get(header_severity['name'], _NOTIF_CMC))
-
-        # ── Revision: carried in the CPAD and set by the injector ───────────
-        if isinstance(cpad_header.get('revision'), dict):
-            cper['header']['revision'] = cpad_header['revision']
-        if isinstance(cpad_desc.get('revision'), dict):
-            cper['sectionDescriptors'][0]['revision'] = cpad_desc['revision']
-
-        # ── Fix up the single-section geometry to match the copied body ─────
-        cper['sectionDescriptors'][0]['sectionOffset'] = SINGLE_SECTION_OFFSET
-        cper['sectionDescriptors'][0]['sectionLength'] = body_len
-        cper['header']['recordLength'] = SINGLE_SECTION_OFFSET + body_len
-
-        return cper
-    
     def _locate_cper_convert(self):
         """
         Locate the cper-convert tool in the project's libcper build directory.
@@ -1125,7 +1025,7 @@ class SubmitCPADActionHandler:
         
         Args:
             cper_json_data: CPER data in JSON format
-            metadata: CPAD metadata (for severity determination)
+            metadata: CPAD metadata used for conversion diagnostics
             
         Returns:
             str: Path to binary CPER file, or None if conversion failed
@@ -1136,13 +1036,24 @@ class SubmitCPADActionHandler:
             return None
         
         try:
-            action_id = metadata['action_id']
-            severity = self._map_action_to_severity(action_id)
+            severity_value = cper_json_data.get(
+                "header", {}).get("severity", "Informational")
+            severity = (
+                severity_value.get("name", "Informational")
+                if isinstance(severity_value, dict)
+                else str(severity_value)
+            )
+            severity_slug = "".join(
+                character.lower() if character.isalnum() else "_"
+                for character in severity
+            ).strip("_") or "informational"
             
             # Create temp directory for JSON and binary files
             temp_dir = tempfile.mkdtemp(prefix='ras_cper_')
-            json_path = os.path.join(temp_dir, f'{severity.lower()}_cper.json')
-            binary_path = os.path.join(temp_dir, f'{severity.lower()}_cper.cper')
+            json_path = os.path.join(
+                temp_dir, f'{severity_slug}_cper.json')
+            binary_path = os.path.join(
+                temp_dir, f'{severity_slug}_cper.cper')
             
             # Save JSON CPER to temp file
             with open(json_path, 'w') as f:
@@ -1223,7 +1134,13 @@ class SubmitCPADActionHandler:
             ae_cper = json.load(f)
         
         cpad_header = cpad_data.get('header', {})
-        cpad_section_desc = cpad_data.get('sectionDescriptors', [{}])[0]
+        section_index = metadata.get("section_index", 0)
+        descriptors = cpad_data.get('sectionDescriptors', [])
+        cpad_section_desc = (
+            descriptors[section_index]
+            if 0 <= section_index < len(descriptors)
+            else {}
+        )
         
         # --- Header ---
         # BMC-assigned recordID (sequential, starts at 1) — see LogService.
@@ -1266,7 +1183,7 @@ class SubmitCPADActionHandler:
         ae_section['cpadActionId'] = metadata['action_id']
         
         # Section descriptor index
-        ae_section['cpadSectionIndex'] = 0
+        ae_section['cpadSectionIndex'] = section_index
         
         # Additional context: base64-encode a description string
         context_str = additional_context or ACTION_DESCRIPTIONS.get(
@@ -1282,13 +1199,3 @@ class SubmitCPADActionHandler:
         ae_cper['header']['recordLength'] = 200 + section_length  # 128 (header) + 72 (descriptor) + section body
         
         return ae_cper
-
-    def _map_action_to_severity(self, action_id: str) -> str:
-        """Map action ID (hex code from cpad-convert) to CPER severity level"""
-        SEVERITY_MAP = {
-            ERROR_INJECTION_ACTION_ID: 'Corrected',
-            PPR_ACTION_ID: 'Informational',
-            PAGE_OFFLINE_ACTION_ID: 'Informational',
-            REBOOT_WITH_RETRAINING_ACTION_ID: 'Informational',
-        }
-        return SEVERITY_MAP.get(action_id, 'Informational')

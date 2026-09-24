@@ -53,11 +53,12 @@ _RANGE_COUNT_FORMAT = "<I"
 _RANGE_COUNT_SIZE = struct.calcsize(_RANGE_COUNT_FORMAT)
 
 
-def is_contoso_action_cpad(cpad_data: Dict[str, Any]) -> bool:
+def is_contoso_action_cpad(
+        cpad_data: Dict[str, Any], section_index: int = 0) -> bool:
     descriptors = cpad_data.get("sectionDescriptors", [])
-    if not descriptors:
+    if not 0 <= section_index < len(descriptors):
         return False
-    section_type = descriptors[0].get("sectionType", {})
+    section_type = descriptors[section_index].get("sectionType", {})
     guid = section_type.get("data") if isinstance(section_type, dict) else None
     return (
         isinstance(guid, str)
@@ -65,14 +66,14 @@ def is_contoso_action_cpad(cpad_data: Dict[str, Any]) -> bool:
     )
 
 
-def _body(cpad_data: Dict[str, Any]) -> bytes:
-    if not is_contoso_action_cpad(cpad_data):
+def _body(cpad_data: Dict[str, Any], section_index: int = 0) -> bytes:
+    if not is_contoso_action_cpad(cpad_data, section_index):
         raise ValueError(
             "CPAD does not contain Contoso action parameters")
     sections = cpad_data.get("sections", [])
     encoded = (
-        sections[0].get("Unknown", {}).get("data")
-        if sections else None
+        sections[section_index].get("Unknown", {}).get("data")
+        if 0 <= section_index < len(sections) else None
     )
     if not encoded:
         raise ValueError("Contoso action-parameter section has no body")
@@ -90,8 +91,9 @@ def _decode_pfn(data: bytes) -> int:
 
 
 def decode_cpad_action_parameters(
-        cpad_data: Dict[str, Any], action_id: str) -> Dict[str, int]:
-    body = _body(cpad_data)
+        cpad_data: Dict[str, Any], action_id: str,
+        section_index: int = 0) -> Dict[str, int]:
+    body = _body(cpad_data, section_index)
     if len(body) < _HEADER_SIZE:
         raise ValueError("Contoso action-parameter body is truncated")
     major, minor, length, parameter_version, flags, reserved = \

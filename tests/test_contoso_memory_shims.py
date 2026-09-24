@@ -25,7 +25,10 @@ import contoso_encoder as encoder  # noqa: E402
 import injection_spec as spec_model  # noqa: E402
 from memory_events import decode_memory_events  # noqa: E402
 from memory_controller_analyzer import MemoryControllerAnalyzer  # noqa: E402
-from memory_shims.contract import discover_memory_shims  # noqa: E402
+from memory_shims.contract import (  # noqa: E402
+    ShimContractError,
+    discover_memory_shims,
+)
 from analysis_orchestrator import AnalysisOrchestrator  # noqa: E402
 
 
@@ -184,10 +187,12 @@ def _cpad_for_event(event, action_id="0x9001"):
             "partitionID": event["header"]["partitionID"],
             "creatorID": event["header"]["creatorID"],
             "sectionCount": 1,
+            "urgency": 0,
         },
         "sectionDescriptors": [{
             "actionID": {"code": action_id, "name": "Vendor action"},
             "confidence": 90,
+            "urgency": 0,
             "fruID": event["section_descriptor"]["fruID"],
             "fruText": event["section_descriptor"]["fruText"],
         }],
@@ -197,7 +202,7 @@ def _cpad_for_event(event, action_id="0x9001"):
 
 def _action_request_for_event(
         event, action_id=action_parameters.PAGE_OFFLINE_ACTION_ID,
-        parameters=None):
+        parameters=None, urgency=False):
     if parameters is None:
         if action_id == action_parameters.PPR_ACTION_ID:
             error = event["memory_error"]
@@ -226,13 +231,29 @@ def _action_request_for_event(
             }
         else:
             parameters = {}
+    if action_id in {
+            action_parameters.RESEAT_PART_ACTION_ID,
+            action_parameters.SHUFFLE_PART_ACTION_ID,
+            action_parameters.REPLACE_PART_ACTION_ID,
+            action_parameters.PPR_ACTION_ID,
+            action_parameters.PAGE_OFFLINE_ACTION_ID}:
+        parameters = {
+            "fru_id": event["fru_id"],
+            "fru_text": event["fru_text"],
+            **parameters,
+        }
     return {
         "cper_file": event["cper_file"],
         "section_index": event["section_index"],
         "action_id": action_id,
         "confidence": 90,
+        "urgency": urgency,
         "parameters": parameters,
     }
+
+
+def _proposal(*requests):
+    return {"sections": list(requests)}
 
 
 class FakeShim:
@@ -264,11 +285,11 @@ def test_discovers_three_stub_shims():
     assert shims[(0x80, 0xAD)].analyze([]) == []
 
 
-def test_rejects_version_2_shim_contract():
+def test_rejects_version_4_shim_contract():
     with tempfile.TemporaryDirectory() as directory:
         shim_dir = Path(directory)
         (shim_dir / "analyzer_legacy.py").write_text(
-            "SHIM_INFO = {'api_version': 2, 'name': 'Legacy', "
+            "SHIM_INFO = {'api_version': 4, 'name': 'Legacy', "
             "'version': '1', 'dram_manufacturer_ids': [[128, 44]]}\n"
             "def analyze_memory_events(events): return []\n")
 
@@ -276,18 +297,18 @@ def test_rejects_version_2_shim_contract():
 
         assert shims == {}
         assert len(errors) == 1
-        assert "unsupported api_version 2" in errors[0]
+        assert "unsupported api_version 4" in errors[0]
 
 
 def test_multi_id_shim_registration_is_atomic_on_conflict():
     with tempfile.TemporaryDirectory() as directory:
         shim_dir = Path(directory)
         (shim_dir / "analyzer_a.py").write_text(
-            "SHIM_INFO = {'api_version': 3, 'name': 'A', 'version': '1', "
+            "SHIM_INFO = {'api_version': 5, 'name': 'A', 'version': '1', "
             "'dram_manufacturer_ids': [[128, 206]]}\n"
             "def analyze_memory_events(events): return []\n")
         (shim_dir / "analyzer_b.py").write_text(
-            "SHIM_INFO = {'api_version': 3, 'name': 'B', 'version': '1', "
+            "SHIM_INFO = {'api_version': 5, 'name': 'B', 'version': '1', "
             "'dram_manufacturer_ids': [[128, 44], [128, 206]]}\n"
             "def analyze_memory_events(events): return []\n")
 
@@ -644,7 +665,7 @@ def test_invalid_later_action_request_discards_entire_shim_result():
         valid = _action_request_for_event(events[0])
         invalid = copy.deepcopy(valid)
         invalid["confidence"] = 101
-        return [valid, invalid]
+        return [_proposal(valid, invalid)]
 
     analyzer.memory_shims = {
         tuple(MICRON): FakeShim(result=partly_invalid),
@@ -658,13 +679,45 @@ def test_invalid_later_action_request_discards_entire_shim_result():
     assert "confidence" in result["invocations"][0]["error"]
 
 
+def test_rejects_non_boolean_shim_action_urgency():
+    analyzer = ContosoAnalyzer()
+
+    def invalid_urgency(events):
+        request = _action_request_for_event(events[0])
+        request["urgency"] = 1
+        return [_proposal(request)]
+
+    analyzer.memory_shims = {
+        tuple(MICRON): FakeShim(result=invalid_urgency),
+    }
+
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+
+    assert result["cpads"] == []
+    assert result["handled_manufacturers"] == set()
+    assert result["failed_manufacturers"] == {tuple(MICRON)}
+    assert "urgency must be a boolean" in result["invocations"][0]["error"]
+
+
 def test_rejects_invalid_shim_action_request_structure():
     analyzer = ContosoAnalyzer()
+
+    def missing_urgency(events):
+        request = _action_request_for_event(events[0])
+        del request["urgency"]
+        return [_proposal(request)]
+
+    analyzer.memory_shims = {
+        tuple(MICRON): FakeShim(result=missing_urgency),
+    }
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+    assert result["cpads"] == []
+    assert "must contain exactly" in result["invocations"][0]["error"]
 
     def missing_source_section(events):
         request = _action_request_for_event(events[0])
         del request["section_index"]
-        return [request]
+        return [_proposal(request)]
 
     analyzer.memory_shims = {
         tuple(MICRON): FakeShim(result=missing_source_section),
@@ -676,7 +729,7 @@ def test_rejects_invalid_shim_action_request_structure():
     def invalid_source(events):
         request = _action_request_for_event(events[0])
         request["section_index"] = 99
-        return [request]
+        return [_proposal(request)]
 
     analyzer.memory_shims = {
         tuple(MICRON): FakeShim(result=invalid_source),
@@ -693,7 +746,7 @@ def test_rejects_incomplete_shim_ppr_parameters():
         request = _action_request_for_event(
             events[0], action_id=action_parameters.PPR_ACTION_ID)
         del request["parameters"]["row"]
-        return [request]
+        return [_proposal(request)]
 
     analyzer.memory_shims = {
         tuple(MICRON): FakeShim(result=missing_ppr_row),
@@ -709,7 +762,8 @@ def test_builds_and_deduplicates_shim_action_requests():
 
     def duplicate_actions(events):
         request = _action_request_for_event(events[0])
-        return [request, copy.deepcopy(request)]
+        proposal = _proposal(request)
+        return [proposal, copy.deepcopy(proposal)]
 
     shim = FakeShim(result=duplicate_actions)
     analyzer.memory_shims = {tuple(MICRON): shim}
@@ -802,11 +856,12 @@ def test_large_page_offline_request_builds_multiple_correlated_cpads():
     } for index in range(10_000)]
 
     def offline_pages(events):
-        return [_action_request_for_event(
+        return [_proposal(_action_request_for_event(
             events[0],
             action_id=action_parameters.PAGE_OFFLINE_ACTION_ID,
             parameters={"page_ranges": pages},
-        )]
+            urgency=True,
+        ))]
 
     analyzer.memory_shims = {
         tuple(MICRON): FakeShim(result=offline_pages),
@@ -824,10 +879,99 @@ def test_large_page_offline_request_builds_multiple_correlated_cpads():
 
     assert len(cpads) == 4
     assert len({cpad["header"]["recordID"] for cpad in cpads}) == 4
+    assert all(cpad["header"]["urgency"] == 1 for cpad in cpads)
+    assert all(
+        cpad["sectionDescriptors"][0]["urgency"] == 1
+        for cpad in cpads
+    )
+    assert all(
+        cpad["sectionDescriptors"][0]["confidence"] == 90
+        for cpad in cpads
+    )
     assert sum(parameters["page_count"] for parameters in decoded) == 10_000
     assert len({parameters["batch_id"] for parameters in decoded}) == 1
     assert [parameters["chunk_index"] for parameters in decoded] == [
         0, 1, 2, 3]
+
+
+def test_builds_multi_section_cpad_for_distinct_frus():
+    second_fru_id = "97fb9d52-b648-497d-b092-903b8925f6e8"
+    events = decode_memory_events(_records(
+        _memory_cper(record_id=2),
+        _memory_cper(
+            record_id=1, fru_id=second_fru_id, fru_text="DIMM B1"),
+    ))
+    first = _action_request_for_event(
+        events[0],
+        action_id=action_parameters.REPLACE_PART_ACTION_ID,
+        urgency=False,
+    )
+    second = _action_request_for_event(
+        events[1],
+        action_id=action_parameters.REPLACE_PART_ACTION_ID,
+        urgency=True,
+    )
+    analyzer = ContosoAnalyzer()
+
+    cpads = analyzer._build_shim_proposal_cpads(
+        _proposal(first, second), events)
+
+    assert len(cpads) == 1
+    cpad = cpads[0]
+    assert cpad["header"]["sectionCount"] == 2
+    assert cpad["header"]["urgency"] == 1
+    assert [item["fruText"] for item in cpad["sectionDescriptors"]] == [
+        "DIMM A1", "DIMM B1"]
+    assert [item["fruID"] for item in cpad["sectionDescriptors"]] == [
+        FRU_ID.lower(), second_fru_id]
+    assert [item["sectionOffset"] for item in cpad["sectionDescriptors"]] == [
+        276, 284]
+    assert cpad["header"]["recordLength"] == 292
+
+
+def test_non_fru_action_uses_unambiguous_newest_cper_fru():
+    events = decode_memory_events(_records(_memory_cper()))
+    request = _action_request_for_event(
+        events[0],
+        action_id=action_parameters.REBOOT_WITH_RETRAINING_ACTION_ID,
+        parameters={},
+        urgency=True,
+    )
+    analyzer = ContosoAnalyzer()
+
+    cpad = analyzer._build_shim_action_cpad(request, events)
+
+    descriptor = cpad["sectionDescriptors"][0]
+    assert descriptor["fruID"] == FRU_ID.lower()
+    assert descriptor["fruText"] == FRU_TEXT
+
+
+def test_page_offline_rejects_overlapping_ranges_for_different_frus():
+    second_fru_id = "97fb9d52-b648-497d-b092-903b8925f6e8"
+    events = decode_memory_events(_records(
+        _memory_cper(record_id=2),
+        _memory_cper(
+            record_id=1, fru_id=second_fru_id, fru_text="DIMM B1"),
+    ))
+    parameters = {
+        "page_ranges": [{
+            "start_address": 0x20000000,
+            "page_count": 2,
+        }],
+    }
+    first = _action_request_for_event(
+        events[0], parameters=copy.deepcopy(parameters))
+    second = _action_request_for_event(
+        events[1], parameters=copy.deepcopy(parameters))
+    analyzer = ContosoAnalyzer()
+
+    try:
+        analyzer._build_shim_proposal_cpads(
+            _proposal(first, second), events)
+    except ShimContractError as exc:
+        assert "different FRUs overlap" in str(exc)
+    else:
+        raise AssertionError("overlapping cross-FRU pages were accepted")
 
 
 def test_emits_only_binary_shim_files():

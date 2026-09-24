@@ -1031,6 +1031,8 @@ class AnalysisOrchestrator:
             self._emit_policy_rejection_cper(cpad_binary, decision)
             return
 
+        section_decisions = list(
+            getattr(decision, "section_decisions", []) or [])
         action_id = str(getattr(decision, "action_id", "") or "")
         fru_text = str(getattr(decision, "fru_text", "") or "")
         if not action_id:
@@ -1047,6 +1049,28 @@ class AnalysisOrchestrator:
                 self._emit_policy_rejection_cper(cpad_binary, decision)
                 return
 
+        control_plane_sections = [
+            section for section in section_decisions
+            if section.action_id in CONTROL_PLANE_ACTIONS
+        ]
+        if control_plane_sections and len(
+                control_plane_sections) != len(section_decisions):
+            print("\n   ❌ CPAD denied — one CPAD cannot mix server-fleet "
+                  "and endpoint actions.")
+            self._emit_policy_rejection_cper(cpad_binary, decision)
+            return
+        if (section_decisions
+                and len(control_plane_sections) == len(section_decisions)):
+            print("\n   ✅ Policy allowed these server-fleet actions:")
+            for section in control_plane_sections:
+                print(
+                    f"      Section {section.section_index}: "
+                    f"{section.action_name} for {section.fru_text} "
+                    f"({section.fru_id})"
+                )
+            print("   This is a server-fleet control-plane action. The approved CPAD")
+            print("   was stored, but it will not be submitted to the Contoso endpoint.")
+            return
         action_name = CONTROL_PLANE_ACTIONS.get(action_id)
         if action_name is not None:
             target = fru_text or "the requested target"

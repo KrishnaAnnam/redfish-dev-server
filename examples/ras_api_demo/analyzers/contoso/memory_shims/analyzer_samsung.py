@@ -18,9 +18,9 @@ from contoso_action_parameters import (
 
 
 SHIM_INFO = {
-    "api_version": 3,
+    "api_version": 5,
     "name": "Samsung Memory Analyzer Shim",
-    "version": "0.3.0",
+    "version": "0.5.0",
     "dram_manufacturer_ids": [[0x80, 0xCE]],
 }
 
@@ -33,13 +33,21 @@ _ACTION_IDS = {
     "page_offline": PAGE_OFFLINE_ACTION_ID,
     "reboot_with_training": REBOOT_WITH_RETRAINING_ACTION_ID,
 }
-_EMPTY_PARAMETER_ACTIONS = {
+_EMPTY_BODY_ACTIONS = {
     "cold_reboot",
     "reseat_dimm",
     "dance_dimm",
     "replace_dimm",
     "reboot_with_training",
 }
+_FRU_TARGET_ACTIONS = {
+    "reseat_dimm",
+    "dance_dimm",
+    "replace_dimm",
+    "ppr",
+    "page_offline",
+}
+_FRU_PARAMETER_FIELDS = {"fru_id", "fru_text"}
 _SEVERITY_NAMES = {
     value: name for name, value in contoso_catalog.SEVERITY_VALUES.items()
 }
@@ -220,7 +228,7 @@ def analyze(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             0, spare_rows_per_bank - ppr["target_bank_repair_count"])
     return {
         "fault": None,
-        "actions": [],
+        "cpads": [],
         "advisories": [],
     }
 
@@ -240,11 +248,12 @@ def _validate_source(source: Dict[str, Any]) -> None:
 
 
 def _to_contoso_action_request(action: Dict[str, Any]) -> Dict[str, Any]:
-    required = {"source", "action", "confidence", "parameters", "reason"}
+    required = {
+        "source", "action", "confidence", "urgency", "parameters", "reason"}
     if not isinstance(action, dict) or set(action) != required:
         raise ValueError(
             "Samsung action must contain source, action, confidence, "
-            "parameters, and reason")
+            "urgency, parameters, and reason")
     _validate_source(action["source"])
     action_name = action["action"]
     try:
@@ -255,30 +264,46 @@ def _to_contoso_action_request(action: Dict[str, Any]) -> Dict[str, Any]:
     if (not isinstance(confidence, int) or isinstance(confidence, bool)
             or not 0 <= confidence <= 100):
         raise ValueError("Samsung action confidence must be an integer 0..100")
+    urgency = action["urgency"]
+    if not isinstance(urgency, bool):
+        raise ValueError("Samsung action urgency must be a boolean")
     parameters = action["parameters"]
     if not isinstance(parameters, dict):
         raise ValueError("Samsung action parameters must be an object")
-    if action_name in _EMPTY_PARAMETER_ACTIONS and parameters:
-        raise ValueError(f"{action_name} parameters must be empty")
+    if (action_name in _FRU_TARGET_ACTIONS
+            and not _FRU_PARAMETER_FIELDS.issubset(parameters)):
+        raise ValueError(
+            f"{action_name} parameters must contain fru_id and fru_text")
+    if action_name in _EMPTY_BODY_ACTIONS:
+        allowed = (
+            _FRU_PARAMETER_FIELDS
+            if action_name in _FRU_TARGET_ACTIONS
+            else set()
+        )
+        if set(parameters) != allowed:
+            raise ValueError(
+                f"{action_name} parameters may contain only "
+                f"{', '.join(sorted(allowed)) or 'no fields'}")
     if not isinstance(action["reason"], str) or not action["reason"].strip():
         raise ValueError("Samsung action reason must be a non-empty string")
     return {
         **action["source"],
         "action_id": action_id,
         "confidence": confidence,
+        "urgency": urgency,
         "parameters": copy.deepcopy(parameters),
     }
 
 
-def _to_contoso_action_requests(
+def _to_contoso_cpad_requests(
         result: Dict[str, Any],
         events: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not isinstance(result, dict) or set(result) != {
-            "fault", "actions", "advisories"}:
+            "fault", "cpads", "advisories"}:
         raise ValueError(
-            "Samsung result must contain fault, actions, and advisories")
-    if not isinstance(result["actions"], list):
-        raise ValueError("Samsung result actions must be a list")
+            "Samsung result must contain fault, cpads, and advisories")
+    if not isinstance(result["cpads"], list):
+        raise ValueError("Samsung result cpads must be a list")
     if not isinstance(result["advisories"], list):
         raise ValueError("Samsung result advisories must be a list")
     available = {
@@ -286,19 +311,29 @@ def _to_contoso_action_requests(
         for event in events
         if event.get("event_type") == "memory_error"
     }
-    requests = []
-    for action in result["actions"]:
-        request = _to_contoso_action_request(action)
-        source = request["cper_file"], request["section_index"]
-        if source not in available:
+    proposals = []
+    for cpad in result["cpads"]:
+        if not isinstance(cpad, dict) or set(cpad) != {"actions"}:
             raise ValueError(
-                "Samsung action source must identify an input memory error")
-        requests.append(request)
-    return requests
+                "Samsung CPAD proposal must contain exactly actions")
+        actions = cpad["actions"]
+        if not isinstance(actions, list) or not actions:
+            raise ValueError(
+                "Samsung CPAD proposal actions must be a non-empty list")
+        requests = []
+        for action in actions:
+            request = _to_contoso_action_request(action)
+            source = request["cper_file"], request["section_index"]
+            if source not in available:
+                raise ValueError(
+                    "Samsung action source must identify an input memory error")
+            requests.append(request)
+        proposals.append({"sections": requests})
+    return proposals
 
 
 def analyze_memory_events(events):
     """Adapt canonical events to Samsung analysis and return action requests."""
     records = [_to_samsung_record(event) for event in events]
     result = analyze(records)
-    return _to_contoso_action_requests(result, events)
+    return _to_contoso_cpad_requests(result, events)

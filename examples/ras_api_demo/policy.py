@@ -31,7 +31,7 @@ import sys
 import json
 import argparse
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -52,6 +52,23 @@ DEFAULT_ACTIONS_PATH = _TABLES_DIR / "actions.json"
 
 
 @dataclass
+class PolicySectionDecision:
+    """The policy outcome for one CPAD section."""
+
+    section_index: int
+    allowed: bool
+    action_id: str
+    action_name: Optional[str]
+    fru_id: str
+    fru_text: str
+    confidence: int
+    urgency: bool
+    prioritized: bool = False
+    threshold: Optional[int] = None
+    reason: Optional[str] = None
+
+
+@dataclass
 class PolicyDecision:
     """The outcome of evaluating one CPAD against policy."""
 
@@ -61,9 +78,14 @@ class PolicyDecision:
     platform_id: str = ""
     action_id: str = ""
     action_name: Optional[str] = None
+    fru_id: str = ""
     fru_text: str = ""
     confidence: int = 0
+    urgency: bool = False
+    prioritized: bool = False
     threshold: Optional[int] = None       # applied confidence threshold (None if not gated)
+    section_decisions: List[PolicySectionDecision] = field(
+        default_factory=list)
     # Platform Action codes to stamp on the rejection CPER (only used on deny).
     return_code: int = EFI_PLATFORM_ACTION_RETURN_CODE_POLICY_REJECTED
     reason_code: int = EFI_PLATFORM_ACTION_REASON_CODE_NONE
@@ -139,80 +161,191 @@ class PolicyEngine:
         creator_id = self._normalize_guid(header.get("creatorID", ""))
         platform_id = self._normalize_guid(header.get("platformID", ""))
         partition_id = self._normalize_guid(header.get("partitionID", ""))
-
         section_descs = cpad_data.get("sectionDescriptors", [])
-        # Confidence lives on the section descriptor — the standard CPAD location.
-        confidence = (section_descs[0].get("confidence", 0) if section_descs else 0) or 0
-        action_id = self._normalize_action_id(self._extract_action_id(section_descs))
-        fru_text = section_descs[0].get("fruText", "Unknown") if section_descs else "Unknown"
+        if not section_descs:
+            return PolicyDecision(
+                False, reason="CPAD contains no section descriptors",
+                creator_id=creator_id, platform_id=platform_id)
+        try:
+            header_urgency = self._parse_urgency(
+                header.get("urgency"), "CPAD header urgency")
+        except ValueError as exc:
+            return PolicyDecision(
+                False,
+                reason=str(exc),
+                creator_id=creator_id,
+                platform_id=platform_id,
+            )
 
         if self.verbose:
             print(f"\n   📋 CPAD File: {cpad_path.name}")
             print(f"\n   Platform ID:  {platform_id}")
             print(f"   Partition ID: {partition_id}")
             print(f"   Creator ID:   {creator_id}")
-            print(f"   Action ID:    {action_id}")
-            print(f"   FRU:          {fru_text}")
-            print(f"   Confidence:   {confidence}")
+            print(f"   Sections:     {len(section_descs)}")
+            print(f"   Urgency:      "
+                  f"{'Urgent' if header_urgency else 'Not urgent'}")
             print(f"\n🔍 Evaluating against policy tables...")
 
-        # Rule 1 — Creator trust (creators.json).
         creator = self.creators.get(creator_id)
         if not creator or not creator.get("trusted", False):
-            return self._deny(creator_id, platform_id, action_id, None, confidence, None,
-                              f"Creator {creator_id} is not a trusted creator",
-                              fru_text)
+            return PolicyDecision(
+                False,
+                reason=f"Creator {creator_id} is not a trusted creator",
+                creator_id=creator_id,
+                platform_id=platform_id,
+                urgency=header_urgency,
+            )
         if self.verbose:
             print(f"\n   Rule 1: Creator trusted — {creator.get('name', creator_id)}")
 
-        # Rule 2 — Action is known for this creator (actions.json[creator][action]).
-        action = self.actions.get(creator_id, {}).get(action_id)
-        if action is None:
-            return self._deny(creator_id, platform_id, action_id, None, confidence, None,
-                              f"Action {action_id} is not defined for creator {creator_id}",
-                              fru_text)
-        action_name = action.get("name", action_id)
-        if self.verbose:
-            print(f"   Rule 2: Action known — {action_name}")
-
-        # Rule 3 — Action permitted.
-        if not action.get("permitted", False):
-            return self._deny(creator_id, platform_id, action_id, action_name, confidence, None,
-                              f"Action '{action_name}' is not permitted",
-                              fru_text)
-        if self.verbose:
-            print(f"   Rule 3: Action permitted")
-
-        # Rule 4 — Platform supported for this action.
-        supported = [self._normalize_guid(p) for p in action.get("supported_platforms", [])]
-        if platform_id not in supported:
-            return self._deny(creator_id, platform_id, action_id, action_name, confidence, None,
-                              f"Platform {platform_id} is not supported for '{action_name}'",
-                              fru_text)
-        if self.verbose:
-            print(f"   Rule 4: Platform supported")
-
-        # Rule 5 — Confidence threshold (only when the action defines one).
-        threshold = action.get("confidence_threshold")
-        if threshold is not None:
-            if confidence < threshold:
-                return self._deny(creator_id, platform_id, action_id, action_name,
-                                  confidence, threshold,
-                                  f"Confidence {confidence} is below threshold {threshold}",
-                                  fru_text)
-            if self.verbose:
-                print(f"   Rule 5: Confidence {confidence} >= threshold {threshold}")
-        elif self.verbose:
-            print(f"   Rule 5: No confidence threshold defined for this action")
+        section_decisions = [
+            self._evaluate_section(
+                index, descriptor, creator_id, platform_id, header_urgency)
+            for index, descriptor in enumerate(section_descs)
+        ]
+        if any(item.urgency for item in section_decisions) != header_urgency:
+            return self._decision_from_sections(
+                False,
+                "CPAD header urgency must equal the aggregate section urgency",
+                creator_id,
+                platform_id,
+                header_urgency,
+                section_decisions,
+            )
+        denied = next(
+            (item for item in section_decisions if not item.allowed), None)
+        if denied is not None:
+            return self._decision_from_sections(
+                False,
+                f"section {denied.section_index}: {denied.reason}",
+                creator_id,
+                platform_id,
+                header_urgency,
+                section_decisions,
+            )
 
         if self.verbose:
+            for item in section_decisions:
+                if not item.urgency:
+                    continue
+                print(
+                    "\n⚡ Prioritizing approved urgent action\n"
+                    f"   Action: {item.action_name} ({item.action_id})\n"
+                    f"   FRU Text: {item.fru_text}\n"
+                    f"   FRU ID: {item.fru_id}"
+                )
             print(f"\n{'─' * 80}")
             print(f"✅ Policy Evaluation: APPROVED — {cpad_path.name}")
             print(f"{'─' * 80}")
-        return PolicyDecision(True, creator_id=creator_id, platform_id=platform_id,
-                              action_id=action_id, action_name=action_name,
-                              fru_text=fru_text,
-                              confidence=confidence, threshold=threshold)
+        return self._decision_from_sections(
+            True, None, creator_id, platform_id, header_urgency,
+            section_decisions)
+
+    def _evaluate_section(
+            self,
+            section_index: int,
+            descriptor: Dict[str, Any],
+            creator_id: str,
+            platform_id: str,
+            header_urgency: bool) -> PolicySectionDecision:
+        action_id = self._normalize_action_id(
+            self._extract_action_id([descriptor]))
+        confidence = descriptor.get("confidence", 0) or 0
+        fru_id = self._normalize_guid(descriptor.get("fruID", ""))
+        fru_text = str(descriptor.get("fruText", "")).strip()
+        try:
+            urgency = self._parse_urgency(
+                descriptor.get("urgency", int(header_urgency)),
+                f"CPAD section {section_index} urgency",
+            )
+        except ValueError as exc:
+            return PolicySectionDecision(
+                section_index, False, action_id, None, fru_id, fru_text,
+                confidence, False, reason=str(exc))
+        if not fru_id or not fru_text:
+            return PolicySectionDecision(
+                section_index, False, action_id, None, fru_id, fru_text,
+                confidence, urgency,
+                reason="section descriptor must contain FRU ID and FRU text")
+
+        action = self.actions.get(creator_id, {}).get(action_id)
+        action_name = action.get("name", action_id) if action else None
+        threshold = action.get("confidence_threshold") if action else None
+        reason = None
+        if action is None:
+            reason = (
+                f"Action {action_id} is not defined for creator {creator_id}")
+        elif not action.get("permitted", False):
+            reason = f"Action '{action_name}' is not permitted"
+        elif platform_id not in [
+                self._normalize_guid(value)
+                for value in action.get("supported_platforms", [])]:
+            reason = (
+                f"Platform {platform_id} is not supported for '{action_name}'")
+        elif threshold is not None and confidence < threshold:
+            reason = (
+                f"Confidence {confidence} is below threshold {threshold}")
+        else:
+            urgency_policy = action.get("urgency_policy", "any")
+            if urgency_policy not in {
+                    "any", "urgent_only", "non_urgent_only"}:
+                reason = (
+                    f"Action '{action_name}' has invalid urgency_policy "
+                    f"{urgency_policy!r}")
+            elif urgency_policy == "urgent_only" and not urgency:
+                reason = (
+                    f"Action '{action_name}' requires an urgent recommendation")
+            elif urgency_policy == "non_urgent_only" and urgency:
+                reason = (
+                    f"Action '{action_name}' does not permit urgent "
+                    "recommendations")
+        if self.verbose:
+            print(
+                f"   Section {section_index}: {action_name or action_id}; "
+                f"FRU {fru_text} ({fru_id}); confidence {confidence}; "
+                f"{'urgent' if urgency else 'not urgent'}"
+            )
+        allowed = reason is None
+        return PolicySectionDecision(
+            section_index=section_index,
+            allowed=allowed,
+            action_id=action_id,
+            action_name=action_name,
+            fru_id=fru_id,
+            fru_text=fru_text,
+            confidence=confidence,
+            urgency=urgency,
+            prioritized=allowed and urgency,
+            threshold=threshold,
+            reason=reason,
+        )
+
+    @staticmethod
+    def _decision_from_sections(
+            allowed: bool,
+            reason: Optional[str],
+            creator_id: str,
+            platform_id: str,
+            urgency: bool,
+            sections: List[PolicySectionDecision]) -> PolicyDecision:
+        first = sections[0]
+        return PolicyDecision(
+            allowed=allowed,
+            reason=reason,
+            creator_id=creator_id,
+            platform_id=platform_id,
+            action_id=first.action_id,
+            action_name=first.action_name,
+            fru_id=first.fru_id,
+            fru_text=first.fru_text,
+            confidence=first.confidence,
+            urgency=urgency,
+            prioritized=allowed and any(
+                section.prioritized for section in sections),
+            threshold=first.threshold,
+            section_decisions=sections,
+        )
 
     def evaluate_multiple_cpads(self, cpad_files) -> List[Tuple[Any, "PolicyDecision"]]:
         """Evaluate multiple CPAD files; returns [(path, PolicyDecision), ...]."""
@@ -221,7 +354,8 @@ class PolicyEngine:
     # ─── Internal Helpers ───────────────────────────────────────────────
 
     def _deny(self, creator_id, platform_id, action_id, action_name,
-              confidence, threshold, reason, fru_text="") -> "PolicyDecision":
+              confidence, threshold, reason, fru_text="",
+              urgency=False) -> "PolicyDecision":
         """Build (and, if verbose, print) a DENIED decision."""
         if self.verbose:
             print(f"\n{'─' * 80}")
@@ -230,8 +364,17 @@ class PolicyEngine:
         return PolicyDecision(False, reason=reason, creator_id=creator_id,
                               platform_id=platform_id, action_id=action_id,
                               action_name=action_name, fru_text=fru_text,
-                              confidence=confidence,
+                              confidence=confidence, urgency=urgency,
                               threshold=threshold)
+
+    @staticmethod
+    def _parse_urgency(value, field_name) -> bool:
+        """Parse a decoded CPAD urgency field as a strict binary value."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int) and value in {0, 1}:
+            return bool(value)
+        raise ValueError(f"{field_name} must be 0 or 1")
 
     @staticmethod
     def _normalize_guid(value) -> str:

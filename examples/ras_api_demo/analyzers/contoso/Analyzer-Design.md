@@ -252,6 +252,7 @@ Each request contains exactly:
     "section_index": 0,
     "action_id": "0x8001",
     "confidence": 90,
+    "urgency": False,
     "parameters": {
         "ppr_type": 0x01,
         "chiplet": 0,
@@ -295,7 +296,7 @@ run in that case. If no matching shim exists, or shim discovery, invocation,
 validation, or binary conversion fails, a newest memory error falls back to the
 detector below. Platform Action Events never invoke the default detector.
 
-The complete-parameter version 3 shim contract is documented in
+The grouped multi-section version 5 shim contract is documented in
 [Memory Vendor Analyzer Shim Interface](memory_shims/memory-vendor-analyzer-shim.md).
 
 #### Micron Analyzer Interface
@@ -347,13 +348,20 @@ more failing columns is stronger evidence of a bad row.
 > on a row; the second, on the *same row* at a *different column*, triggers the
 > SPPR CPAD.
 
-#### SPPR CPAD confidence (in default memory analyzer)
+#### SPPR CPAD policy metadata (in default memory analyzer)
 
 Every CPAD the analyzer emits carries a **confidence** value (0–100) in the
 standard CPAD location: the section descriptor
 (`sectionDescriptors[0].confidence`).  The confidence value is not intended to
 be used by RAS API endpoints.  It is intended to help server fleet operator
 policy tools decide whether or not to act upon the CPAD.
+
+Each recommendation also carries a boolean **urgency** value. The builder
+stores it in the CPAD header and section descriptor. Urgency is another
+server-fleet policy input: policy may allow or deny based on it and may
+prioritize an approved urgent action. The endpoint does not use confidence or
+urgency when executing an approved action. The default row-failure detector
+currently emits non-urgent SPPR recommendations.
 
 This demo shows how the confidence might increase as the analyzer gets more data
 and as the analyzer sees stronger indications of a pattern in the failures.

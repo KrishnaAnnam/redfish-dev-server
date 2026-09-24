@@ -99,8 +99,8 @@ def build_cpad_json(spec, section_guid, body):
                 "flags": 0,
                 "confidence": INJECTION_CONFIDENCE,
                 "sectionType": {"data": section_guid, "type": "Unknown"},
-                "fruID": cpad.get("fruID", "00000000-0000-0000-0000-000000000000"),
-                "fruText": cpad.get("fruText", ""),
+                "fruID": cpad["fruID"],
+                "fruText": cpad["fruText"],
                 "actionID": dict(INJECT_ACTION),
             }
         ],

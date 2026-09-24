@@ -3,6 +3,7 @@
     "0x0002": {
       "name": "Power Cycle",
       "permitted": true,
+      "urgency_policy": "any",
       "confidence_threshold": 80,
       "supported_platforms": [
         "990f8820-bd4d-5064-58cc-961a053dea79"
@@ -11,6 +12,7 @@
     "0x0003": {
       "name": "Reseat Part",
       "permitted": true,
+      "urgency_policy": "any",
       "confidence_threshold": 80,
       "supported_platforms": [
         "990f8820-bd4d-5064-58cc-961a053dea79"
@@ -19,6 +21,7 @@
     "0x0004": {
       "name": "Shuffle Part",
       "permitted": true,
+      "urgency_policy": "any",
       "confidence_threshold": 80,
       "supported_platforms": [
         "990f8820-bd4d-5064-58cc-961a053dea79"
@@ -27,6 +30,7 @@
     "0x0005": {
       "name": "Replace Part",
       "permitted": true,
+      "urgency_policy": "any",
       "confidence_threshold": 80,
       "supported_platforms": [
         "990f8820-bd4d-5064-58cc-961a053dea79"
@@ -35,6 +39,7 @@
     "0x0006": {
       "name": "Error Injection",
       "permitted": true,
+      "urgency_policy": "any",
       "supported_platforms": [
         "990f8820-bd4d-5064-58cc-961a053dea79"
       ]
@@ -42,6 +47,7 @@
     "0x8001": {
       "name": "PPR (Post Package Repair)",
       "permitted": true,
+      "urgency_policy": "any",
       "confidence_threshold": 80,
       "supported_platforms": [
         "990f8820-bd4d-5064-58cc-961a053dea79"
@@ -50,6 +56,7 @@
     "0x8002": {
       "name": "Page Offline",
       "permitted": true,
+      "urgency_policy": "any",
       "confidence_threshold": 80,
       "supported_platforms": [
         "990f8820-bd4d-5064-58cc-961a053dea79"
@@ -58,6 +65,7 @@
     "0x8003": {
       "name": "Reboot with Memory Retraining",
       "permitted": true,
+      "urgency_policy": "any",
       "confidence_threshold": 80,
       "supported_platforms": [
         "990f8820-bd4d-5064-58cc-961a053dea79"

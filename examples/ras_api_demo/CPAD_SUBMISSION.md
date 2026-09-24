@@ -68,6 +68,11 @@ runs these stages. The first failure returns an error and stops.
    descriptors (else `400`).
 5. **Acceptance checks (spec §6.5)** — see below. These gate the `202`.
 6. **Acceptance gate** — once §6.5 passes, the CPAD is **Accepted (`202`)**.
+
+For a multi-section CPAD, the endpoint validates the shared envelope once and
+then executes each section independently using its ActionID, body, FRU ID, and
+FRU text. A Platform Action Event preserves the originating CPAD section
+index, so sections targeting different FRUs remain independently correlated.
 7. **Post-acceptance action** — select an endpoint action provider using the
    target endpoint's CreatorID, then execute or schedule the action. Error
    injection is the only action that creates an error CPER. Immediate actions
@@ -139,8 +144,10 @@ The demo supports these CPAD actions:
 - **Power Cycle, Reseat Part, Shuffle Part, and Replace Part CPADs**
   (`0x0002` through `0x0005`) that are policy checked and routed to the
   simulated server-fleet control plane rather than the Contoso endpoint.
-- **Error-injection CPADs** (`0x0006`) from the Contoso injector, to create the
-  corrected DRAM errors the analyzer then studies.
+- **Error Injection CPADs** (`0x0006`). The ActionID does not identify the
+  injected error type; the CreatorID-specific endpoint interprets the section
+  type and body. This demo's Contoso injector uses one such CPAD to create the
+  corrected DRAM errors the analyzer studies.
 - **PPR repair CPADs** (`0x8001`) that the analyzer emits and the
   [PolicyEngine](POLICY_ENGINE.md) approves.
 - **Page Offline CPADs** (`0x8002`) that forward one or more 4 KiB physical

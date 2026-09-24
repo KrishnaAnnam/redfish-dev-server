@@ -78,6 +78,17 @@ class CPADHandler:
         header = cpad_data.get('header', {})
         section_descriptors = cpad_data.get('sectionDescriptors', [])
         first_descriptor = section_descriptors[0] if section_descriptors else {}
+        sections = [
+            {
+                'section_index': index,
+                'action_id': self._extract_action_code(descriptor),
+                'fru_id': descriptor.get('fruID', 'Unknown'),
+                'fru_text': descriptor.get('fruText', 'Unknown'),
+                'confidence': descriptor.get('confidence', 0),
+                'urgency': descriptor.get('urgency', False),
+            }
+            for index, descriptor in enumerate(section_descriptors)
+        ]
         
         return {
             'creator_id': header.get('creatorID', 'Unknown'),
@@ -86,12 +97,15 @@ class CPADHandler:
             'record_id': header.get('recordID', 0),
             'record_length': header.get('recordLength', 0),
             'timestamp': header.get('timestamp', ''),
-            'confidence': header.get('confidence', 0),
-            'urgency': header.get('urgency', False),
+            'confidence': first_descriptor.get('confidence', 0),
+            'urgency': first_descriptor.get(
+                'urgency', header.get('urgency', False)),
             'section_count': header.get('sectionCount', 0),
+            'section_index': 0,
             'action_id': self._extract_action_code(first_descriptor),
             'fru_id': first_descriptor.get('fruID', 'Unknown'),
             'fru_text': first_descriptor.get('fruText', 'Unknown'),
+            'sections': sections,
         }
     
     @staticmethod

@@ -194,8 +194,8 @@ def test_contoso_memory_action_builders_emit_distinct_action_ids():
         assert ppr_parameters["row"] == 4
 
 
-def test_page_offline_builder_requires_4k_alignment():
-    analyzer = ContosoAnalyzer.__new__(ContosoAnalyzer)
+def test_page_offline_builder_aligns_to_containing_page():
+    analyzer = ContosoAnalyzer()
     cper = _decoded_cper(_memory_section(error_address=0x2001))
     event = ANALYZER_MODULE.decode_memory_events([{
         "cper_data": cper,
@@ -205,14 +205,19 @@ def test_page_offline_builder_requires_4k_alignment():
     analyzer.sppr_template_path = (
         ANALYZER_PATH.parents[2] / "cpad_storage" / "spprTemplate.json")
 
-    try:
-        analyzer.create_page_offline_cpad_from_memory_event(
-            event, cper)
-    except ValueError as exc:
-        assert str(exc) == (
-            "Page Offline physical addresses must be 4 KiB aligned")
-    else:
-        raise AssertionError("unaligned Page Offline address was accepted")
+    captured = {}
+    analyzer._create_memory_action_cpad_output = (
+        lambda _event, _cper, _action_id, parameters, *_args:
+        captured.update(parameters) or "page.cpad")
+
+    result = analyzer.create_page_offline_cpad_from_memory_event(
+        event, cper)
+
+    assert result == "page.cpad"
+    assert captured["page_ranges"] == [{
+        "start_address": 0x2000,
+        "page_count": 1,
+    }]
 
 
 def test_cpu_only_dispatch_reports_all_cpu_sections_without_memory_initialization():

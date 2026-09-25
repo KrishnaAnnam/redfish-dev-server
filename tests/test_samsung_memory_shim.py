@@ -78,6 +78,8 @@ def test_samsung_memory_record_maps_complete_event_and_fru_text():
     assert record["fru_text"] == helpers.FRU_TEXT
     assert record["dimm"]["dram_manufacturer_id"] == helpers.SAMSUNG
     assert record["dimm"]["spd_temperature_c"] == 40
+    assert record["memory_organization"]["dimm_size_gib"] == 64
+    assert record["address_translation"]["coordinates_match_cper"] is True
     assert record["ppr"]["capability_bits"] == 0x07
     assert record["ppr"]["target_bank_repair_count"] == 2
     assert "repairs_per_bank" not in record["ppr"]

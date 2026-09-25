@@ -1,4 +1,4 @@
-"""Endpoint-side helpers for Contoso v1.4 and v1.5 memory section bodies."""
+"""Endpoint-side helpers for Contoso v1.4 through v1.6 memory section bodies."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from .memory_config import MemoryRepairState
 
 
 CONTOSO_MEMORY_SECTION_GUID = "e01ce992-d080-43f4-8a2c-df8a9d81eb4e"
-_CURRENT_SECTION_VERSION = (1, 5)
-_SUPPORTED_SECTION_VERSIONS = frozenset({(1, 4), (1, 5)})
+_CURRENT_SECTION_VERSION = (1, 6)
+_SUPPORTED_SECTION_VERSIONS = frozenset({(1, 4), (1, 5), (1, 6)})
 _SECTION_HEADER_SIZE = 8
 _ERROR_BANK_SIZE = 40
 _LOCATION_AND_BEATS_SIZE = 21
@@ -20,6 +20,7 @@ _DRAM_ADDITIONAL_OFFSET = _SECTION_HEADER_SIZE + _BANK_COUNT * _ERROR_BANK_SIZE
 _DRAM_FIXED_SIZE_BY_VERSION = {
     (1, 4): 81,
     (1, 5): 82,
+    (1, 6): 86,
 }
 _DRAM_FIXED_SIZE = _DRAM_FIXED_SIZE_BY_VERSION[_CURRENT_SECTION_VERSION]
 _OTHER_ADDITIONAL_SIZE = 8
@@ -67,7 +68,8 @@ def _section_version(body: bytes):
     return version
 
 
-def active_memory_bank(body: bytes) -> str:
+def active_memory_bank(
+        body: bytes, *, validate_organization: bool = True) -> str:
     """Validate a supported Contoso memory section and return its active bank."""
     version = _section_version(body)
     fixed_size = _DRAM_FIXED_SIZE_BY_VERSION[version]
@@ -98,7 +100,21 @@ def active_memory_bank(body: bytes) -> str:
         raise ValueError("Contoso sparse repair table length is invalid")
     if len(body) != other_offset + _OTHER_ADDITIONAL_SIZE:
         raise ValueError("Contoso memory section length is invalid")
-    capabilities_offset = 77 if version == (1, 4) else 78
+    capabilities_offset = {
+        (1, 4): 77,
+        (1, 5): 78,
+        (1, 6): 82,
+    }[version]
+    if version == (1, 6) and validate_organization:
+        org_version, scheme, dimm_size_gib, org_reserved = (
+            struct.unpack_from("<BBBB", body, dram_offset + 78))
+        if org_version != 1 or scheme != 1:
+            raise ValueError("Contoso memory organization is unsupported")
+        if dimm_size_gib not in {32, 64, 128}:
+            raise ValueError("Contoso DIMM size is unsupported")
+        if org_reserved != 0:
+            raise ValueError(
+                "Contoso memory organization reserved field must be zero")
     reserved_offset = capabilities_offset + 1
     if body[dram_offset + capabilities_offset] & ~0x07:
         raise ValueError("Contoso memory repair capabilities have reserved bits set")
@@ -168,13 +184,21 @@ def overlay_memory_state(
         state: MemoryRepairState,
         allow_spd_temperature_override: bool = False) -> bytes:
     """Overlay authoritative DIMM SPD and repair counters into a memory body."""
-    active_bank = active_memory_bank(body)
+    active_bank = active_memory_bank(
+        body, validate_organization=False)
     if active_bank == "other":
         other_offset = struct.unpack_from(
             "<I", body, _SECTION_HEADER_SIZE + _ERROR_BANK_SIZE + 32)[0]
         dram = bytearray(_LOCATION_AND_BEATS_SIZE + 19 + 25 + 2 + 2)
         dram += struct.pack("<b", 0)
         dram += struct.pack("<Q", state.config.total_memory_bytes)
+        dram += struct.pack(
+            "<BBBB",
+            state.config.organization.version,
+            1,
+            state.config.organization.dimm_size_gib,
+            0,
+        )
         dram += struct.pack("<B", state.capabilities.bitfield)
         dram += b"\x00\x00\x00"
         prefix = bytearray(body[:_DRAM_ADDITIONAL_OFFSET])
@@ -215,6 +239,13 @@ def overlay_memory_state(
     dram += bytes(dimm.dram_manufacturer_id)
     dram += struct.pack("<b", spd_temperature)
     dram += struct.pack("<Q", state.config.total_memory_bytes)
+    dram += struct.pack(
+        "<BBBB",
+        state.config.organization.version,
+        1,
+        state.config.organization.dimm_size_gib,
+        0,
+    )
     dram += struct.pack("<B", state.capabilities.bitfield)
     dram += b"\x00\x00"
     dram += struct.pack("<B", len(entries))

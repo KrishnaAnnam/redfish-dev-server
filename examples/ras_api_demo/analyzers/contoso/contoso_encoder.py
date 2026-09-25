@@ -20,6 +20,17 @@ elsewhere (``cpad_builder.py``).
 """
 
 import struct
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.plugins.ras.memory_address_translation import (
+    MEMORY_ORGANIZATION_VERSION,
+    TRANSLATION_SCHEME,
+    MemoryOrganization,
+)
 
 from contoso_catalog import (
     CONTOSO_SECTION_MAJOR,
@@ -116,6 +127,8 @@ def additional_block_size(fields, values=None):
             size += length
         elif isinstance(code, tuple) and code[0] == "repairs":
             size += 1 + 6 * len(values.get(name, []))
+        elif isinstance(code, tuple) and code[0] == "memory_organization":
+            size += 4
         else:
             size += _SCALAR_SIZES[code]
     return size
@@ -175,6 +188,32 @@ def pack_additional(fields, values):
                     int(entry["device"]), int(entry["bank_group"]),
                     int(entry["bank"]), int(entry["count"]),
                 )
+        elif isinstance(code, tuple) and code[0] == "memory_organization":
+            value = values.get(name)
+            if value is None:
+                value = {
+                    "version": MEMORY_ORGANIZATION_VERSION,
+                    "address_translation": TRANSLATION_SCHEME,
+                    "dimm_size_gib": 64,
+                }
+            if isinstance(value, MemoryOrganization):
+                organization = value
+            elif isinstance(value, dict):
+                organization = MemoryOrganization(
+                    version=int(value.get("version", 0)),
+                    address_translation=value.get("address_translation", ""),
+                    dimm_size_gib=int(value.get("dimm_size_gib", 0)),
+                )
+            else:
+                raise ValueError(
+                    "memory_organization must be an object")
+            out += struct.pack(
+                "<BBBB",
+                organization.version,
+                1,
+                organization.dimm_size_gib,
+                0,
+            )
         else:
             default = (
                 SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT
@@ -254,6 +293,22 @@ def unpack_additional(fields, data):
                 )))
                 offset += 6
             values[name] = entries
+        elif isinstance(code, tuple) and code[0] == "memory_organization":
+            version, scheme, dimm_size_gib, reserved = struct.unpack_from(
+                "<BBBB", data, offset)
+            offset += 4
+            if reserved != 0:
+                raise ValueError(
+                    "memory organization reserved field must be zero")
+            if scheme != 1:
+                raise ValueError(
+                    f"unsupported memory address translation scheme {scheme}")
+            organization = MemoryOrganization(
+                version=version,
+                address_translation=TRANSLATION_SCHEME,
+                dimm_size_gib=dimm_size_gib,
+            )
+            values[name] = organization.to_dict()
         else:
             size = _SCALAR_SIZES[code]
             (val,) = struct.unpack_from("<" + code, data, offset)
@@ -389,15 +444,22 @@ def unpack_section_body(section_name, body):
         bank, status, address, misc0, misc1, addl_offset = record
         addl_end = offsets[index + 1] if index + 1 < len(offsets) else len(body)
         addl_fields = get_bank(section, bank["name"])["additional"]
-        legacy_temperature = (
-            version == (1, 4)
-            and section_name == "Memory Controller - First Generation"
+        legacy_memory = (
+            section_name == "Memory Controller - First Generation"
             and bank["name"] == "DRAM Errors"
         )
-        if legacy_temperature:
+        legacy_temperature = legacy_memory and version == (1, 4)
+        legacy_organization = legacy_memory and version in {(1, 4), (1, 5)}
+        if legacy_temperature or legacy_organization:
             addl_fields = [
                 field for field in addl_fields
-                if field[0] != "spd_temperature"
+                if not (
+                    legacy_temperature and field[0] == "spd_temperature"
+                )
+                and not (
+                    legacy_organization
+                    and field[0] == "memory_organization"
+                )
             ]
         try:
             addl, consumed = unpack_additional(
@@ -412,6 +474,8 @@ def unpack_section_body(section_name, body):
         if st["error_id"] != 0:
             if legacy_temperature:
                 addl["spd_temperature"] = None
+            if legacy_organization:
+                addl["memory_organization"] = None
             active_records.append({
                 "bank_name": bank["name"],
                 "subcomponent": subcomp,

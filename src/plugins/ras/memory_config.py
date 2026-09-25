@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple
 
+from .memory_address_translation import (
+    MEMORY_ORGANIZATION_VERSION,
+    TRANSLATION_SCHEME,
+    MemoryAddressConfiguration,
+    MemoryOrganization,
+)
 
 DEFAULT_CHANNELS_PER_CHIPLET = 2
 DEFAULT_DIMMS_PER_CHANNEL = 2
@@ -41,6 +48,17 @@ def _require_string(value: Any, name: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{name} must be a non-empty string")
     return value
+
+
+def _require_guid(value: Any, name: str) -> str:
+    value = _require_string(value, name)
+    try:
+        parsed = uuid.UUID(value.strip().strip("{}"))
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a valid GUID") from exc
+    if parsed.int == 0:
+        raise ValueError(f"{name} must not be the zero GUID")
+    return str(parsed)
 
 
 def _optional_bool(data: Dict[str, Any], name: str) -> bool:
@@ -86,7 +104,8 @@ class DimmConfig:
     controller: int
     channel: int
     dimm: int
-    size_bytes: int
+    fru_id: str
+    fru_text: str
     max_repairs_per_bank: int
     serial_number: str
     part_number: str
@@ -134,17 +153,31 @@ class PlatformMemoryConfig:
     """Validated installed-DIMM inventory for one simulated platform."""
 
     def __init__(self, platform_id: str, channels_per_chiplet: int,
-                 dimms_per_channel: int, dimms: Iterable[DimmConfig]):
+                 dimms_per_channel: int, organization: MemoryOrganization,
+                 socket: int, dimms: Iterable[DimmConfig]):
         self.platform_id = platform_id
         self.channels_per_chiplet = channels_per_chiplet
         self.dimms_per_channel = dimms_per_channel
+        self.organization = organization
+        self.socket = socket
         self._dimms = {dimm.key: dimm for dimm in dimms}
         if self.total_memory_bytes > MAX_TOTAL_MEMORY_BYTES:
             raise ValueError("total endpoint memory exceeds uint64")
 
     @property
     def total_memory_bytes(self) -> int:
-        return sum(dimm.size_bytes for dimm in self._dimms.values())
+        return len(self._dimms) * self.organization.dimm_size_bytes
+
+    @property
+    def address_configuration(self) -> MemoryAddressConfiguration:
+        return MemoryAddressConfiguration(
+            organization=self.organization,
+            sockets=2,
+            chiplets_per_socket=CONTOSO_CHIPLETS,
+            controllers_per_chiplet=CONTOSO_CONTROLLERS_PER_CHIPLET,
+            channels_per_controller=self.channels_per_chiplet,
+            dimms_per_channel=self.dimms_per_channel,
+        )
 
     @classmethod
     def load(cls, path: Path | str) -> "PlatformMemoryConfig":
@@ -164,6 +197,24 @@ class PlatformMemoryConfig:
         dimms_per_channel = _require_int(
             data.get("dimms_per_channel", DEFAULT_DIMMS_PER_CHANNEL),
             "dimms_per_channel", 1, 256)
+        organization_data = data.get("memory_organization")
+        if not isinstance(organization_data, dict):
+            raise ValueError("memory_organization must be an object")
+        organization = MemoryOrganization(
+            version=_require_int(
+                organization_data.get("version"), "memory organization version",
+                MEMORY_ORGANIZATION_VERSION, MEMORY_ORGANIZATION_VERSION),
+            address_translation=_require_string(
+                organization_data.get("address_translation"),
+                "address_translation"),
+            dimm_size_gib=_require_int(
+                organization_data.get("dimm_size_gib"), "dimm_size_gib",
+                1, 255),
+        )
+        if organization.address_translation != TRANSLATION_SCHEME:
+            raise ValueError(
+                f"address_translation must be {TRANSLATION_SCHEME}")
+        socket = _require_int(data.get("socket", 0), "socket", 0, 1)
 
         dimms = []
         seen = set()
@@ -191,8 +242,10 @@ class PlatformMemoryConfig:
                 if key in seen:
                     raise ValueError(f"duplicate DIMM address {key}")
                 seen.add(key)
-                size_bytes = _require_int(
-                    dimm_data.get("size_bytes"), "size_bytes", 1, (1 << 64) - 1)
+                if "size_bytes" in dimm_data:
+                    raise ValueError(
+                        "DIMM size_bytes is not supported; use "
+                        "memory_organization.dimm_size_gib")
                 limit = _require_int(
                     dimm_data.get("max_repairs_per_bank", DEFAULT_MAX_REPAIRS_PER_BANK),
                     "max_repairs_per_bank", 0, MAX_REPAIRS_PER_BANK)
@@ -204,7 +257,10 @@ class PlatformMemoryConfig:
                     controller=controller,
                     channel=channel,
                     dimm=dimm_index,
-                    size_bytes=size_bytes,
+                    fru_id=_require_guid(
+                        dimm_data.get("fru_id"), "dimm fru_id"),
+                    fru_text=_require_string(
+                        dimm_data.get("fru_text"), "dimm fru_text"),
                     max_repairs_per_bank=limit,
                     serial_number=_parse_ascii(
                         spd.get("serial_number"), "serial_number", 18),
@@ -220,7 +276,9 @@ class PlatformMemoryConfig:
                             DEFAULT_SPD_TEMPERATURE_CELSIUS),
                         "spd_temperature", -127, 127),
                 ))
-        return cls(platform_id, channels, dimms_per_channel, dimms)
+        return cls(
+            platform_id, channels, dimms_per_channel, organization, socket,
+            dimms)
 
     def get_dimm(self, chiplet: int, controller: int, channel: int,
                  dimm: int) -> DimmConfig:
@@ -253,6 +311,15 @@ class RASEndpointConfiguration:
     def __init__(self, platform_id: str, endpoints: Iterable[EndpointConfig]):
         self.platform_id = platform_id
         self.endpoints = tuple(endpoints)
+        organizations = {
+            endpoint.memory.organization
+            for endpoint in self.endpoints
+            if endpoint.memory is not None
+        }
+        if len(organizations) > 1:
+            raise ValueError(
+                "all memory endpoints on one platform must use the same "
+                "memory_organization")
         self._by_id = {endpoint.id: endpoint for endpoint in self.endpoints}
         self._by_partition = {
             endpoint.partition_id: endpoint for endpoint in self.endpoints

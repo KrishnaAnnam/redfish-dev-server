@@ -111,6 +111,8 @@ The Contoso memory CPER stores these values in a one-byte bitfield:
 | Field | Required | Default | Description |
 | --- | --- | --- | --- |
 | `memory_repair_capabilities` | No | All flags `false` | Internal PPR support flags reported in Contoso memory CPERs. |
+| `memory_organization` | Yes | None | Uniform DIMM size and address-translation scheme for the platform. |
+| `socket` | No | `0` | Socket represented by this endpoint's memory inventory. |
 | `channels_per_chiplet` | No | `2` | Channel slots on each chiplet. Valid range: 1-256. |
 | `dimms_per_channel` | No | `2` | DIMM slots on each channel. Valid range: 1-256. |
 | `memory_controllers` | Yes | None | Memory controllers and installed DIMMs. |
@@ -133,7 +135,26 @@ Each memory controller contains:
 | --- | --- | --- | --- |
 | `channel` | Yes | None | Channel containing the DIMM. |
 | `dimm` | Yes | None | DIMM slot on the channel. |
-| `size_bytes` | Yes | None | Positive DIMM capacity in bytes. |
+| `fru_id` | Yes | None | DIMM FRU GUID used by CPAD descriptors. |
+| `fru_text` | Yes | None | Human-readable DIMM FRU text. |
+
+DIMM capacity is platform-wide rather than repeated in every DIMM:
+
+```json
+"memory_organization": {
+  "version": 1,
+  "address_translation": "contoso-simple-v1",
+  "dimm_size_gib": 64
+}
+```
+
+`dimm_size_gib` must be 32, 64, or 128. All installed DIMMs therefore share
+one organization. If a platform has multiple memory endpoints, their
+organization blocks must match. Per-DIMM `size_bytes` is rejected.
+
+Each DIMM requires `fru_id` and `fru_text` so physical addresses can be
+resolved to a CPAD descriptor FRU.
+
 | `max_repairs_per_bank` | No | `16` | Per-bank repair limit, from 0 through 255. |
 | `spd` | Yes | None | SPD identity data captured in memory CPERs. |
 
@@ -191,6 +212,12 @@ DIMMs in
       "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
       "fru_text": "Contoso CPU Socket 0",
       "memory": {
+        "memory_organization": {
+          "version": 1,
+          "address_translation": "contoso-simple-v1",
+          "dimm_size_gib": 64
+        },
+        "socket": 0,
         "memory_repair_capabilities": {
           "soft_ppr_runtime_supported": true,
           "soft_ppr_boot_time_supported": true,
@@ -206,7 +233,8 @@ DIMMs in
               {
                 "channel": 0,
                 "dimm": 0,
-                "size_bytes": 68719476736,
+                "fru_id": "00000000-0000-0000-0000-000000000001",
+                "fru_text": "DIMM A2",
                 "max_repairs_per_bank": 16,
                 "spd": {
                   "serial_number": "MSFT-C0-CH0-D0",
@@ -232,7 +260,8 @@ DIMMs in
 
 ## Derived CPER Data
 
-The endpoint computes `total_memory_bytes` by summing `size_bytes` for every
+The endpoint computes `total_memory_bytes` by multiplying the installed DIMM
+count by `memory_organization.dimm_size_gib`.
 DIMM installed on that endpoint. Do not configure a separate total. The full
 RAS Gen 1 configuration contains eight 64 GiB DIMMs, so its CPER value is
 `549755813888` bytes (512 GiB).

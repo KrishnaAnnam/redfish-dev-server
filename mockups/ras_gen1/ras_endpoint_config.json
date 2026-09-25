@@ -34,7 +34,6 @@
                         "channel" : 0,
                         "dimm" : 0,
                         "max_repairs_per_bank" : 16,
-                        "size_bytes" : 68719476736,
                         "spd" : {
                            "dram_manufacturer_id" : [
                               "0x04",
@@ -46,14 +45,15 @@
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
                            "spd_temperature" : 40,
-                           "serial_number": "MSFT-C0-CH0-D0"
-                        }
+                           "serial_number" : "MSFT-C0-CH0-D0"
+                        },
+                        "fru_id" : "00000000-0000-0000-0000-000000000001",
+                        "fru_text" : "DIMM A2"
                      },
                      {
                         "channel" : 0,
                         "dimm" : 1,
                         "max_repairs_per_bank" : 16,
-                        "size_bytes" : 68719476736,
                         "spd" : {
                            "dram_manufacturer_id" : [
                               "0x04",
@@ -65,14 +65,15 @@
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
                            "spd_temperature" : 40,
-                           "serial_number": "MSFT-C0-CH0-D1"
-                        }
+                           "serial_number" : "MSFT-C0-CH0-D1"
+                        },
+                        "fru_id" : "75824856-bd36-2cc8-61f4-39bb3276da2a",
+                        "fru_text" : "DIMM A1"
                      },
                      {
                         "channel" : 1,
                         "dimm" : 0,
                         "max_repairs_per_bank" : 16,
-                        "size_bytes" : 68719476736,
                         "spd" : {
                            "dram_manufacturer_id" : [
                               "0x04",
@@ -84,14 +85,15 @@
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
                            "spd_temperature" : 40,
-                           "serial_number": "MSFT-C0-CH1-D0"
-                        }
+                           "serial_number" : "MSFT-C0-CH1-D0"
+                        },
+                        "fru_id" : "00000000-0000-0000-0000-000000000003",
+                        "fru_text" : "DIMM B1"
                      },
                      {
                         "channel" : 1,
                         "dimm" : 1,
                         "max_repairs_per_bank" : 16,
-                        "size_bytes" : 68719476736,
                         "spd" : {
                            "dram_manufacturer_id" : [
                               "0x04",
@@ -103,8 +105,10 @@
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
                            "spd_temperature" : 40,
-                           "serial_number": "MSFT-C0-CH1-D1"
-                        }
+                           "serial_number" : "MSFT-C0-CH1-D1"
+                        },
+                        "fru_id" : "00000000-0000-0000-0000-000000000004",
+                        "fru_text" : "DIMM B2"
                      }
                   ]
                },
@@ -116,7 +120,6 @@
                         "channel" : 0,
                         "dimm" : 0,
                         "max_repairs_per_bank" : 16,
-                        "size_bytes" : 68719476736,
                         "spd" : {
                            "dram_manufacturer_id" : [
                               "0x04",
@@ -128,14 +131,15 @@
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
                            "spd_temperature" : 40,
-                           "serial_number": "MSFT-C1-CH0-D0"
-                        }
+                           "serial_number" : "MSFT-C1-CH0-D0"
+                        },
+                        "fru_id" : "00000000-0000-0000-0000-000000000005",
+                        "fru_text" : "DIMM C1"
                      },
                      {
                         "channel" : 0,
                         "dimm" : 1,
                         "max_repairs_per_bank" : 16,
-                        "size_bytes" : 68719476736,
                         "spd" : {
                            "dram_manufacturer_id" : [
                               "0x04",
@@ -147,14 +151,15 @@
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
                            "spd_temperature" : 40,
-                           "serial_number": "MSFT-C1-CH0-D1"
-                        }
+                           "serial_number" : "MSFT-C1-CH0-D1"
+                        },
+                        "fru_id" : "00000000-0000-0000-0000-000000000006",
+                        "fru_text" : "DIMM C2"
                      },
                      {
                         "channel" : 1,
                         "dimm" : 0,
                         "max_repairs_per_bank" : 16,
-                        "size_bytes" : 68719476736,
                         "spd" : {
                            "dram_manufacturer_id" : [
                               "0x04",
@@ -166,14 +171,15 @@
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
                            "spd_temperature" : 40,
-                           "serial_number": "MSFT-C1-CH1-D0"
-                        }
+                           "serial_number" : "MSFT-C1-CH1-D0"
+                        },
+                        "fru_id" : "00000000-0000-0000-0000-000000000007",
+                        "fru_text" : "DIMM D1"
                      },
                      {
                         "channel" : 1,
                         "dimm" : 1,
                         "max_repairs_per_bank" : 16,
-                        "size_bytes" : 68719476736,
                         "spd" : {
                            "dram_manufacturer_id" : [
                               "0x04",
@@ -185,12 +191,20 @@
                            ],
                            "part_number" : "MSFT-DDR5-64GB",
                            "spd_temperature" : 40,
-                           "serial_number": "MSFT-C1-CH1-D1"
-                        }
+                           "serial_number" : "MSFT-C1-CH1-D1"
+                        },
+                        "fru_id" : "00000000-0000-0000-0000-000000000008",
+                        "fru_text" : "DIMM D2"
                      }
                   ]
                }
-            ]
+            ],
+            "memory_organization" : {
+               "version" : 1,
+               "address_translation" : "contoso-simple-v1",
+               "dimm_size_gib" : 64
+            },
+            "socket" : 0
          }
       }
    ]

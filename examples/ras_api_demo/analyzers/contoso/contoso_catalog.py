@@ -37,8 +37,8 @@ CONTOSO_CREATOR_ID = "11111111-2222-3333-4444-555555555555"
 # Contoso CPER section format version emitted by this tool. The decoder also
 # accepts 1.4 records created before spd_temperature was added.
 CONTOSO_SECTION_MAJOR = 1
-CONTOSO_SECTION_MINOR = 5
-SUPPORTED_SECTION_VERSIONS = frozenset({(1, 4), (1, 5)})
+CONTOSO_SECTION_MINOR = 6
+SUPPORTED_SECTION_VERSIONS = frozenset({(1, 4), (1, 5), (1, 6)})
 
 # The RAS API "Inject Error" action (Action Id 0x06).
 INJECT_ACTION = {"code": "0x0006", "name": "Inject Error"}
@@ -171,6 +171,7 @@ SECTION_TYPES = {
                     ("dram_manufacturer_id", ("bytes", 2)),
                     ("spd_temperature", "b"),
                     ("total_memory_bytes", "Q"),
+                    ("memory_organization", ("memory_organization",)),
                     ("memory_repair_capabilities", "B"),
                     ("reserved", "H"),
                     ("repairs", ("repairs",)),

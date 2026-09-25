@@ -33,6 +33,13 @@ import contoso_catalog as catalog
 import injection_spec as spec_model
 import contoso_encoder as encoder
 import cpad_builder as builder
+from memory_address_translation import (
+    MemoryAddressConfiguration,
+    MemoryChannelAddress,
+    MemoryOrganization,
+    memory_address_to_physical_address,
+    physical_address_to_memory_address,
+)
 
 # value → name reverse map for the Error Status Register severity field.
 _SEVERITY_NAMES = {v: k for k, v in catalog.SEVERITY_VALUES.items()}
@@ -296,6 +303,91 @@ def cmd_decode(args):
     return 0
 
 
+def _address_configuration(args):
+    if args.endpoint_config:
+        data = json.loads(Path(args.endpoint_config).read_text())
+        endpoints = data.get("ras_endpoints", [])
+        endpoint = next(
+            (
+                item for item in endpoints
+                if args.partition_id is None
+                or item.get("partition_id") == args.partition_id
+            ),
+            None,
+        )
+        if endpoint is None or not isinstance(endpoint.get("memory"), dict):
+            raise ValueError(
+                "endpoint configuration does not contain matching memory")
+        memory = endpoint["memory"]
+        organization_data = memory["memory_organization"]
+        return MemoryAddressConfiguration(
+            organization=MemoryOrganization(**organization_data),
+            sockets=2,
+            chiplets_per_socket=2,
+            controllers_per_chiplet=1,
+            channels_per_controller=memory["channels_per_chiplet"],
+            dimms_per_channel=memory["dimms_per_channel"],
+        )
+    return MemoryAddressConfiguration(
+        organization=MemoryOrganization(
+            version=1,
+            address_translation="contoso-simple-v1",
+            dimm_size_gib=args.dimm_size_gib,
+        ),
+    )
+
+
+def cmd_address_encode(args):
+    """Print the physical address for one DDR5 hierarchy location."""
+    try:
+        configuration = _address_configuration(args)
+        location = MemoryChannelAddress(
+            socket=args.socket,
+            chiplet=args.chiplet,
+            memory_controller=args.memory_controller,
+            channel=args.channel,
+            dimm=args.dimm,
+            subchannel=args.subchannel,
+            rank=args.rank,
+            bank_group=args.bank_group,
+            bank=args.bank,
+            row=args.row,
+            column=args.column,
+            byte_in_column=args.byte_in_column,
+        )
+        physical = memory_address_to_physical_address(
+            location, configuration)
+    except (KeyError, OSError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({
+        "scheme": configuration.organization.address_translation,
+        "dimm_size_gib": configuration.organization.dimm_size_gib,
+        "physical_address": f"0x{physical:016X}",
+        "memory_address": location.__dict__,
+    }, indent=2))
+    return 0
+
+
+def cmd_address_decode(args):
+    """Print the DDR5 hierarchy location for one physical address."""
+    try:
+        configuration = _address_configuration(args)
+        physical = int(args.physical_address, 0)
+        location = physical_address_to_memory_address(
+            physical, configuration)
+    except (KeyError, OSError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({
+        "scheme": configuration.organization.address_translation,
+        "dimm_size_gib": configuration.organization.dimm_size_gib,
+        "physical_address": f"0x{physical:016X}",
+        "memory_address": location.__dict__,
+    }, indent=2))
+    return 0
+
+
 # ── CLI ─────────────────────────────────────────────────────────────────────
 
 def build_parser():
@@ -328,6 +420,28 @@ def build_parser():
     p_dec = sub.add_parser("decode", help="Reconstruct the spec from a .cpad.")
     p_dec.add_argument("--cpad", required=True, help="Path to a .cpad file.")
 
+    def add_configuration_arguments(command):
+        command.add_argument(
+            "--dimm-size-gib", type=int, choices=(32, 64, 128), default=64)
+        command.add_argument("--endpoint-config")
+        command.add_argument("--partition-id")
+
+    p_address_encode = sub.add_parser(
+        "address-encode", help="Translate DDR5 hierarchy to physical address.")
+    add_configuration_arguments(p_address_encode)
+    for name in (
+            "socket", "chiplet", "memory-controller", "channel", "dimm",
+            "subchannel", "rank", "bank-group", "bank", "row", "column"):
+        p_address_encode.add_argument(
+            f"--{name}", type=lambda value: int(value, 0), required=True)
+    p_address_encode.add_argument(
+        "--byte-in-column", type=lambda value: int(value, 0), default=0)
+
+    p_address_decode = sub.add_parser(
+        "address-decode", help="Translate physical address to DDR5 hierarchy.")
+    add_configuration_arguments(p_address_decode)
+    p_address_decode.add_argument("--physical-address", required=True)
+
     return parser
 
 
@@ -338,6 +452,8 @@ def main(argv=None):
         "template": cmd_template,
         "inject": cmd_inject,
         "decode": cmd_decode,
+        "address-encode": cmd_address_encode,
+        "address-decode": cmd_address_decode,
     }[args.command](args)
 
 

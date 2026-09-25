@@ -32,6 +32,7 @@ from .memory_config import (
     MemoryRepairState,
     RASEndpointConfiguration,
 )
+from .memory_address_translation import ContosoMemoryAddressTranslator
 
 
 CONTOSO_CREATOR_ID = "11111111-2222-3333-4444-555555555555"
@@ -145,9 +146,49 @@ class ContosoActionProvider:
             return self._perform_or_schedule_ppr(
                 manager_id, cpad_data, metadata, endpoint, parameters)
         if action_id == PAGE_OFFLINE_ACTION_ID:
+            if not isinstance(endpoint, EndpointConfig) or endpoint.memory is None:
+                return ActionResult(
+                    status=ACTION_FAILED,
+                    return_code=0x01,
+                    reason="Page Offline requires configured memory inventory",
+                )
+            try:
+                self._validate_page_offline_fru(
+                    parameters, metadata, endpoint)
+            except ValueError as exc:
+                return ActionResult(
+                    status=ACTION_FAILED,
+                    return_code=0x01,
+                    reason=str(exc),
+                )
             return self._perform_page_offline(parameters)
         return self._schedule_retraining(
             manager_id, cpad_data, metadata, parameters)
+
+    @staticmethod
+    def _validate_page_offline_fru(
+            parameters: Dict[str, Any],
+            metadata: Dict[str, Any],
+            endpoint: EndpointConfig) -> None:
+        translator = ContosoMemoryAddressTranslator(
+            endpoint.memory.address_configuration,
+            endpoint.memory,
+        )
+        expected = (
+            str(metadata.get("fru_id", "")).lower(),
+            str(metadata.get("fru_text", "")).strip(),
+        )
+        resolved = set()
+        for item in parameters["page_ranges"]:
+            start = item["start_address"]
+            count = item["page_count"]
+            for address in (start, start + (count - 1) * 4096):
+                fru_id, fru_text = translator.fru_for_physical_address(
+                    address)
+                resolved.add((fru_id.lower(), fru_text.strip()))
+        if resolved != {expected}:
+            raise ValueError(
+                "Page Offline pages must resolve to the section descriptor FRU")
 
     def perform_sppr(
             self, cpad_data: Dict[str, Any],

@@ -895,8 +895,12 @@ def test_legacy_demo_injection_spec_without_temperature_uses_configured_default(
     cpad["sections"][0]["Unknown"]["data"] = base64.b64encode(
         injected_body).decode("ascii")
     metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+    endpoint = handler.endpoint_configuration.endpoint_by_partition(
+        PARTITION_ID)
 
-    cper = handler._convert_cpad_to_cper(cpad, metadata)
+    result = handler._contoso_action_provider().execute(
+        "System", "0x0006", cpad, metadata, endpoint)
+    cper = result.generated_cpers[0].cper_data
     body = base64.b64decode(
         cper["sections"][0]["Unknown"]["data"], validate=True)
     decoded = encoder.unpack_section_body(

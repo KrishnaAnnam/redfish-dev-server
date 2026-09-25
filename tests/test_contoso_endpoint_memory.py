@@ -55,6 +55,10 @@ from src.plugins.loader import PluginLoader  # noqa: E402
 
 
 CONFIG_PATH = ROOT / "mockups" / "ras_gen1" / "ras_endpoint_config.json"
+DEMO_INJECTION_SPEC_PATH = (
+    ROOT / "examples" / "ras_api_demo" / "cpad_storage" /
+    "contosoMemErrorSpoof.inject.json"
+)
 PARTITION_ID = "22222222-3333-4444-5555-666666666666"
 
 
@@ -870,6 +874,29 @@ def test_unspecified_injection_temperature_uses_configured_default():
     result = handler._contoso_action_provider().execute(
         "System", "0x0006", cpad, metadata, endpoint)
     cper = result.generated_cpers[0].cper_data
+    body = base64.b64decode(
+        cper["sections"][0]["Unknown"]["data"], validate=True)
+    decoded = encoder.unpack_section_body(
+        "Memory Controller - First Generation", body)
+
+    assert decoded["additional"]["spd_temperature"] == 40
+
+
+def test_legacy_demo_injection_spec_without_temperature_uses_configured_default():
+    with DEMO_INJECTION_SPEC_PATH.open(encoding="utf-8") as stream:
+        spec = json.load(stream)
+    del spec["section"]["additional"]["spd_temperature"]
+    fields = spec_model.to_encoder_fields(spec)
+    injected_body = encoder.pack_section_body(
+        spec["error"]["sectionType"], spec["error"]["errorBank"], fields)
+
+    handler, cpad = _submission_handler("0x0006")
+    handler.log_service_handler = None
+    cpad["sections"][0]["Unknown"]["data"] = base64.b64encode(
+        injected_body).decode("ascii")
+    metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+
+    cper = handler._convert_cpad_to_cper(cpad, metadata)
     body = base64.b64decode(
         cper["sections"][0]["Unknown"]["data"], validate=True)
     decoded = encoder.unpack_section_body(

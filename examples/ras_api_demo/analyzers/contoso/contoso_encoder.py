@@ -176,7 +176,12 @@ def pack_additional(fields, values):
                     int(entry["bank"]), int(entry["count"]),
                 )
         else:
-            value = values.get(name, 0)
+            default = (
+                SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT
+                if name == "spd_temperature"
+                else 0
+            )
+            value = values.get(name, default)
             if name == "spd_temperature" and value is None:
                 value = SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT
             value = int(value)

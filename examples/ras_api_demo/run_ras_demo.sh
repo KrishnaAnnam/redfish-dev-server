@@ -9,6 +9,28 @@ SESSION_NAME="ras-demo"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
+wait_for_port() {
+    local host="$1"
+    local port="$2"
+    local timeout="$3"
+    python3 - "$host" "$port" "$timeout" <<'PY'
+import socket
+import sys
+import time
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+deadline = time.monotonic() + float(sys.argv[3])
+while time.monotonic() < deadline:
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            raise SystemExit(0)
+    except OSError:
+        time.sleep(0.25)
+raise SystemExit(1)
+PY
+}
+
 # Check if tmux is installed
 if ! command -v tmux &> /dev/null; then
     echo "❌ tmux is not installed. Please install it first:"
@@ -71,7 +93,6 @@ tmux send-keys -t $SESSION_NAME:0.0 "python3 -B servers/redfishMockupServer_plat
 
 # Pane 1 (bottom-left): SDK Event Listener
 tmux send-keys -t $SESSION_NAME:0.1 "cd $PROJECT_DIR" C-m
-tmux send-keys -t $SESSION_NAME:0.1 "sleep 3" C-m
 tmux send-keys -t $SESSION_NAME:0.1 "clear" C-m
 tmux send-keys -t $SESSION_NAME:0.1 "echo '═══════════════════════════════════════════'" C-m
 tmux send-keys -t $SESSION_NAME:0.1 "echo '🔔 SDK EVENT LISTENER (Port 8888)'" C-m
@@ -92,7 +113,11 @@ tmux send-keys -t $SESSION_NAME:0.2 "echo ''" C-m
 tmux send-keys -t $SESSION_NAME:0.2 "echo 'Press UP arrow and ENTER when ready...'" C-m
 # Run the demo, then pre-type (without Enter) the cleanup command so the user
 # can tear down the tmux session by simply pressing Enter when finished.
-tmux send-keys -t $SESSION_NAME:0.2 "python3 examples/ras_api_demo/reset_server.py --clean-temp && python3 examples/ras_api_demo/init_error_pipeline.py && python3 examples/ras_api_demo/ras_api_plugin_demo.py; tmux send-keys -t $SESSION_NAME:0.2 '$SCRIPT_DIR/cleanup_ras_demo.sh'" C-m
+if wait_for_port localhost 8889 15; then
+    tmux send-keys -t $SESSION_NAME:0.2 "python3 examples/ras_api_demo/reset_server.py --clean-temp && python3 examples/ras_api_demo/init_error_pipeline.py && python3 examples/ras_api_demo/ras_api_plugin_demo.py; tmux send-keys -t $SESSION_NAME:0.2 '$SCRIPT_DIR/cleanup_ras_demo.sh'" C-m
+else
+    tmux send-keys -t $SESSION_NAME:0.2 "echo '❌ Event listener control port 8889 did not become ready within 15 seconds. Demo not started.'" C-m
+fi
 
 # Select the demo pane
 tmux select-pane -t $SESSION_NAME:0.2

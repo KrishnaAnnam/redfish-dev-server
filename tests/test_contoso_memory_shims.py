@@ -23,6 +23,7 @@ import contoso_action_parameters as action_parameters  # noqa: E402
 import contoso_catalog as catalog  # noqa: E402
 import contoso_encoder as encoder  # noqa: E402
 import injection_spec as spec_model  # noqa: E402
+import analysis_orchestrator as orchestrator_module  # noqa: E402
 from memory_events import decode_memory_events  # noqa: E402
 from memory_controller_analyzer import MemoryControllerAnalyzer  # noqa: E402
 from memory_shims.contract import (  # noqa: E402
@@ -1219,6 +1220,71 @@ def test_orchestrator_sends_binary_cpad_to_policy_and_honors_denial():
         assert len(rejections) == 1
         assert rejections[0][0] == binary
         assert isinstance(rejections[0][1], DeniedDecision)
+
+
+def test_orchestrator_retries_listener_connection():
+    orchestrator = AnalysisOrchestrator.__new__(AnalysisOrchestrator)
+    orchestrator.listener_host = "localhost"
+    orchestrator.listener_port = 8889
+    orchestrator._listener_sock = None
+    attempts = []
+
+    class FakeSocket:
+        def settimeout(self, value):
+            assert value is None
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+    original_create_connection = (
+        orchestrator_module.socket.create_connection)
+    original_thread = orchestrator_module.threading.Thread
+
+    def create_connection(address, timeout):
+        attempts.append((address, timeout))
+        if len(attempts) < 3:
+            raise ConnectionRefusedError("listener is starting")
+        return FakeSocket()
+
+    orchestrator_module.socket.create_connection = create_connection
+    orchestrator_module.threading.Thread = FakeThread
+    try:
+        connected = orchestrator.connect_listener(
+            timeout=0.1, retry_interval=0.001)
+    finally:
+        orchestrator_module.socket.create_connection = (
+            original_create_connection)
+        orchestrator_module.threading.Thread = original_thread
+
+    assert connected is True
+    assert len(attempts) == 3
+    assert orchestrator._listener_sock is not None
+
+
+def test_add_host_fails_when_monitoring_cannot_be_established():
+    monitored = orchestrator_module.MonitoredHost(
+        name="host",
+        base_url="http://localhost:8000",
+        host="localhost",
+        port=8000,
+        manager_id="System",
+        platform_id=PLATFORM_ID,
+        endpoints=[],
+    )
+    orchestrator = AnalysisOrchestrator.__new__(AnalysisOrchestrator)
+    orchestrator.hosts = {}
+    orchestrator.submitter = None
+    orchestrator.discover_host = lambda *args, **kwargs: monitored
+    orchestrator._subscribe_host_events = lambda _host: False
+
+    added = orchestrator.add_host("host", "localhost", 8000)
+
+    assert added is False
+    assert orchestrator.hosts == {}
 
 
 if __name__ == "__main__":

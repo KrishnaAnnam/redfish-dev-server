@@ -2,6 +2,8 @@
 """Focused tests for simulated platform memory configuration and repair state."""
 
 import sys
+import copy
+import json
 from itertools import product
 from pathlib import Path
 
@@ -16,6 +18,31 @@ from src.plugins.ras.memory_config import (
 
 
 CONFIG_PATH = ROOT / "mockups" / "ras_gen1" / "ras_endpoint_config.json"
+
+
+def _organization(size=64):
+    return {
+        "version": 1,
+        "address_translation": "contoso-simple-v1",
+        "dimm_size_gib": size,
+    }
+
+
+def _dimm(**overrides):
+    dimm = {
+        "channel": 0,
+        "dimm": 0,
+        "fru_id": "00000000-0000-0000-0000-000000000001",
+        "fru_text": "DIMM A1",
+        "spd": {
+            "serial_number": "SERIAL",
+            "part_number": "PART",
+            "module_manufacturer_id": [4, 213],
+            "dram_manufacturer_id": [4, 213],
+        },
+    }
+    dimm.update(overrides)
+    return dimm
 
 
 def _address(**overrides):
@@ -45,6 +72,8 @@ def test_loads_fully_populated_two_chiplet_inventory():
     assert config.get_dimm(1, 0, 1, 1).serial_number == "MSFT-C1-CH1-D1"
     assert config.get_dimm(0, 0, 0, 0).spd_temperature == 40
     assert config.get_dimm(1, 0, 1, 1).spd_temperature == 40
+    assert config.get_dimm(0, 0, 0, 0).fru_text == "DIMM A2"
+    assert config.organization.dimm_size_gib == 64
     assert len(config._dimms) == 8
     assert config.total_memory_bytes == 512 * 1024 ** 3
     assert endpoint.memory_repair_capabilities.bitfield == 0b111
@@ -53,20 +82,11 @@ def test_loads_fully_populated_two_chiplet_inventory():
 def test_defaults_topology_and_repair_limit():
     config = PlatformMemoryConfig.from_dict({
         "platform_id": "platform",
+        "memory_organization": _organization(),
         "memory_controllers": [{
             "chiplet": 0,
             "controller": 0,
-            "dimms": [{
-                "channel": 0,
-                "dimm": 0,
-                "size_bytes": 1,
-                "spd": {
-                    "serial_number": "SERIAL",
-                    "part_number": "PART",
-                    "module_manufacturer_id": [4, 213],
-                    "dram_manufacturer_id": [4, 213],
-                },
-            }],
+            "dimms": [_dimm()],
         }],
     })
 
@@ -79,21 +99,14 @@ def test_defaults_topology_and_repair_limit():
 def test_spd_temperature_must_not_use_injection_sentinel():
     data = {
         "platform_id": "platform",
+        "memory_organization": _organization(),
         "memory_controllers": [{
             "chiplet": 0,
             "controller": 0,
-            "dimms": [{
-                "channel": 0,
-                "dimm": 0,
-                "size_bytes": 1,
-                "spd": {
-                    "serial_number": "SERIAL",
-                    "part_number": "PART",
-                    "module_manufacturer_id": [4, 213],
-                    "dram_manufacturer_id": [4, 213],
-                    "spd_temperature": 128,
-                },
-            }],
+            "dimms": [_dimm(spd={
+                **_dimm()["spd"],
+                "spd_temperature": 128,
+            })],
         }],
     }
 
@@ -136,21 +149,11 @@ def test_sparse_counts_are_scoped_to_bank_and_dimm():
 def test_per_dimm_limit_rejects_without_incrementing():
     data = {
         "platform_id": "platform",
+        "memory_organization": _organization(),
         "memory_controllers": [{
             "chiplet": 0,
             "controller": 0,
-            "dimms": [{
-                "channel": 0,
-                "dimm": 0,
-                "size_bytes": 1,
-                "max_repairs_per_bank": 1,
-                "spd": {
-                    "serial_number": "SERIAL",
-                    "part_number": "PART",
-                    "module_manufacturer_id": [4, 213],
-                    "dram_manufacturer_id": [4, 213],
-                },
-            }],
+            "dimms": [_dimm(max_repairs_per_bank=1)],
         }],
     }
     state = MemoryRepairState(PlatformMemoryConfig.from_dict(data))
@@ -168,6 +171,7 @@ def test_per_dimm_limit_rejects_without_incrementing():
 def test_rejects_invalid_topology_and_limit():
     data = {
         "platform_id": "platform",
+        "memory_organization": _organization(),
         "channels_per_chiplet": 2,
         "dimms_per_channel": 2,
         "memory_controllers": [{
@@ -176,7 +180,8 @@ def test_rejects_invalid_topology_and_limit():
             "dimms": [{
                 "channel": 2,
                 "dimm": 0,
-                "size_bytes": 1,
+                "fru_id": "00000000-0000-0000-0000-000000000001",
+                "fru_text": "DIMM A1",
                 "max_repairs_per_bank": 256,
                 "spd": {},
             }],
@@ -240,35 +245,47 @@ def test_rejects_256th_sparse_bank_entry_without_mutation():
     assert len(state.entries_for_dimm(0, 0, 0, 0)) == 255
 
 
-def test_rejects_total_memory_larger_than_uint64():
-    dimm = {
-        "channel": 0,
-        "dimm": 0,
-        "size_bytes": (1 << 64) - 1,
-        "spd": {
-            "serial_number": "SERIAL0",
-            "part_number": "PART",
-            "module_manufacturer_id": [4, 213],
-            "dram_manufacturer_id": [4, 213],
-        },
-    }
-    second = dict(dimm, dimm=1, size_bytes=1)
-    second["spd"] = dict(dimm["spd"], serial_number="SERIAL1")
+def test_rejects_per_dimm_size_and_unsupported_uniform_size():
     data = {
         "platform_id": "platform",
+        "memory_organization": _organization(),
         "memory_controllers": [{
             "chiplet": 0,
             "controller": 0,
-            "dimms": [dimm, second],
+            "dimms": [_dimm(size_bytes=64 * 1024 ** 3)],
         }],
     }
-
     try:
         PlatformMemoryConfig.from_dict(data)
     except ValueError as exc:
-        assert "total endpoint memory exceeds uint64" in str(exc)
+        assert "size_bytes is not supported" in str(exc)
     else:
-        raise AssertionError("expected total memory overflow failure")
+        raise AssertionError("per-DIMM size was accepted")
+
+    data["memory_controllers"][0]["dimms"][0].pop("size_bytes")
+    data["memory_organization"]["dimm_size_gib"] = 48
+    try:
+        PlatformMemoryConfig.from_dict(data)
+    except ValueError as exc:
+        assert "32, 64, or 128" in str(exc)
+    else:
+        raise AssertionError("unsupported uniform DIMM size was accepted")
+
+
+def test_accepts_every_supported_uniform_dimm_size():
+    for size in (32, 64, 128):
+        config = PlatformMemoryConfig.from_dict({
+            "platform_id": "platform",
+            "memory_organization": _organization(size),
+            "memory_controllers": [{
+                "chiplet": 0,
+                "controller": 0,
+                "dimms": [_dimm()],
+            }],
+        })
+
+        assert config.organization.dimm_size_gib == size
+        assert config.total_memory_bytes == size * 1024 ** 3
 
 
 def test_endpoint_capabilities_default_false_and_require_booleans():
@@ -295,6 +312,7 @@ def test_endpoint_ids_and_partitions_must_be_unique():
         "fru_text": "FRU",
         "supported_queues": [],
         "memory": {
+            "memory_organization": _organization(),
             "memory_controllers": [{
                 "chiplet": 0,
                 "controller": 0,
@@ -344,6 +362,23 @@ def test_non_contoso_endpoint_can_omit_memory_configuration():
     assert endpoint.provider_config == {"action_mode": "demo"}
     assert endpoint.memory is None
     assert endpoint.memory_repair_capabilities.bitfield == 0
+
+
+def test_platform_rejects_mixed_dimm_sizes_across_endpoints():
+    with CONFIG_PATH.open(encoding="utf-8") as stream:
+        data = json.load(stream)
+    second = copy.deepcopy(data["ras_endpoints"][0])
+    second["id"] = "Endpoint-2"
+    second["partition_id"] = "partition-2"
+    second["memory"]["memory_organization"]["dimm_size_gib"] = 32
+    data["ras_endpoints"].append(second)
+
+    try:
+        RASEndpointConfiguration.from_dict(data)
+    except ValueError as exc:
+        assert "must use the same memory_organization" in str(exc)
+    else:
+        raise AssertionError("mixed platform DIMM sizes were accepted")
 
 
 if __name__ == "__main__":

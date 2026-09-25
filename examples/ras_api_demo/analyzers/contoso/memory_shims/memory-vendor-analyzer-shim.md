@@ -110,6 +110,11 @@ def analyze_memory_events(events: list[dict]) -> list[dict]:
 
 Inputs are deep-copied before invocation.
 
+Memory-error inputs include `memory_organization` and `address_translation`.
+Shim adapters may also import the stable
+`physical_address_to_memory_address()` and
+`memory_address_to_physical_address()` functions from `memory_shims`.
+
 API version 5 returns CPAD proposals containing one or more section requests.
 The Contoso analyzer still owns the binary envelope and section encoding.
 Shims declaring an older API version are rejected explicitly.

@@ -15,7 +15,21 @@ an edited spec, and resolves a spec into the low-level values the encoder needs.
 """
 
 import json
+import copy
 import uuid
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.plugins.ras.memory_address_translation import (  # noqa: E402
+    MemoryAddressConfiguration,
+    MemoryChannelAddress,
+    MemoryOrganization,
+    memory_address_to_physical_address,
+    physical_address_to_memory_address,
+)
 
 from contoso_catalog import (
     SECTION_TYPES,
@@ -153,6 +167,12 @@ def _default_additional(fields):
             out[name] = [0] * length
         elif isinstance(code, tuple) and code[0] == "repairs":
             out[name] = []
+        elif isinstance(code, tuple) and code[0] == "memory_organization":
+            out[name] = {
+                "version": 1,
+                "address_translation": "contoso-simple-v1",
+                "dimm_size_gib": 64,
+            }
         elif isinstance(code, tuple) and code[0] == "string":
             out[name] = ""
         elif isinstance(code, tuple) and code[0] == "bytes":
@@ -172,6 +192,9 @@ def build_template(section_name, error_name):
     fru_text = "CPU Core 3" if section["category"] == "core" else "DIMM A1"
 
     section_block = {
+        "addressSource": "memory",
+        "socket": 0,
+        "byteInColumn": 0,
         "subcomponent": {name: 0 for name, _ in section["subcomponent"]},
         "errorStatus": {"addressValid": True, "overflow": False},
         "errorAddress": "0x0",
@@ -207,6 +230,77 @@ def build_template(section_name, error_name):
     }
 
 
+def _memory_address_configuration(spec):
+    organization = spec["section"]["additional"].get("memory_organization")
+    if not isinstance(organization, dict):
+        raise ValueError(
+            "section.additional.memory_organization must be an object")
+    return MemoryAddressConfiguration(MemoryOrganization(
+        version=as_int(organization.get("version")),
+        address_translation=organization.get("address_translation"),
+        dimm_size_gib=as_int(organization.get("dimm_size_gib")),
+    ))
+
+
+def synchronize_memory_address(spec):
+    """Reconcile physical and hierarchy addresses for a DRAM error spec."""
+    error = spec.get("error", {})
+    if (error.get("sectionType") != "Memory Controller - First Generation"
+            or error.get("errorBank") != "DRAM Errors"):
+        return spec
+    section = spec["section"]
+    source = section.get("addressSource", "memory")
+    if source not in {"memory", "physical", "both"}:
+        raise ValueError(
+            "section.addressSource must be memory, physical, or both")
+    configuration = _memory_address_configuration(spec)
+    subcomponent = section["subcomponent"]
+    additional = section["additional"]
+    hierarchy = MemoryChannelAddress(
+        socket=as_int(section.get("socket", 0)),
+        chiplet=as_int(subcomponent.get("chiplet", 0)),
+        memory_controller=as_int(subcomponent.get("controller", 0)),
+        channel=as_int(additional.get("channel", 0)),
+        dimm=as_int(additional.get("dimm", 0)),
+        subchannel=as_int(additional.get("subchannel", 0)),
+        rank=as_int(additional.get("rank", 0)),
+        bank_group=as_int(additional.get("bank_group", 0)),
+        bank=as_int(additional.get("bank", 0)),
+        row=as_int(additional.get("row", 0)),
+        column=as_int(additional.get("column", 0)),
+        byte_in_column=as_int(section.get("byteInColumn", 0)),
+    )
+    physical = as_int(section.get("errorAddress", 0))
+    if source in {"memory", "both"}:
+        encoded = memory_address_to_physical_address(
+            hierarchy, configuration)
+        if source == "both" and physical != encoded:
+            raise ValueError(
+                f"physical address {physical:#x} does not match hierarchy "
+                f"address {encoded:#x}")
+        section["errorAddress"] = hex(encoded)
+    else:
+        decoded = physical_address_to_memory_address(
+            physical, configuration)
+        section["socket"] = decoded.socket
+        section["byteInColumn"] = decoded.byte_in_column
+        subcomponent.update({
+            "chiplet": decoded.chiplet,
+            "controller": decoded.memory_controller,
+        })
+        additional.update({
+            "channel": decoded.channel,
+            "dimm": decoded.dimm,
+            "subchannel": decoded.subchannel,
+            "rank": decoded.rank,
+            "bank_group": decoded.bank_group,
+            "bank": decoded.bank,
+            "row": decoded.row,
+            "column": decoded.column,
+        })
+    return spec
+
+
 # ── Load / validate ─────────────────────────────────────────────────────────
 
 def load_spec(path):
@@ -229,6 +323,10 @@ def validate_spec(spec):
         return problems
 
     error = spec["error"]
+    try:
+        synchronize_memory_address(copy.deepcopy(spec))
+    except (KeyError, ValueError, TypeError) as exc:
+        problems.append(str(exc))
     cpad = spec["cpad"]
     fru_id = cpad.get("fruID")
     fru_text = cpad.get("fruText")
@@ -398,6 +496,7 @@ def validate_spec(spec):
 def to_encoder_fields(spec):
     """Resolve a validated spec into the low-level ``fields`` dict the encoder
     needs, plus the resolved errorID/severity."""
+    synchronize_memory_address(spec)
     error = spec["error"]
     section = spec["section"]
 
@@ -438,6 +537,8 @@ def to_encoder_fields(spec):
             ]
         elif isinstance(code, tuple) and code[0] == "vector":
             additional[name] = [as_int(cell) for cell in value]
+        elif isinstance(code, tuple) and code[0] == "memory_organization":
+            additional[name] = value
         elif isinstance(value, list):
             additional[name] = [[as_int(c) for c in row] for row in value]
         elif name == "spd_temperature" and value is None:

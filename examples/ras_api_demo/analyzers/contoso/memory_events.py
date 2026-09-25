@@ -14,6 +14,13 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import contoso_catalog
 import contoso_encoder
+from memory_address_translation import (
+    MemoryAddressConfiguration,
+    MemoryOrganization,
+    physical_address_to_memory_address,
+    physical_cacheline_base,
+    physical_page_base,
+)
 
 
 CONTOSO_MEMORY_SECTION = "Memory Controller - First Generation"
@@ -93,6 +100,7 @@ def _decode_memory_error(record: Dict[str, Any], window_index: int,
     additional = copy.deepcopy(decoded["additional"])
     manufacturer_id = additional.get("dram_manufacturer_id")
     fru = _fru(descriptor)
+    translation = _address_translation(decoded, additional)
     return {
         "cper_file": str(record.get("cper_file", "")),
         "section_index": section_index,
@@ -106,6 +114,9 @@ def _decode_memory_error(record: Dict[str, Any], window_index: int,
         "fru": fru,
         "dram_manufacturer_id": copy.deepcopy(manufacturer_id),
         "spd_temperature": additional.get("spd_temperature"),
+        "memory_organization": copy.deepcopy(
+            additional.get("memory_organization")),
+        "address_translation": translation,
         "memory_error": {
             "bank": decoded["bank_name"],
             "id": error_id,
@@ -118,6 +129,50 @@ def _decode_memory_error(record: Dict[str, Any], window_index: int,
             "additional": additional,
         },
     }
+
+
+def _address_translation(
+        decoded: Dict[str, Any],
+        additional: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    organization_data = additional.get("memory_organization")
+    if (not isinstance(organization_data, dict)
+            or not decoded.get("error_status", {}).get("addressValid")):
+        return None
+    try:
+        configuration = MemoryAddressConfiguration(MemoryOrganization(
+            version=organization_data["version"],
+            address_translation=organization_data["address_translation"],
+            dimm_size_gib=organization_data["dimm_size_gib"],
+        ))
+        physical_address = decoded["error_address"]
+        location = physical_address_to_memory_address(
+            physical_address, configuration)
+        expected = {
+            "chiplet": decoded["subcomponent"].get("chiplet"),
+            "memory_controller": decoded["subcomponent"].get("controller"),
+            "channel": additional.get("channel"),
+            "dimm": additional.get("dimm"),
+            "subchannel": additional.get("subchannel"),
+            "rank": additional.get("rank"),
+            "bank_group": additional.get("bank_group"),
+            "bank": additional.get("bank"),
+            "row": additional.get("row"),
+            "column": additional.get("column"),
+        }
+        coordinates_match = all(
+            getattr(location, name) == value
+            for name, value in expected.items()
+        )
+        return {
+            "scheme": organization_data["address_translation"],
+            "physical_address": physical_address,
+            "cacheline_base": physical_cacheline_base(physical_address),
+            "page_base": physical_page_base(physical_address),
+            "memory_address": location.__dict__.copy(),
+            "coordinates_match_cper": coordinates_match,
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _matching_memory_errors(action_fru: Dict[str, str],

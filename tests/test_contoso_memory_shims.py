@@ -23,6 +23,12 @@ import contoso_action_parameters as action_parameters  # noqa: E402
 import contoso_catalog as catalog  # noqa: E402
 import contoso_encoder as encoder  # noqa: E402
 import injection_spec as spec_model  # noqa: E402
+from memory_address_translation import (  # noqa: E402
+    MemoryAddressConfiguration,
+    MemoryChannelAddress,
+    MemoryOrganization,
+    memory_address_to_physical_address,
+)
 import analysis_orchestrator as orchestrator_module  # noqa: E402
 from memory_events import decode_memory_events  # noqa: E402
 from memory_controller_analyzer import MemoryControllerAnalyzer  # noqa: E402
@@ -69,6 +75,28 @@ def _memory_cper(vendor=MICRON, record_id=1, fru_id=FRU_ID,
         "serial_number": "SERIAL",
         "part_number": "PART",
     })
+    configuration = MemoryAddressConfiguration(MemoryOrganization(
+        version=1,
+        address_translation="contoso-simple-v1",
+        dimm_size_gib=64,
+    ))
+    spec["section"]["errorAddress"] = hex(
+        memory_address_to_physical_address(
+            MemoryChannelAddress(
+                socket=0,
+                chiplet=0,
+                memory_controller=0,
+                channel=0,
+                dimm=1,
+                subchannel=0,
+                rank=0,
+                bank_group=2,
+                bank=3,
+                row=1234,
+                column=column,
+            ),
+            configuration,
+        ))
     body = encoder.pack_section_body(
         "Memory Controller - First Generation", "DRAM Errors",
         spec_model.to_encoder_fields(spec))
@@ -226,7 +254,7 @@ def _action_request_for_event(
             parameters = {
                 "page_ranges": [{
                     "start_address":
-                        event["memory_error"]["error_address"],
+                        event["memory_error"]["error_address"] & ~0xFFF,
                     "page_count": 1,
                 }],
             }
@@ -340,10 +368,31 @@ def test_decodes_complete_memory_error():
     assert event["fru_id"] == FRU_ID
     assert event["fru_text"] == FRU_TEXT
     assert event["dram_manufacturer_id"] == MICRON
+    assert event["memory_organization"] == {
+        "version": 1,
+        "address_translation": "contoso-simple-v1",
+        "dimm_size_gib": 64,
+    }
+    assert event["address_translation"]["coordinates_match_cper"] is True
+    assert event["address_translation"]["memory_address"]["dimm"] == 1
+    assert event["address_translation"]["memory_address"]["column"] == 567
     assert event["memory_error"]["bank"] == "DRAM Errors"
     assert event["memory_error"]["name"] == "Corrected Memory ECC Error"
     assert event["memory_error"]["subcomponent"] == {
         "chiplet": 0, "controller": 0}
+
+
+def test_memory_event_reports_mismatched_translated_coordinates():
+    cper = _memory_cper()
+    body = bytearray(base64.b64decode(
+        cper["sections"][0]["Unknown"]["data"]))
+    body[16:24] = (0).to_bytes(8, "little")
+    cper["sections"][0]["Unknown"]["data"] = base64.b64encode(
+        body).decode("ascii")
+
+    event = decode_memory_events(_records(cper))[0]
+
+    assert event["address_translation"]["coordinates_match_cper"] is False
     additional = event["memory_error"]["additional"]
     assert additional["serial_number"] == "SERIAL"
     assert event["spd_temperature"] is None
@@ -851,12 +900,14 @@ def test_action_body_is_independent_of_source_cper_context():
 
 def test_large_page_offline_request_builds_multiple_correlated_cpads():
     analyzer = ContosoAnalyzer()
-    pages = [{
-        "start_address": 0x10000000 + index * 0x100000,
-        "page_count": 1,
-    } for index in range(10_000)]
+    pages = []
 
     def offline_pages(events):
+        base = events[0]["memory_error"]["error_address"] & ~0xFFF
+        pages.extend({
+            "start_address": base + index * 0x100000,
+            "page_count": 1,
+        } for index in range(10_000))
         return [_proposal(_action_request_for_event(
             events[0],
             action_id=action_parameters.PAGE_OFFLINE_ACTION_ID,
@@ -970,7 +1021,7 @@ def test_page_offline_rejects_overlapping_ranges_for_different_frus():
         analyzer._build_shim_proposal_cpads(
             _proposal(first, second), events)
     except ShimContractError as exc:
-        assert "different FRUs overlap" in str(exc)
+        assert "referenced memory-error FRU" in str(exc)
     else:
         raise AssertionError("overlapping cross-FRU pages were accepted")
 

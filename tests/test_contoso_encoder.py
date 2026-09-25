@@ -70,7 +70,7 @@ def test_additional_block_sizes():
     dram = catalog.SECTION_TYPES["Memory Controller - First Generation"]["banks"][0]
     other = catalog.SECTION_TYPES["Memory Controller - First Generation"]["banks"][1]
     assert encoder.additional_block_size(core["additional"]) == 40
-    assert encoder.additional_block_size(dram["additional"]) == 82
+    assert encoder.additional_block_size(dram["additional"]) == 86
     assert encoder.additional_block_size(other["additional"]) == 8
 
 
@@ -87,8 +87,8 @@ def test_full_body_sizes():
                                   "Corrected Memory ECC Error"))
     mem_body = encoder.pack_section_body(
         "Memory Controller - First Generation", "DRAM Errors", mem_fields)
-    # header(8) + 2 banks(80) + additional(82 + 8)
-    assert len(mem_body) == 178
+    # header(8) + 2 banks(80) + additional(86 + 8)
+    assert len(mem_body) == 182
 
 
 def test_demo_memory_injection_spec_is_valid():
@@ -119,8 +119,8 @@ def test_header_layout_and_endianness():
         spec_model.build_template("CPU Core - First Generation", "Poison Consumption"))
     fields["subcomponent"] = {"chiplet": 0x0102, "core": 0x0304}
     body = encoder.pack_section_body("CPU Core - First Generation", "Core Errors", fields)
-    # major=1, minor=5, num_banks=1 (u16 LE), chiplet/core as little-endian u16.
-    assert body[0] == 1 and body[1] == 5
+    # major=1, minor=6, num_banks=1 (u16 LE), chiplet/core as little-endian u16.
+    assert body[0] == 1 and body[1] == 6
     assert body[2:4] == b"\x01\x00"          # num_banks = 1
     assert body[4:6] == b"\x02\x01"          # chiplet 0x0102 little-endian
     assert body[6:8] == b"\x04\x03"          # core    0x0304 little-endian
@@ -172,7 +172,7 @@ def test_decoder_rejects_invalid_bank_geometry():
     _assert_memory_decode_fails(body, "offsets must be increasing")
 
     body = _memory_body()
-    body[169] = 1
+    body[173] = 1
     _assert_memory_decode_fails(body, "additional registers are truncated")
 
 
@@ -205,7 +205,7 @@ def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
     assert spec["section"]["additional"]["module_manufacturer_id"] == ["0x04", "0xD5"]
     assert spec["section"]["additional"]["spd_temperature"] is None
     spec["section"]["subcomponent"] = {"chiplet": 1, "controller": 0}
-    spec["section"]["additional"]["dimm"] = 2
+    spec["section"]["additional"]["dimm"] = 1
     spec["section"]["additional"]["bank"] = 3
     spec["section"]["additional"]["row"] = 1234
     spec["section"]["additional"]["column"] = 567
@@ -226,7 +226,7 @@ def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
     # The DRAM bank carries the error; the "Other Errors" bank is zeroed out.
     assert out["bank_name"] == "DRAM Errors"
     assert out["subcomponent"] == {"chiplet": 1, "controller": 0}
-    assert out["additional"]["dimm"] == 2
+    assert out["additional"]["dimm"] == 1
     assert out["additional"]["bank"] == 3
     assert out["additional"]["row"] == 1234
     assert out["additional"]["column"] == 567
@@ -237,6 +237,11 @@ def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
     assert out["additional"]["module_manufacturer_id"] == [0x80, 0xCE]
     assert out["additional"]["spd_temperature"] == -5
     assert out["additional"]["total_memory_bytes"] == 0x8000000000
+    assert out["additional"]["memory_organization"] == {
+        "version": 1,
+        "address_translation": "contoso-simple-v1",
+        "dimm_size_gib": 64,
+    }
     assert out["additional"]["memory_repair_capabilities"] == 7
     assert out["additional"]["reserved"] == 0
     assert "syndrome" not in out["additional"]
@@ -271,7 +276,8 @@ def test_memory_string_binary_layout_and_maximum_lengths():
     assert body[155:157] == b"\x80\xAD"
     assert body[157] == 0xFB
     assert body[158:166] == b"\x00" * 8
-    assert body[166] == 0
+    assert body[166:170] == bytes([1, 1, 64, 0])
+    assert body[170] == 0
 
 
 def test_memory_sparse_repairs_roundtrip_and_layout():
@@ -289,9 +295,9 @@ def test_memory_sparse_repairs_roundtrip_and_layout():
         "Memory Controller - First Generation", "DRAM Errors", fields)
     out = encoder.unpack_section_body("Memory Controller - First Generation", body)
 
-    assert len(body) == 190
-    assert body[169] == 2
-    assert body[170:182] == bytes([0, 0, 3, 2, 3, 1,
+    assert len(body) == 194
+    assert body[173] == 2
+    assert body[174:186] == bytes([0, 0, 3, 2, 3, 1,
                                    1, 1, 7, 4, 8, 16])
     assert out["additional"]["repairs"] == repairs
 
@@ -419,6 +425,7 @@ def test_explicit_zero_spd_temperature_roundtrips_as_zero():
 def test_decoder_accepts_v14_memory_section_without_temperature():
     body = _memory_body()
     del body[157]
+    del body[165:169]
     body[1] = 4
     body[80:84] = (169).to_bytes(4, "little")
 
@@ -426,6 +433,31 @@ def test_decoder_accepts_v14_memory_section_without_temperature():
         "Memory Controller - First Generation", bytes(body))
 
     assert decoded["additional"]["spd_temperature"] is None
+    assert decoded["additional"]["memory_organization"] is None
+
+
+def test_decoder_accepts_v15_memory_section_without_organization():
+    body = _memory_body()
+    del body[166:170]
+    body[1] = 5
+    body[80:84] = (170).to_bytes(4, "little")
+
+    decoded = encoder.unpack_section_body(
+        "Memory Controller - First Generation", bytes(body))
+
+    assert decoded["additional"]["spd_temperature"] is None
+    assert decoded["additional"]["memory_organization"] is None
+
+
+def test_decoder_rejects_invalid_memory_organization():
+    for offset, value, expected in (
+            (166, 2, "version"),
+            (167, 2, "address translation scheme"),
+            (168, 48, "32, 64, or 128"),
+            (169, 1, "reserved")):
+        body = _memory_body()
+        body[offset] = value
+        _assert_memory_decode_fails(body, expected)
 
 
 # ── Catalog integrity ───────────────────────────────────────────────────────

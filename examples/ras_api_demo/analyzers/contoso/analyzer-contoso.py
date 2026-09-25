@@ -21,7 +21,7 @@ The AO interacts with this script through two command-line modes:
    Emits a single JSON object on stdout describing this analyzer:
        {
          "analyzer_name":    "Contoso CPER Analyzer",
-         "analyzer_version": "1.1.0",
+         "analyzer_version": "1.2.0",
          "creator_ids":      ["11111111-2222-3333-4444-555555555555"],
          "prior_days":       30
        }
@@ -59,7 +59,7 @@ from typing import Any, Dict, Optional, List
 
 # ── Analyzer identity (reported via --discover) ─────────────────────────────
 ANALYZER_NAME = "Contoso CPER Analyzer"
-ANALYZER_VERSION = "1.1.0"
+ANALYZER_VERSION = "1.2.0"
 CREATOR_IDS = ["11111111-2222-3333-4444-555555555555"]
 PRIOR_DAYS = 30
 
@@ -87,6 +87,12 @@ from memory_events import (       # noqa: E402
     newest_manufacturer_ids,
 )
 from memory_shims import ShimContractError  # noqa: E402
+from memory_address_translation import (  # noqa: E402
+    MemoryAddressConfiguration,
+    MemoryOrganization,
+    physical_address_to_memory_address,
+    physical_page_base,
+)
 from cpu_core_analyzer import CpuCoreAnalyzer  # noqa: E402
 from cross_subcomponent_correlator import (  # noqa: E402
     correlate_subcomponent_results,
@@ -429,6 +435,10 @@ class ContosoAnalyzer:
             source_event = self._shim_action_source(request, events)
             fru_context, body_parameters = self._resolve_action_fru(
                 request, source_event, events)
+            if (request["action_id"]
+                    == contoso_action_parameters.PAGE_OFFLINE_ACTION_ID):
+                self._validate_page_offline_source(
+                    body_parameters, source_event)
             bodies = contoso_action_parameters.encode_action_parameter_bodies(
                 request["action_id"], body_parameters)
             if len(requests) > 1 and len(bodies) != 1:
@@ -454,6 +464,43 @@ class ContosoAnalyzer:
             ]
         return [self._build_multi_action_cpad(
             target_event["header"], sections)]
+
+    @staticmethod
+    def _validate_page_offline_source(
+            parameters: Dict[str, Any],
+            source_event: Dict[str, Any]) -> None:
+        organization_data = source_event.get("memory_organization")
+        if not isinstance(organization_data, dict):
+            raise ShimContractError(
+                "Page Offline source event has no memory organization")
+        configuration = MemoryAddressConfiguration(MemoryOrganization(
+            version=organization_data["version"],
+            address_translation=organization_data["address_translation"],
+            dimm_size_gib=organization_data["dimm_size_gib"],
+        ))
+        error = source_event["memory_error"]
+        additional = error["additional"]
+        expected = (
+            error["subcomponent"]["chiplet"],
+            error["subcomponent"]["controller"],
+            additional["channel"],
+            additional["dimm"],
+        )
+        ranges = contoso_action_parameters._normalized_page_ranges(parameters)
+        for start_pfn, count in ranges:
+            for pfn in (start_pfn, start_pfn + count - 1):
+                location = physical_address_to_memory_address(
+                    pfn << 12, configuration)
+                actual = (
+                    location.chiplet,
+                    location.memory_controller,
+                    location.channel,
+                    location.dimm,
+                )
+                if actual != expected:
+                    raise ShimContractError(
+                        "Page Offline pages must map to the referenced "
+                        "memory-error FRU")
 
     @staticmethod
     def _validate_page_offline_fru_ranges(
@@ -958,6 +1005,14 @@ class ContosoAnalyzer:
         if name == 'total_memory_bytes':
             gib = value / (1024 ** 3)
             return f"{gib:g} GiB ({value} bytes)"
+        if name == 'memory_organization':
+            if not value:
+                return "not recorded"
+            return (
+                f"{value['dimm_size_gib']} GiB DIMMs, "
+                f"{value['address_translation']} "
+                f"(organization v{value['version']})"
+            )
         if name == 'memory_repair_capabilities':
             return "; ".join(
                 ContosoAnalyzer._memory_repair_capability_lines(value))
@@ -1432,7 +1487,8 @@ class ContosoAnalyzer:
             contoso_action_parameters.PAGE_OFFLINE_ACTION_ID,
             {
                 "page_ranges": [{
-                    "start_address": event["memory_error"]["error_address"],
+                    "start_address": physical_page_base(
+                        event["memory_error"]["error_address"]),
                     "page_count": 1,
                 }],
             },

@@ -28,7 +28,7 @@ build a **CreatorID → analyzer** routing table:
 ```json
 {
   "analyzer_name":    "Contoso CPER Analyzer",
-  "analyzer_version": "1.1.0",
+  "analyzer_version": "1.2.0",
   "creator_ids":      ["11111111-2222-3333-4444-555555555555"],
   "prior_days":       30
 }
@@ -298,6 +298,20 @@ detector below. Platform Action Events never invoke the default detector.
 
 The grouped multi-section version 5 shim contract is documented in
 [Memory Vendor Analyzer Shim Interface](memory_shims/memory-vendor-analyzer-shim.md).
+
+### Memory address translation
+
+Version 1.6 memory CPERs include a platform-wide `memory_organization`
+describing uniform 32, 64, or 128 GiB DIMMs and the `contoso-simple-v1`
+translation scheme. Canonical events expose the decoded OS physical address,
+cacheline/page bases, DDR5 hierarchy, and whether the translated coordinates
+match the CPER fields.
+
+Passing organization into the translation functions models how a real server
+would provide richer installed-memory and interleaving information while this
+demo retains one uniform DIMM size and one direct mixed-radix mapping.
+
+See [Contoso Demo Memory Address Translation](contoso-memory-address-translation.md).
 
 #### Micron Analyzer Interface
 

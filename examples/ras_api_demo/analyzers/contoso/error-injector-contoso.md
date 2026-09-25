@@ -294,6 +294,14 @@ banks" layout; multi-section injection is a planned extension.
 
 ### The Inject Error Operation
 
+The injector also provides `address-encode` and `address-decode` commands for
+the `contoso-simple-v1` mapping. They accept 32, 64, or 128 GiB DIMM
+organizations directly or read `memory_organization` from an endpoint
+configuration. A DRAM injection spec uses `section.addressSource` to select
+hierarchy, physical, or consistency-checking (`both`) authoring.
+
+See [Contoso Demo Memory Address Translation](contoso-memory-address-translation.md).
+
 - Use the `contoso-cper-sections.md` file for the list of errors that are supported.
 - The names listed there MUST be exactly the names used as inputs to specify which
   error is injected (section-type name, error bank name, and error name).

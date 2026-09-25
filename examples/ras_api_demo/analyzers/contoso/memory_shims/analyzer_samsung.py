@@ -20,7 +20,7 @@ from contoso_action_parameters import (
 SHIM_INFO = {
     "api_version": 5,
     "name": "Samsung Memory Analyzer Shim",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "dram_manufacturer_ids": [[0x80, 0xCE]],
 }
 
@@ -180,6 +180,10 @@ def _to_samsung_memory_error(event: Dict[str, Any]) -> Dict[str, Any]:
         "system": {
             "total_memory_bytes": additional.get("total_memory_bytes"),
         },
+        "memory_organization": copy.deepcopy(
+            event.get("memory_organization")),
+        "address_translation": copy.deepcopy(
+            event.get("address_translation")),
         "beats": _beat_data(additional),
     }
 

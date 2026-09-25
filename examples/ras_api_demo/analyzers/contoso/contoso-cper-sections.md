@@ -106,9 +106,10 @@ The Contoso CPER Section Header contains:
 | Subcomponent Instance ID | 4 bytes |
 | **Total** | **8 bytes** |
 
-The current Contoso CPER section format version is **1.5**. The decoder also
-accepts version 1.4 records created before `spd_temperature` was added; that
-field is reported as not recorded for those records.
+The current Contoso CPER section format version is **1.6**. The decoder also
+accepts version 1.4 records created before `spd_temperature` was added and
+version 1.5 records created before `memory_organization` was added. Missing
+fields are reported as not recorded.
 
 The subcomponent instance ID is specific to a subcomponent.  The CPER section type tells us what type of subcomponent is being logged in the section body and the subcomponent instance ID tells us which instance of that subcomponent is being logged.  For example, the section type might be for a CPU core and the subcomponent instance ID might be the core number.  Each CPER section type definition will define how these bits are defined.
 
@@ -235,6 +236,12 @@ uint8_t  module_manufacturer_id[2]; // 2 -- JEP106 ID in DDR5 SPD byte order
 uint8_t  dram_manufacturer_id[2];   // 2 -- JEP106 ID in DDR5 SPD byte order
 int8_t   spd_temperature;  // 1 -- SPD device temperature in degrees Celsius
 uint64_t total_memory_bytes; // 8 -- total installed memory on this RAS endpoint
+struct {
+    uint8_t version;                    // 1
+    uint8_t address_translation_scheme; // 1 = contoso-simple-v1
+    uint8_t dimm_size_gib;              // 32, 64, or 128
+    uint8_t reserved;                   // zero
+} memory_organization;       // 4 -- uniform platform DIMM organization
 uint8_t  memory_repair_capabilities; // 1 -- capability bitfield
 uint16_t reserved;         // 2  -- must be zero
 uint8_t  repair_entry_count; // 1 -- number of sparse entries that follow
@@ -246,7 +253,7 @@ struct {
   uint8_t bank;
   uint8_t count;
 } repairs[repair_entry_count];
-// Total: 82 bytes + (6 * repair_entry_count)
+// Total: 86 bytes + (6 * repair_entry_count)
 ```
 
 The location fields follow the memory-address hierarchy. `device` identifies
@@ -257,8 +264,15 @@ fields. It contains only banks with nonzero repair counts and is sorted by
 subchannel, rank, device, bank group, and bank. An omitted bank has zero
 repairs. Each count is an unsigned byte.
 
-`total_memory_bytes` is the sum of the sizes of every DIMM installed on the RAS
-endpoint. `memory_repair_capabilities` reports endpoint firmware support:
+`total_memory_bytes` is the installed DIMM count multiplied by the uniform
+DIMM size in `memory_organization`. `memory_repair_capabilities` reports
+endpoint firmware support:
+
+Version 1.6 adds `memory_organization`. The endpoint configuration is
+authoritative and injected 1.4/1.5 sections are upgraded to 1.6. Version 1.4
+and 1.5 decode with `memory_organization = null`.
+
+See [Contoso Demo Memory Address Translation](contoso-memory-address-translation.md).
 
 | Bit | Capability |
 | --- | --- |

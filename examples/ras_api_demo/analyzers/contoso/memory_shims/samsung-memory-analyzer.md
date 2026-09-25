@@ -96,6 +96,32 @@ error:
     "system": {
         "total_memory_bytes": 549755813888,
     },
+    "memory_organization": {
+        "version": 1,
+        "address_translation": "contoso-simple-v1",
+        "dimm_size_gib": 64,
+    },
+    "address_translation": {
+        "scheme": "contoso-simple-v1",
+        "physical_address": 0x00000011609A48DC,
+        "cacheline_base": 0x00000011609A48C0,
+        "page_base": 0x00000011609A4000,
+        "memory_address": {
+            "socket": 0,
+            "chiplet": 0,
+            "memory_controller": 0,
+            "channel": 0,
+            "dimm": 1,
+            "subchannel": 0,
+            "rank": 0,
+            "bank_group": 2,
+            "bank": 3,
+            "row": 1234,
+            "column": 567,
+            "byte_in_column": 0,
+        },
+        "coordinates_match_cper": True,
+    },
     "beats": {
         "mask_by_dq": [0x0000, 0x0000, 0x0021, 0x0000],
         "mask_64": 0x0000002100000000,
@@ -199,6 +225,11 @@ FRUID and Fru Text.
         "dram_manufacturer_id": [0x80, 0xCE],
         "spd_temperature": 40,
         "total_memory_bytes": 549755813888,
+        "memory_organization": {
+            "version": 1,
+            "address_translation": "contoso-simple-v1",
+            "dimm_size_gib": 64,
+        },
         "memory_repair_capabilities": 0x07,
         "reserved": 0,
         "repairs": [

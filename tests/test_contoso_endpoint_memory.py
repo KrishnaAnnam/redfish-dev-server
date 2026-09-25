@@ -149,7 +149,7 @@ def _set_spd_temperature(cpad, temperature):
 
 
 def _submission_handler(
-        action_id, address=0x12345000,
+        action_id, address=0x11609A4000,
         creator_id=CONTOSO_CREATOR_ID,
         ppr_type=PPR_TYPE_SOFT_RUNTIME,
         page_ranges=None):
@@ -357,10 +357,24 @@ def test_page_offline_accepts_one_physical_page():
     assert result.return_code == 0
     assert result.details["page_count"] == 1
     assert result.details["page_ranges"] == [{
-        "start_address": 0x12345000,
+        "start_address": 0x11609A4000,
         "page_count": 1,
     }]
-    assert result.context == "Offlined physical page 0x0000000012345000"
+    assert result.context == "Offlined physical page 0x00000011609a4000"
+
+
+def test_page_offline_rejects_page_owned_by_another_fru():
+    handler, cpad = _submission_handler(
+        PAGE_OFFLINE_ACTION_ID, address=0x00000001609A4000)
+    endpoint = handler.endpoint_configuration.endpoint_by_partition(
+        PARTITION_ID)
+    metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+
+    result = handler._contoso_action_provider().execute(
+        "System", PAGE_OFFLINE_ACTION_ID, cpad, metadata, endpoint)
+
+    assert result.return_code == 1
+    assert "section descriptor FRU" in result.reason
 
 
 def test_page_offline_emits_action_event_without_error_cper():
@@ -376,12 +390,12 @@ def test_page_offline_emits_action_event_without_error_cper():
         "PlatformActionEvent"]
     assert action_event["cpadActionId"] == PAGE_OFFLINE_ACTION_ID
     assert base64.b64decode(action_event["additionalContext"]).decode() == (
-        "Offlined physical page 0x0000000012345000")
+        "Offlined physical page 0x00000011609a4000")
 
 
 def test_page_offline_for_multiple_pages_reports_page_count():
     ranges = [{
-        "start_address": 0x20000000 + index * 0x100000,
+        "start_address": 0x1160000000 + index * 0x100000,
         "page_count": 1,
     } for index in range(10)]
     handler, _cpad = _submission_handler(
@@ -408,7 +422,7 @@ def test_chunked_page_offline_reports_batch_and_chunk():
         "is_newest": True,
     }])[0]
     pages = [{
-        "start_address": 0x10000000 + index * 0x100000,
+        "start_address": 0x1160000000 + index * 0x100000,
         "page_count": 1,
     } for index in range(10_000)]
     bodies = action_encoder.encode_action_parameter_bodies(
@@ -812,12 +826,17 @@ def test_cper_overlay_uses_configured_spd_and_authoritative_repairs():
     assert additional["dram_manufacturer_id"] == [0x04, 0xD5]
     assert additional["spd_temperature"] == 40
     assert additional["total_memory_bytes"] == 512 * 1024 ** 3
+    assert additional["memory_organization"] == {
+        "version": 1,
+        "address_translation": "contoso-simple-v1",
+        "dimm_size_gib": 64,
+    }
     assert additional["memory_repair_capabilities"] == 0b111
     assert additional["repairs"] == [{
         "subchannel": 0, "rank": 0, "device": 3,
         "bank_group": 2, "bank": 3, "count": 1,
     }]
-    assert len(body) == 184
+    assert len(body) == 188
 
     cper = {
         "header": {
@@ -916,8 +935,9 @@ def test_endpoint_upgrades_v14_memory_body_with_configured_temperature():
         cpad["sections"][0]["Unknown"]["data"], validate=True))
     other_offset = int.from_bytes(body[80:84], "little")
     del body[157]
+    del body[165:169]
     body[1] = 4
-    body[80:84] = (other_offset - 1).to_bytes(4, "little")
+    body[80:84] = (other_offset - 5).to_bytes(4, "little")
     cpad["sections"][0]["Unknown"]["data"] = base64.b64encode(body).decode(
         "ascii")
 
@@ -926,8 +946,10 @@ def test_endpoint_upgrades_v14_memory_body_with_configured_temperature():
     decoded = encoder.unpack_section_body(
         "Memory Controller - First Generation", upgraded)
 
-    assert upgraded[0:2] == bytes([1, 5])
+    assert upgraded[0:2] == bytes([1, 6])
     assert decoded["additional"]["spd_temperature"] == 40
+    assert decoded["additional"]["memory_organization"][
+        "dimm_size_gib"] == 64
 
 
 def test_sppr_rejects_uninstalled_dimm():
@@ -1005,7 +1027,8 @@ def test_controller_error_normalizes_inactive_dram_metadata():
         cpad["sections"][0]["Unknown"]["data"], validate=True))
     body[157] = 99
     body[158:166] = (123).to_bytes(8, "little")
-    body[166] = 0b001
+    body[166:170] = bytes([9, 9, 9, 9])
+    body[170] = 0b001
 
     normalized = overlay_cpad_memory_state(
         {**cpad, "sections": [{"Unknown": {
@@ -1014,8 +1037,9 @@ def test_controller_error_normalizes_inactive_dram_metadata():
 
     assert normalized[157] == 0
     assert int.from_bytes(normalized[158:166], "little") == 512 * 1024 ** 3
-    assert normalized[166] == 0b111
-    assert normalized[169] == 0
+    assert normalized[166:170] == bytes([1, 1, 64, 0])
+    assert normalized[170] == 0b111
+    assert normalized[173] == 0
 
 
 def test_submit_cpad_rejects_noncanonical_base64():
@@ -1043,7 +1067,7 @@ def test_plugin_paths_load_memory_configuration():
     assert server_plugin.submit_cpad_handler.memory_repair_state is not None
 
 
-def test_two_endpoints_keep_totals_capabilities_and_repairs_independent():
+def test_two_endpoints_keep_capabilities_and_repairs_independent():
     with CONFIG_PATH.open(encoding="utf-8") as stream:
         data = json.load(stream)
     second = copy.deepcopy(data["ras_endpoints"][0])
@@ -1051,9 +1075,6 @@ def test_two_endpoints_keep_totals_capabilities_and_repairs_independent():
     second["partition_id"] = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
     second["memory"]["memory_repair_capabilities"][
         "soft_ppr_runtime_supported"] = False
-    for controller in second["memory"]["memory_controllers"]:
-        for dimm in controller["dimms"]:
-            dimm["size_bytes"] //= 2
     data["ras_endpoints"].append(second)
     config = RASEndpointConfiguration.from_dict(data)
     first_endpoint, second_endpoint = config.endpoints
@@ -1082,7 +1103,9 @@ def test_two_endpoints_keep_totals_capabilities_and_repairs_independent():
     assert first["total_memory_bytes"] == 512 * 1024 ** 3
     assert first["memory_repair_capabilities"] == 0b111
     assert first["repairs"][0]["count"] == 1
-    assert second_additional["total_memory_bytes"] == 256 * 1024 ** 3
+    assert second_additional["total_memory_bytes"] == 512 * 1024 ** 3
+    assert second_additional["memory_organization"][
+        "dimm_size_gib"] == 64
     assert second_additional["memory_repair_capabilities"] == 0b110
     assert second_additional["repairs"] == []
 

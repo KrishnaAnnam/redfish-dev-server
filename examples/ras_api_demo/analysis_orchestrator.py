@@ -391,14 +391,18 @@ class AnalysisOrchestrator:
         if monitored is None:
             return False
 
+        # Only now — after discovery confirmed RAS support — subscribe to events.
+        if not self._subscribe_host_events(monitored):
+            print("\n   ❌ Host discovery succeeded, but event monitoring could "
+                  "not be established.")
+            return False
+
         self.hosts[monitored.platform_id] = monitored
 
         # Route CPADs carrying this PlatformID back to this host.
         if self.submitter is not None:
             self.submitter.platform_bmc_map[monitored.platform_id] = monitored.base_url
 
-        # Only now — after discovery confirmed RAS support — subscribe to events.
-        self._subscribe_host_events(monitored)
         return True
 
     def discover_host(self, name: str, host: str, port: int,
@@ -540,32 +544,58 @@ class AnalysisOrchestrator:
     # ─── Event Listener Control ─────────────────────────────────────────
 
     def connect_listener(self, host: Optional[str] = None,
-                         port: Optional[int] = None) -> bool:
+                         port: Optional[int] = None,
+                         timeout: float = 15.0,
+                         retry_interval: float = 0.5) -> bool:
         """Connect to the SDK event listener's control/notification socket.
 
         The orchestrator both sends commands (subscribe) and receives
-        notifications (cper_downloaded) over this one connection.
+        notifications (cper_downloaded) over this one connection. Transient
+        startup failures are retried until the timeout expires.
         """
         host = host or self.listener_host
         port = port or self.listener_port
-        try:
-            sock = socket.create_connection((host, port), timeout=5)
-        except OSError as e:
-            print(f"   ⚠️  Could not reach the event listener at {host}:{port} ({e})")
-            self._listener_sock = None
-            return False
-        # The 5s timeout above only bounds the connect attempt.  Restore
+        deadline = time.monotonic() + max(0.0, timeout)
+        attempts = 0
+        last_error = None
+        while True:
+            attempts += 1
+            remaining = max(0.0, deadline - time.monotonic())
+            try:
+                sock = socket.create_connection(
+                    (host, port),
+                    timeout=min(1.0, max(remaining, 0.1)),
+                )
+                break
+            except OSError as exc:
+                last_error = exc
+                self._listener_sock = None
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    print(
+                        f"   ⚠️  Could not reach the event listener at "
+                        f"{host}:{port} after {attempts} attempt(s) "
+                        f"({last_error})"
+                    )
+                    return False
+                time.sleep(min(retry_interval, remaining))
+        # The per-attempt timeout above only bounds the connect call. Restore
         # blocking mode so the reader thread's recv() waits indefinitely for
         # notifications instead of dying with a socket timeout between events.
         sock.settimeout(None)
         self._listener_sock = sock
         self.listener_host, self.listener_port = host, port
         threading.Thread(target=self._listen_for_notifications, daemon=True).start()
-        print(f"   ✅ Connected to the event listener at {host}:{port}")
+        retry_note = (
+            f" after {attempts} attempts" if attempts > 1 else "")
+        print(
+            f"   ✅ Connected to the event listener at {host}:{port}"
+            f"{retry_note}"
+        )
         return True
 
     def _subscribe_host_events(self, monitored: MonitoredHost,
-                               timeout: float = 15.0):
+                               timeout: float = 15.0) -> bool:
         """Tell the listener to subscribe, and wait until it confirms.
 
         Waiting for the listener's confirmation is what makes the flow
@@ -573,55 +603,73 @@ class AnalysisOrchestrator:
         subscription is registered on the BMC, so by the time this returns the
         host can actually deliver events.
         """
-        if self._listener_sock is None and not self.connect_listener():
-            print("   ⚠️  Event listener unavailable — cannot subscribe. CPERs will")
-            print("      be read from disk as a fallback if the listener saved them.")
-            return
+        deadline = time.monotonic() + max(0.0, timeout)
+
+        if (self._listener_sock is None
+                and not self.connect_listener(timeout=timeout)):
+            print("   ⚠️  Event listener unavailable — cannot subscribe.")
+            return False
 
         bmc = f"{monitored.host}:{monitored.port}"
         with self._subscribe_cv:
             self._confirmed_subscriptions.pop(bmc, None)
 
-        self._send_listener_command({
+        command = {
             "command": "subscribe",
             "bmc": bmc,
             "username": monitored.username,
             "password": monitored.password,
             "registry_prefixes": ["OCPRAS"],
             "platform_id": monitored.platform_id,
-        })
+        }
+        if not self._send_listener_command(command):
+            remaining = max(0.0, deadline - time.monotonic())
+            if not self.connect_listener(timeout=remaining):
+                return False
+            if not self._send_listener_command(command):
+                return False
         print(f"\n   📡 Asked the event listener to subscribe to {monitored.name} "
               f"({monitored.base_url})")
 
         # Block until the listener confirms the subscription is live.
+        remaining = max(0.0, deadline - time.monotonic())
         with self._subscribe_cv:
             confirmed = self._subscribe_cv.wait_for(
-                lambda: bmc in self._confirmed_subscriptions, timeout=timeout)
+                lambda: bmc in self._confirmed_subscriptions,
+                timeout=remaining,
+            )
             subscription_uri = self._confirmed_subscriptions.get(bmc)
 
         if not confirmed:
             print(f"   ⚠️  Timed out waiting for the listener to confirm the "
                   f"subscription to {bmc}.")
-            print("      Proceeding, but events may be missed.")
-            return
+            return False
         if not subscription_uri:
             print(f"   ⚠️  Listener could not subscribe to {bmc}; events will not "
                   f"be delivered.")
-            return
+            return False
 
         monitored.subscribed = True
         monitored.subscription_uri = subscription_uri
         print(f"   ✅ Subscription to {monitored.name} is live "
               f"({subscription_uri}) — monitoring RAS API endpoint events.")
+        return True
 
-    def _send_listener_command(self, command: Dict[str, Any]):
+    def _send_listener_command(self, command: Dict[str, Any]) -> bool:
         """Send one newline-delimited JSON command to the listener."""
         if self._listener_sock is None:
-            return
+            return False
         try:
             self._listener_sock.sendall((json.dumps(command) + "\n").encode())
+            return True
         except OSError as e:
             print(f"   ⚠️  Failed to send command to the listener: {e}")
+            try:
+                self._listener_sock.close()
+            except OSError:
+                pass
+            self._listener_sock = None
+            return False
 
     def _listen_for_notifications(self):
         """Background reader: buffer 'cper_downloaded' paths from the listener."""

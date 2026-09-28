@@ -1,13 +1,24 @@
 # RAS Endpoint Configuration
 
-The RAS endpoint simulator reads platform-owned endpoint settings from
-`ras_endpoint_config.json` in the platform mockup directory:
+The RAS endpoint simulator reads platform-owned endpoint settings from the
+file selected by the RAS plugin's `endpoint_config` setting in
+`platform_config.json`:
 
-```text
-mockups/<platform>/ras_endpoint_config.json
+```json
+{
+  "name": "ras",
+  "enabled": true,
+  "config": {
+    "endpoint_config": "ras_endpoint_config.json"
+  }
+}
 ```
 
-The RAS Gen 1 platform uses
+Relative paths are resolved under the platform mockup directory. Absolute
+paths are accepted. If the setting is omitted, the compatibility default is
+`ras_endpoint_config.json` under the mockup directory.
+
+The RAS Gen 1 platform therefore uses
 [`mockups/ras_gen1/ras_endpoint_config.json`](../../../mockups/ras_gen1/ras_endpoint_config.json).
 Restart the server after changing this file.
 
@@ -24,6 +35,36 @@ The configuration is authoritative for:
 - DIMM SPD identity data
 - The default SPD-device temperature reported for each DIMM
 - Per-DIMM repair limits
+
+## Startup Summary
+
+When the RAS plugin initializes, it prints the resolved absolute endpoint
+configuration path and a summary of the simulated machine:
+
+```text
+================================================================================
+                        RAS ENDPOINT CONFIGURATION
+================================================================================
+   File:        /path/to/mockups/ras_gen1/ras_endpoint_config.json
+   Platform ID: 990f8820-bd4d-5064-58cc-961a053dea79
+   Endpoints:   1
+
+   Endpoint-1: Contoso CPU Socket 0 RAS Endpoint
+      Type:         Processor
+      Partition ID: 22222222-3333-4444-5555-666666666666
+      Creator ID:   11111111-2222-3333-4444-555555555555
+      FRU:          Contoso CPU Socket 0 (...)
+      Queues:       Fatal, Recoverable, Corrected, Informational, ...
+      Memory:       Socket 0; 8 DIMMs x 64 GiB = 512 GiB
+      Translation:  contoso-simple-v1 (organization v1)
+      Topology:     2 chiplets x 1 controllers x 2 channels x 2 DIMM slots
+      Installed DIMMs:
+         C0/MC0/CH0/D1: DIMM A1 (...), MSFT-DDR5-64GB, serial ...
+================================================================================
+```
+
+This is printed from the plugin so users can confirm which endpoint file and
+hardware model the running BMC simulator actually loaded.
 
 Memory-repair capabilities are not published on the Redfish RAS endpoint
 resource. They are encoded in each Contoso memory-controller CPER.
@@ -288,7 +329,7 @@ The plugin rejects invalid endpoint configuration, including:
 - Non-boolean repair capability values
 - Chiplet, controller, channel, or DIMM indices outside configured limits
 - Duplicate DIMM addresses
-- Zero or negative DIMM capacities
+- Unsupported platform-wide DIMM sizes
 - Repair limits outside `0..255`
 - Missing, non-ASCII, or overlength SPD strings
 - Invalid two-byte odd-parity JEP106 manufacturer IDs
@@ -305,6 +346,8 @@ Validate a file with the production loader:
 python servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000
 ```
 
-The plugin finds `ras_endpoint_config.json` automatically. If it is absent,
-controller-level errors remain available, but memory injections and PPR actions
-fail because the endpoint has no authoritative memory configuration.
+The plugin loads the configured endpoint file once and injects the same parsed
+`RASEndpointConfiguration` into discovery and SubmitCPAD handling. If an
+explicitly configured file is absent or invalid, RAS plugin initialization
+fails. When `endpoint_config` is omitted, the legacy default filename remains
+optional for compatibility.

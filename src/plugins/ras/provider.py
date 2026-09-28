@@ -48,6 +48,11 @@ class RASHandler(BasePlatformHandler):
         from .handlers.log_service import RASLogServiceHandler
         from .handlers.event_service import RASEventServiceHandler
         from .discovery import RASDiscoveryHandler
+        from .memory_config import (
+            format_endpoint_configuration_summary,
+            load_endpoint_configuration,
+            resolve_endpoint_config_path,
+        )
         
         # Import Phase 7 services
         from .services import (
@@ -59,6 +64,18 @@ class RASHandler(BasePlatformHandler):
         
         # Get mockup directory from config if available
         mockup_dir = platform_config.get('mockup_dir') if platform_config else None
+        endpoint_config = (
+            platform_config.get('endpoint_config')
+            if platform_config else None)
+        endpoint_configuration = load_endpoint_configuration(
+            mockup_dir,
+            endpoint_config,
+            required=endpoint_config is not None,
+        )
+        endpoint_config_path = resolve_endpoint_config_path(
+            mockup_dir, endpoint_config)
+        print(format_endpoint_configuration_summary(
+            endpoint_config_path, endpoint_configuration))
         
         # Initialize event service handler
         self.event_handler = RASEventServiceHandler()
@@ -66,7 +83,9 @@ class RASHandler(BasePlatformHandler):
 
         # Serves the RAS discovery tree (RASService, RASEndpoints, ActionInfo).
         self.discovery_handler = RASDiscoveryHandler(
-            self.DEFAULT_MANAGER_ID, mockup_dir=mockup_dir)
+            self.DEFAULT_MANAGER_ID,
+            mockup_dir=mockup_dir,
+            endpoint_configuration=endpoint_configuration)
         
         # Initialize Phase 7 services
         self.queue_manager = None
@@ -77,7 +96,8 @@ class RASHandler(BasePlatformHandler):
         # Initialize handlers with event support
         self.submit_cpad_handler = SubmitCPADActionHandler(
             mockup_dir=mockup_dir,
-            event_handler=self.event_handler
+            event_handler=self.event_handler,
+            endpoint_configuration=endpoint_configuration,
         )
         
         # Initialize LogService handler if mockup directory available

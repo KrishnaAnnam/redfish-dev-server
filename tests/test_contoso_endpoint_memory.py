@@ -7,6 +7,7 @@ import contextlib
 import io
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -49,6 +50,7 @@ from src.plugins.ras.memory_config import (  # noqa: E402
     RASEndpointConfiguration,
 )
 from src.plugins.ras.plugin import RASPlugin  # noqa: E402
+from src.plugins.ras.provider import RASHandler  # noqa: E402
 from src.config.settings import ServerConfig  # noqa: E402
 from src.services.custom_actions_service import CustomActionsService  # noqa: E402
 from src.plugins.loader import PluginLoader  # noqa: E402
@@ -1058,13 +1060,76 @@ def test_submit_cpad_rejects_noncanonical_base64():
 def test_plugin_paths_load_memory_configuration():
     plugin = RASPlugin()
 
-    assert plugin.initialize({"mockup_dir": str(CONFIG_PATH.parent)})
+    assert plugin.initialize({
+        "mockup_dir": str(CONFIG_PATH.parent),
+        "endpoint_config": CONFIG_PATH.name,
+    })
     assert plugin.submit_cpad_handler.memory_repair_state is not None
+    assert (
+        plugin.submit_cpad_handler.endpoint_configuration
+        is plugin.discovery_handler.endpoint_configuration
+    )
 
     server_plugin = RASPlugin()
     server_config = ServerConfig(mock_dir_path=str(CONFIG_PATH.parent))
     assert server_plugin.initialize(server_config)
     assert server_plugin.submit_cpad_handler.memory_repair_state is not None
+
+
+def test_plugin_rejects_missing_explicit_endpoint_config():
+    plugin = RASPlugin()
+
+    initialized = plugin.initialize({
+        "mockup_dir": str(CONFIG_PATH.parent),
+        "endpoint_config": "missing-endpoints.json",
+    })
+
+    assert initialized is False
+
+
+def test_plugin_loads_custom_relative_endpoint_config_filename():
+    with tempfile.TemporaryDirectory() as directory:
+        mockup_dir = Path(directory)
+        custom = mockup_dir / "custom-endpoints.json"
+        custom.write_text(CONFIG_PATH.read_text())
+        plugin = RASPlugin()
+        output = io.StringIO()
+
+        with contextlib.redirect_stdout(output):
+            initialized = plugin.initialize({
+                "mockup_dir": str(mockup_dir),
+                "endpoint_config": custom.name,
+            })
+
+        assert initialized is True
+        assert (
+            plugin.submit_cpad_handler.endpoint_configuration
+            is plugin.discovery_handler.endpoint_configuration
+        )
+        assert plugin.discovery_handler.endpoint_configuration.platform_id == (
+            "990f8820-bd4d-5064-58cc-961a053dea79")
+        report = output.getvalue()
+        assert str(custom.resolve()) in report
+        assert "RAS ENDPOINT CONFIGURATION" in report
+        assert "Endpoint-1: Contoso CPU Socket 0 RAS Endpoint" in report
+        assert "8 DIMMs x 64 GiB = 512 GiB" in report
+
+
+def test_alternate_provider_shares_custom_endpoint_configuration():
+    with tempfile.TemporaryDirectory() as directory:
+        mockup_dir = Path(directory)
+        custom = mockup_dir / "custom-endpoints.json"
+        custom.write_text(CONFIG_PATH.read_text())
+
+        handler = RASHandler({
+            "mockup_dir": str(mockup_dir),
+            "endpoint_config": custom.name,
+        })
+
+        assert (
+            handler.submit_cpad_handler.endpoint_configuration
+            is handler.discovery_handler.endpoint_configuration
+        )
 
 
 def test_two_endpoints_keep_capabilities_and_repairs_independent():

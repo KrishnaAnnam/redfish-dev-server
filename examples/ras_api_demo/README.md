@@ -17,6 +17,9 @@ management using standard Redfish interfaces on the BMC.
 > (`"plugins": [{"name": "ras", ...}]`). Everything in this folder is the
 > **client/analysis side** that drives that plugin. To learn how plugins are
 > built and registered, see [`docs/PLUGIN_SDK.md`](../../docs/PLUGIN_SDK.md).
+> The RAS plugin's `config.endpoint_config` setting selects the endpoint
+> inventory file; relative paths are resolved under the platform mockup
+> directory.
 
 ## Documentation index
 
@@ -108,6 +111,11 @@ python3 examples/ras_api_demo/reset_server.py --clean-temp && python3 examples/r
 - **Pane 1 — BMC Server** (`redfishMockupServer_platform.py`): Simulates a BMC with a RAS LogService
 - **Pane 2 — SDK Listener** (`event_listener_sdk.py`): Subscribes to a host's events on command, auto-downloads CPERs, and notifies the orchestrator over a control socket
 - **Pane 3 — Demo Client** (`ras_api_plugin_demo.py`): Guided demo flow — tells the orchestrator which host to monitor, then injects DRAM row errors; the orchestrator handles discovery, analysis, policy, and submit
+
+At server startup, the RAS plugin prints the resolved endpoint-configuration
+file and a summary of every simulated endpoint, including memory capacity,
+translation scheme, and installed DIMM FRUs. Check the BMC Server pane to
+confirm the machine configuration used by the demo.
 
 ## Module Architecture
 

@@ -127,7 +127,8 @@ subcomponent policy:
 
 Decoded DRAM events include the SPD-device temperature in degrees Celsius. The
 demo endpoint normally supplies a per-DIMM default from
-`ras_endpoint_config.json`; an error injection can override it for one emitted
+the configured endpoint file (`ras_endpoint_config.json` by default); an error
+injection can override it for one emitted
 CPER, and a future endpoint control can replace the default with a dynamic
 measurement without changing the memory-vendor shim event shape. A shim can
 read the value directly from `event["spd_temperature"]`; the same value remains available in

@@ -15,10 +15,12 @@ the plugin provider uses for GET handling.
 Resource shapes follow the OCP RAS API Redfish Specification v0.7.
 """
 
-from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from .memory_config import RASEndpointConfiguration
+from .memory_config import (
+    RASEndpointConfiguration,
+    load_endpoint_configuration,
+)
 
 # Root of the RAS discovery tree (service-root OEM namespace).
 RAS_SERVICE_URI = "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService"
@@ -63,14 +65,19 @@ class RASDiscoveryHandler:
     ]
 
     def __init__(self, manager_id: str = DEFAULT_MANAGER_ID,
-                 mockup_dir: str = None):
+                 mockup_dir: str = None,
+                 endpoint_configuration: RASEndpointConfiguration = None,
+                 endpoint_config: str = None):
         self.manager_id = manager_id
-        self.endpoint_configuration = None
-        if mockup_dir:
-            config_path = Path(mockup_dir) / "ras_endpoint_config.json"
-            if config_path.exists():
-                self.endpoint_configuration = RASEndpointConfiguration.load(
-                    config_path)
+        self.endpoint_configuration = (
+            endpoint_configuration
+            if endpoint_configuration is not None
+            else load_endpoint_configuration(
+                mockup_dir,
+                endpoint_config,
+                required=endpoint_config is not None,
+            )
+        )
 
     def _endpoints(self) -> List[Dict[str, Any]]:
         if self.endpoint_configuration is None:

@@ -32,7 +32,11 @@ from ..contoso_actions import (
     ContosoActionProvider,
 )
 from ..discovery import PLATFORM_ID as BMC_PLATFORM_ID, RASDiscoveryHandler
-from ..memory_config import MemoryRepairState, RASEndpointConfiguration
+from ..memory_config import (
+    MemoryRepairState,
+    RASEndpointConfiguration,
+    load_endpoint_configuration,
+)
 from ..message_utils import (
     cpad_received,
     cpad_validated,
@@ -60,13 +64,22 @@ _NOTIF_PLATFORM_ACTION_EVENT = {
 class SubmitCPADActionHandler:
     """Handler for SubmitCPAD action processing."""
     
-    def __init__(self, mockup_dir: Optional[str] = None, event_handler: Optional[RASEventServiceHandler] = None):
+    def __init__(
+            self,
+            mockup_dir: Optional[str] = None,
+            event_handler: Optional[RASEventServiceHandler] = None,
+            endpoint_configuration: Optional[
+                RASEndpointConfiguration] = None,
+            endpoint_config: Optional[str] = None):
         """
         Initialize SubmitCPAD action handler.
         
         Args:
             mockup_dir: Path to mockup directory (for LogService integration)
             event_handler: Optional event handler for emitting events
+            endpoint_configuration: Parsed shared endpoint configuration.
+            endpoint_config: Compatibility filename/path when a parsed
+                             configuration is not injected.
         """
         self.logger = logger  # Use module-level logger
         self.event_handler = event_handler
@@ -75,30 +88,32 @@ class SubmitCPADActionHandler:
         self.mockup_dir = mockup_dir
         self.memory_repair_state = None
         self.memory_repair_states = {}
-        self.endpoint_configuration = None
+        self.endpoint_configuration = (
+            endpoint_configuration
+            if endpoint_configuration is not None
+            else load_endpoint_configuration(
+                mockup_dir,
+                endpoint_config,
+                required=endpoint_config is not None,
+            )
+        )
         self.action_providers = {}
 
-        if mockup_dir:
-            endpoint_config_path = Path(mockup_dir) / "ras_endpoint_config.json"
-            if endpoint_config_path.exists():
-                endpoint_config = RASEndpointConfiguration.load(
-                    endpoint_config_path)
-                if endpoint_config.platform_id != BMC_PLATFORM_ID:
-                    raise ValueError(
-                        f"endpoint configuration platform_id {endpoint_config.platform_id} "
-                        f"does not match endpoint {BMC_PLATFORM_ID}")
-                self.endpoint_configuration = endpoint_config
-                self.memory_repair_states = {
-                    endpoint.partition_id: MemoryRepairState(
-                        endpoint.memory, endpoint.memory_repair_capabilities)
-                    for endpoint in endpoint_config.endpoints
-                    if endpoint.memory is not None
-                }
-                if len(self.memory_repair_states) == 1:
-                    self.memory_repair_state = next(
-                        iter(self.memory_repair_states.values()))
-                logger.info("Loaded RAS endpoint configuration: %s",
-                            endpoint_config_path)
+        if self.endpoint_configuration is not None:
+            if self.endpoint_configuration.platform_id != BMC_PLATFORM_ID:
+                raise ValueError(
+                    f"endpoint configuration platform_id "
+                    f"{self.endpoint_configuration.platform_id} "
+                    f"does not match endpoint {BMC_PLATFORM_ID}")
+            self.memory_repair_states = {
+                endpoint.partition_id: MemoryRepairState(
+                    endpoint.memory, endpoint.memory_repair_capabilities)
+                for endpoint in self.endpoint_configuration.endpoints
+                if endpoint.memory is not None
+            }
+            if len(self.memory_repair_states) == 1:
+                self.memory_repair_state = next(
+                    iter(self.memory_repair_states.values()))
 
         self.register_action_provider(ContosoActionProvider(
             self.endpoint_configuration, self.memory_repair_states))

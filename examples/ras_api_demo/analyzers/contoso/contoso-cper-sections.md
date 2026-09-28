@@ -319,10 +319,12 @@ analysis. The injection value `-128` means "use the endpoint default" and is
 never emitted as a measured temperature. Version 1.4 records do not contain
 this field.
 
-The simulator loads each endpoint and its installed DIMMs from
-`mockups/<platform>/ras_endpoint_config.json`. Each endpoint configures its
-repair capabilities and memory topology. Each DIMM supplies its size, SPD
-identity fields, default SPD temperature, and `max_repairs_per_bank` (default
+The simulator loads each endpoint and its installed DIMMs from the endpoint
+file selected by `platform_config.json` (`ras_endpoint_config.json` by
+default). Each endpoint configures its repair capabilities and memory
+topology. The platform organization supplies the uniform DIMM size; each DIMM
+supplies FRU and SPD identity, default SPD temperature, and
+`max_repairs_per_bank` (default
 16, valid range 0-255).
 The endpoint treats this file as authoritative when emitting memory CPERs. See
 [RAS Endpoint Configuration](../../../../src/plugins/ras/RAS_ENDPOINT_CONFIGURATION.md)

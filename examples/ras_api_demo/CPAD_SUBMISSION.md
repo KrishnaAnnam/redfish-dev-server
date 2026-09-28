@@ -95,8 +95,9 @@ index, so sections targeting different FRUs remain independently correlated.
 > trailing buffer space.
 
 The BMC sources its `PlatformID`, valid `PartitionID`s, and endpoint CreatorIDs
-from [`ras_endpoint_config.json`](../../mockups/ras_gen1/ras_endpoint_config.json),
-so the checks stay in sync with what the service advertises.
+from the RAS plugin's configured endpoint file
+([`ras_endpoint_config.json`](../../mockups/ras_gen1/ras_endpoint_config.json)
+by default), so the checks stay in sync with what the service advertises.
 
 ### Why `202` means "Accepted", not "Done"
 

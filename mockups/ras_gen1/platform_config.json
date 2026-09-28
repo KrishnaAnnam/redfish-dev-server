@@ -6,6 +6,7 @@
       "name": "ras",
       "enabled": true,
       "config": {
+        "endpoint_config": "ras_endpoint_config.json",
         "log_service_enabled": true,
         "event_service_enabled": true,
         "queue_enabled": true,

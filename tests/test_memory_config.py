@@ -10,10 +10,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.plugins.ras.memory_config import (
+    DEFAULT_ENDPOINT_CONFIG_FILENAME,
     MemoryRepairCapabilities,
     MemoryRepairState,
     PlatformMemoryConfig,
     RASEndpointConfiguration,
+    format_endpoint_configuration_summary,
+    load_endpoint_configuration,
+    resolve_endpoint_config_path,
 )
 
 
@@ -77,6 +81,46 @@ def test_loads_fully_populated_two_chiplet_inventory():
     assert len(config._dimms) == 8
     assert config.total_memory_bytes == 512 * 1024 ** 3
     assert endpoint.memory_repair_capabilities.bitfield == 0b111
+
+
+def test_endpoint_config_path_supports_default_relative_and_absolute_paths():
+    assert resolve_endpoint_config_path(CONFIG_PATH.parent) == CONFIG_PATH
+    assert resolve_endpoint_config_path(
+        CONFIG_PATH.parent, DEFAULT_ENDPOINT_CONFIG_FILENAME) == CONFIG_PATH
+    assert resolve_endpoint_config_path(
+        "/ignored", CONFIG_PATH) == CONFIG_PATH
+    assert load_endpoint_configuration(
+        CONFIG_PATH.parent).platform_id == (
+            "990f8820-bd4d-5064-58cc-961a053dea79")
+    assert load_endpoint_configuration(
+        "/ignored", CONFIG_PATH, required=True).platform_id == (
+            "990f8820-bd4d-5064-58cc-961a053dea79")
+
+
+def test_explicit_missing_endpoint_config_fails():
+    missing = CONFIG_PATH.parent / "missing-endpoints.json"
+    try:
+        load_endpoint_configuration(
+            CONFIG_PATH.parent, missing.name, required=True)
+    except FileNotFoundError as exc:
+        assert str(missing) in str(exc)
+    else:
+        raise AssertionError("missing explicit endpoint config was accepted")
+
+
+def test_endpoint_configuration_summary_describes_machine_and_dimms():
+    configuration = RASEndpointConfiguration.load(CONFIG_PATH)
+
+    summary = format_endpoint_configuration_summary(
+        CONFIG_PATH, configuration)
+
+    assert f"File:        {CONFIG_PATH.resolve()}" in summary
+    assert "Platform ID: 990f8820-bd4d-5064-58cc-961a053dea79" in summary
+    assert "Endpoint-1: Contoso CPU Socket 0 RAS Endpoint" in summary
+    assert "8 DIMMs x 64 GiB = 512 GiB" in summary
+    assert "Translation:  contoso-simple-v1 (organization v1)" in summary
+    assert "C0/MC0/CH0/D1: DIMM A1" in summary
+    assert "MSFT-DDR5-64GB" in summary
 
 
 def test_defaults_topology_and_repair_limit():

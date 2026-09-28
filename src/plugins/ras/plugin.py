@@ -79,17 +79,35 @@ class RASPlugin:
             # Import handlers
             from .handlers.submit_cpad_action import SubmitCPADActionHandler
             from .discovery import RASDiscoveryHandler
+            from .memory_config import (
+                format_endpoint_configuration_summary,
+                load_endpoint_configuration,
+                resolve_endpoint_config_path,
+            )
             
             # Initialize handlers
             if isinstance(config, dict):
                 mockup_dir = config.get('mockup_dir') or config.get('mock_dir')
+                endpoint_config = config.get('endpoint_config')
             else:
                 mockup_dir = (getattr(config, 'mockup_dir', None) or
                               getattr(config, 'mock_dir', None))
+                endpoint_config = getattr(config, 'endpoint_config', None)
+            endpoint_configuration = load_endpoint_configuration(
+                mockup_dir,
+                endpoint_config,
+                required=endpoint_config is not None,
+            )
+            endpoint_config_path = resolve_endpoint_config_path(
+                mockup_dir, endpoint_config)
+            print(format_endpoint_configuration_summary(
+                endpoint_config_path, endpoint_configuration))
             self.submit_cpad_handler = SubmitCPADActionHandler(
-                mockup_dir=mockup_dir)
+                mockup_dir=mockup_dir,
+                endpoint_configuration=endpoint_configuration)
             self.discovery_handler = RASDiscoveryHandler(
-                mockup_dir=mockup_dir)
+                mockup_dir=mockup_dir,
+                endpoint_configuration=endpoint_configuration)
             
             self._enabled = True
             

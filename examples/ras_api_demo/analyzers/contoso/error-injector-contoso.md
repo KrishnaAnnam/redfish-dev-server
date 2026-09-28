@@ -225,8 +225,9 @@ while the DRAM ID identifies the vendor that fabricated the DRAM devices.
 
 `spd_temperature` is an optional signed integer in degrees Celsius. Its default
 value is `null`, which tells the simulated endpoint to use the target DIMM's
-default temperature from `ras_endpoint_config.json`. Set an integer from `-127`
-through `127` to override that default for one injection:
+default temperature from the configured endpoint file
+(`ras_endpoint_config.json` by default). Set an integer from `-127` through
+`127` to override that default for one injection:
 
 ```bash
 --set section.additional.spd_temperature=75

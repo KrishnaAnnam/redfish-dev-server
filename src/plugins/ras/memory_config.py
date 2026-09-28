@@ -17,6 +17,7 @@ from .memory_address_translation import (
 
 DEFAULT_CHANNELS_PER_CHIPLET = 2
 DEFAULT_DIMMS_PER_CHANNEL = 2
+DEFAULT_ENDPOINT_CONFIG_FILENAME = "ras_endpoint_config.json"
 DEFAULT_MAX_REPAIRS_PER_BANK = 16
 DEFAULT_SPD_TEMPERATURE_CELSIUS = 40
 MAX_REPAIRS_PER_BANK = 255
@@ -167,6 +168,10 @@ class PlatformMemoryConfig:
     @property
     def total_memory_bytes(self) -> int:
         return len(self._dimms) * self.organization.dimm_size_bytes
+
+    @property
+    def installed_dimms(self) -> Tuple[DimmConfig, ...]:
+        return tuple(self._dimms[key] for key in sorted(self._dimms))
 
     @property
     def address_configuration(self) -> MemoryAddressConfiguration:
@@ -410,6 +415,101 @@ class RASEndpointConfiguration:
         except KeyError as exc:
             raise ValueError(
                 f"no RAS endpoint has partition_id {partition_id}") from exc
+
+
+def resolve_endpoint_config_path(
+        mockup_dir: Optional[Path | str],
+        endpoint_config: Optional[Path | str] = None) -> Optional[Path]:
+    """Resolve an endpoint-config filename or absolute path."""
+    if endpoint_config is None and mockup_dir is None:
+        return None
+    path = Path(endpoint_config or DEFAULT_ENDPOINT_CONFIG_FILENAME)
+    if path.is_absolute():
+        return path
+    if mockup_dir is None:
+        raise ValueError(
+            "relative endpoint_config requires a mockup directory")
+    return Path(mockup_dir) / path
+
+
+def load_endpoint_configuration(
+        mockup_dir: Optional[Path | str],
+        endpoint_config: Optional[Path | str] = None,
+        *,
+        required: bool = False) -> Optional[RASEndpointConfiguration]:
+    """Load the shared endpoint configuration for one RAS plugin instance."""
+    path = resolve_endpoint_config_path(mockup_dir, endpoint_config)
+    if path is None:
+        return None
+    if not path.is_file():
+        if required:
+            raise FileNotFoundError(
+                f"RAS endpoint configuration not found: {path}")
+        return None
+    return RASEndpointConfiguration.load(path)
+
+
+def format_endpoint_configuration_summary(
+        path: Optional[Path | str],
+        configuration: Optional[RASEndpointConfiguration]) -> str:
+    """Format the simulated RAS machine configuration for startup output."""
+    resolved = str(Path(path).resolve()) if path is not None else "(not set)"
+    lines = [
+        "",
+        "=" * 80,
+        "\t\t\tRAS ENDPOINT CONFIGURATION",
+        "=" * 80,
+        f"   File:        {resolved}",
+    ]
+    if configuration is None:
+        lines.extend([
+            "   Status:      Not loaded; using built-in discovery defaults",
+            "=" * 80,
+        ])
+        return "\n".join(lines)
+
+    lines.extend([
+        f"   Platform ID: {configuration.platform_id}",
+        f"   Endpoints:   {len(configuration.endpoints)}",
+    ])
+    for endpoint in configuration.endpoints:
+        lines.extend([
+            "",
+            f"   {endpoint.id}: {endpoint.name}",
+            f"      Type:         {endpoint.endpoint_type}",
+            f"      Partition ID: {endpoint.partition_id}",
+            f"      Creator ID:   {endpoint.creator_id}",
+            f"      FRU:          {endpoint.fru_text} ({endpoint.fru_id})",
+            f"      Queues:       "
+            f"{', '.join(endpoint.supported_queues) or '(none)'}",
+        ])
+        memory = endpoint.memory
+        if memory is None:
+            lines.append("      Memory:       Not configured")
+            continue
+        total_gib = memory.total_memory_bytes // (1024 ** 3)
+        lines.extend([
+            f"      Memory:       Socket {memory.socket}; "
+            f"{len(memory.installed_dimms)} DIMMs x "
+            f"{memory.organization.dimm_size_gib} GiB = {total_gib} GiB",
+            f"      Translation:  "
+            f"{memory.organization.address_translation} "
+            f"(organization v{memory.organization.version})",
+            f"      Topology:     {CONTOSO_CHIPLETS} chiplets x "
+            f"{CONTOSO_CONTROLLERS_PER_CHIPLET} controllers x "
+            f"{memory.channels_per_chiplet} channels x "
+            f"{memory.dimms_per_channel} DIMM slots",
+            "      Installed DIMMs:",
+        ])
+        for dimm in memory.installed_dimms:
+            lines.append(
+                f"         C{dimm.chiplet}/MC{dimm.controller}/"
+                f"CH{dimm.channel}/D{dimm.dimm}: "
+                f"{dimm.fru_text} ({dimm.fru_id}), "
+                f"{dimm.part_number}, serial {dimm.serial_number}"
+            )
+    lines.append("=" * 80)
+    return "\n".join(lines)
 
 
 class MemoryRepairState:

@@ -151,12 +151,18 @@ The Contoso memory CPER stores these values in a one-byte bitfield:
 
 | Field | Required | Default | Description |
 | --- | --- | --- | --- |
-| `memory_repair_capabilities` | No | All flags `false` | Internal PPR support flags reported in Contoso memory CPERs. |
 | `memory_organization` | Yes | None | Uniform DIMM size and address-translation scheme for the platform. |
 | `socket` | No | `0` | Socket represented by this endpoint's memory inventory. |
+| `memory_repair_capabilities` | No | All flags `false` | Internal PPR support flags reported in Contoso memory CPERs. |
 | `channels_per_chiplet` | No | `2` | Channel slots on each chiplet. Valid range: 1-256. |
 | `dimms_per_channel` | No | `2` | DIMM slots on each channel. Valid range: 1-256. |
 | `memory_controllers` | Yes | None | Memory controllers and installed DIMMs. |
+
+`memory_organization` is intentionally listed first and should appear before
+`memory_controllers` in configuration files: it describes the platform-wide
+DIMM geometry and address mapping, while `memory_controllers` contains the
+detailed installed-DIMM inventory. JSON member order does not affect parsing;
+files using the earlier order remain fully supported.
 
 The Contoso demo has two chiplets (`0` and `1`) and one memory controller (`0`)
 per chiplet. A DIMM entry means its slot is populated. Omit an entry to

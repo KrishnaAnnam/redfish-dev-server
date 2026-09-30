@@ -83,6 +83,15 @@ def test_loads_fully_populated_two_chiplet_inventory():
     assert endpoint.memory_repair_capabilities.bitfield == 0b111
 
 
+def test_canonical_config_presents_organization_before_dimm_inventory():
+    with CONFIG_PATH.open(encoding="utf-8") as stream:
+        data = json.load(stream)
+    memory = data["ras_endpoints"][0]["memory"]
+
+    assert list(memory).index("memory_organization") < list(memory).index(
+        "memory_controllers")
+
+
 def test_endpoint_config_path_supports_default_relative_and_absolute_paths():
     assert resolve_endpoint_config_path(CONFIG_PATH.parent) == CONFIG_PATH
     assert resolve_endpoint_config_path(
@@ -138,6 +147,24 @@ def test_defaults_topology_and_repair_limit():
     assert config.dimms_per_channel == 2
     assert config.get_dimm(0, 0, 0, 0).max_repairs_per_bank == 16
     assert config.get_dimm(0, 0, 0, 0).spd_temperature == 40
+
+
+def test_legacy_field_order_with_organization_after_dimms_is_supported():
+    legacy_order = {
+        "platform_id": "platform",
+        "memory_controllers": [{
+            "chiplet": 0,
+            "controller": 0,
+            "dimms": [_dimm()],
+        }],
+        "memory_organization": _organization(),
+        "socket": 0,
+    }
+
+    config = PlatformMemoryConfig.from_dict(legacy_order)
+
+    assert config.organization.dimm_size_gib == 64
+    assert config.get_dimm(0, 0, 0, 0).fru_text == "DIMM A1"
 
 
 def test_spd_temperature_must_not_use_injection_sentinel():

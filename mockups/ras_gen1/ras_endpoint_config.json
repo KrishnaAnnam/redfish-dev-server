@@ -18,6 +18,12 @@
          "fru_text" : "Contoso CPU Socket 0",
          "id" : "Endpoint-1",
          "memory" : {
+            "memory_organization" : {
+               "version" : 1,
+               "address_translation" : "contoso-simple-v1",
+               "dimm_size_gib" : 64
+            },
+            "socket" : 0,
             "memory_repair_capabilities" : {
                "hard_ppr_boot_time_supported" : true,
                "soft_ppr_boot_time_supported" : true,
@@ -198,13 +204,7 @@
                      }
                   ]
                }
-            ],
-            "memory_organization" : {
-               "version" : 1,
-               "address_translation" : "contoso-simple-v1",
-               "dimm_size_gib" : 64
-            },
-            "socket" : 0
+            ]
          }
       }
    ]

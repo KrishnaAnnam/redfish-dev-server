@@ -1,0 +1,49 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM",
+  "@odata.type": "#Chassis.v1_16_0.Chassis",
+  "Actions": {
+    "#Chassis.Reset": {
+      "@Redfish.ActionInfo": "/redfish/v1/Chassis/DC_SCM/ResetActionInfo",
+      "target": "/redfish/v1/Chassis/DC_SCM/Actions/Chassis.Reset"
+    }
+  },
+  "ChassisType": "RackMount",
+  "FRU": {
+    "@odata.id": "/redfish/v1/Chassis/DC_SCM/FRU"
+  },
+  "Id": "DC_SCM",
+  "Links": {
+    "ComputerSystems": [
+      {
+        "@odata.id": "/redfish/v1/Systems/system"
+      }
+    ],
+    "ManagedBy": [
+      {
+        "@odata.id": "/redfish/v1/Managers/System"
+      }
+    ]
+  },
+  "Manufacturer": "03B",
+  "Model": "M1120",
+  "Name": "DC_SCM",
+  "PCIeDevices": {
+    "@odata.id": "/redfish/v1/Systems/system/PCIeDevices"
+  },
+  "Power": {
+    "@odata.id": "/redfish/v1/Chassis/DC_SCM/Power"
+  },
+  "PowerState": "On",
+  "Sensors": {
+    "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors"
+  },
+  "SerialNumber": "M1281347902B3452019603B",
+  "Status": {
+    "Health": "OK",
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "Thermal": {
+    "@odata.id": "/redfish/v1/Chassis/DC_SCM/Thermal"
+  }
+}

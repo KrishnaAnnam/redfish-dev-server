@@ -1,0 +1,30 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_VR_0",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Temp_VR_0 Sensor",
+  "Id": "Temp_VR_0",
+  "Name": "Temp VR 0",
+  "Reading": 47.0,
+  "ReadingRangeMax": 127.0,
+  "ReadingRangeMin": -128.0,
+  "ReadingType": "Temperature",
+  "ReadingUnits": "Cel",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCritical": {
+      "Reading": 104.0
+    },
+    "UpperFatal": {
+      "Reading": 125.0
+    }
+  }
+}

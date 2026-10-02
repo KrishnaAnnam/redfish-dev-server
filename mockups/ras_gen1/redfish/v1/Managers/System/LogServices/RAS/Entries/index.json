@@ -1,0 +1,7 @@
+{
+  "@odata.type": "#LogEntryCollection.LogEntryCollection",
+  "@odata.id": "/redfish/v1/Managers/System/LogServices/RAS/Entries",
+  "Name": "RAS Log Entries",
+  "Members@odata.count": 0,
+  "Members": []
+}

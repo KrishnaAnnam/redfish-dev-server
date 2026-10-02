@@ -1,0 +1,16 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_PSU_OUTLET",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "Temp_PSU_OUTLET Sensor",
+  "Id": "Temp_PSU_OUTLET",
+  "Name": "Temp PSU OUTLET",
+  "Reading": 28.0,
+  "ReadingRangeMax": 127.0,
+  "ReadingRangeMin": -128.0,
+  "ReadingType": "Temperature",
+  "ReadingUnits": "Cel",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

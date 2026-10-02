@@ -1,0 +1,13 @@
+{
+  "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/PSU",
+  "@odata.type": "#SoftwareInventory.v1_1_0.SoftwareInventory",
+  "Description": "PSU image",
+  "Id": "PSU",
+  "Name": "Software Inventory",
+  "Status": {
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "Updateable": true,
+  "Version": "24010300"
+}

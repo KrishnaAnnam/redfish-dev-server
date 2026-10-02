@@ -1,0 +1,121 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM/Power",
+  "@odata.type": "#Power.v1_5_2.Power",
+  "Id": "Power",
+  "Name": "Power",
+  "PowerControl": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Power#/PowerControl/0",
+      "@odata.type": "#Power.v1_0_0.PowerControl",
+      "MemberId": "0",
+      "Name": "Chassis Power Control",
+      "PowerLimit": {
+        "LimitException": "NoAction",
+        "LimitInWatts": null
+      }
+    }
+  ],
+  "Redundancy": [],
+  "Voltages": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Power#/Voltages/0",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 10.23,
+      "LowerThresholdNonCritical": 10.824,
+      "MaxReadingRange": 13.846154354027762,
+      "MemberId": "P12V_AUX_SCM",
+      "MinReadingRange": 0.0,
+      "Name": "P12V AUX SCM",
+      "ReadingVolts": 12.2615,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "Thresholds": {
+        "LowerFatal": {
+          "Reading": null
+        },
+        "UpperFatal": {
+          "Reading": 14.388
+        }
+      },
+      "UpperThresholdCritical": 13.794,
+      "UpperThresholdNonCritical": 13.2
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Power#/Voltages/1",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 2.117,
+      "LowerThresholdNonCritical": 2.204,
+      "MaxReadingRange": 5.454545237801301,
+      "MemberId": "P3V_BAT",
+      "MinReadingRange": 0.0,
+      "Name": "P3V BAT",
+      "ReadingVolts": 3.1788,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "Thresholds": {
+        "LowerFatal": {
+          "Reading": 2.001
+        },
+        "UpperFatal": {
+          "Reading": 4.002
+        }
+      },
+      "UpperThresholdCritical": 3.944,
+      "UpperThresholdNonCritical": 3.915
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Power#/Voltages/2",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 2.97,
+      "LowerThresholdNonCritical": 3.1,
+      "MaxReadingRange": 3.6,
+      "MemberId": "P3V3_AUX_SCM",
+      "MinReadingRange": 0.0,
+      "Name": "P3V3 AUX SCM",
+      "ReadingVolts": 3.318,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "Thresholds": {
+        "LowerFatal": {
+          "Reading": null
+        },
+        "UpperFatal": {
+          "Reading": 3.8
+        }
+      },
+      "UpperThresholdCritical": 3.63,
+      "UpperThresholdNonCritical": 3.5
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Power#/Voltages/3",
+      "@odata.type": "#Power.v1_0_0.Voltage",
+      "LowerThresholdCritical": 4.5,
+      "LowerThresholdNonCritical": 4.7,
+      "MaxReadingRange": 5.454545237801301,
+      "MemberId": "P5V_AUX_SCM",
+      "MinReadingRange": 0.0,
+      "Name": "P5V AUX SCM",
+      "ReadingVolts": 5.0485,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "Thresholds": {
+        "LowerFatal": {
+          "Reading": null
+        },
+        "UpperFatal": {
+          "Reading": 5.75
+        }
+      },
+      "UpperThresholdCritical": 5.5,
+      "UpperThresholdNonCritical": 5.3
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/SEL",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "SEL Sensor",
+  "Id": "SEL",
+  "Name": "SEL",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

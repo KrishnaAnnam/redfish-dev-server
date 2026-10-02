@@ -1,0 +1,16 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/PWM_1",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "PWM_1 Sensor",
+  "Id": "PWM_1",
+  "Name": "PWM 1",
+  "Reading": 24.0,
+  "ReadingRangeMax": 100.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Percent",
+  "ReadingUnits": "%",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

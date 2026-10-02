@@ -1,0 +1,35 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM/Thermal",
+  "@odata.type": "#Thermal.v1_4_0.Thermal",
+  "Fans": [],
+  "Id": "Thermal",
+  "Name": "Thermal",
+  "Redundancy": [],
+  "Temperatures": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM/Thermal#/Temperatures/0",
+      "@odata.type": "#Thermal.v1_3_0.Temperature",
+      "LowerThresholdCritical": null,
+      "LowerThresholdNonCritical": null,
+      "MaxReadingRangeTemp": 127.0,
+      "MemberId": "SCM_INLET_TMP",
+      "MinReadingRangeTemp": -128.0,
+      "Name": "SCM INLET TMP",
+      "ReadingCelsius": 26.396,
+      "Status": {
+        "Health": "OK",
+        "State": "Enabled"
+      },
+      "Thresholds": {
+        "LowerFatal": {
+          "Reading": null
+        },
+        "UpperFatal": {
+          "Reading": 45.0
+        }
+      },
+      "UpperThresholdCritical": 40.0,
+      "UpperThresholdNonCritical": 37.0
+    }
+  ]
+}

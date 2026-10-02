@@ -1,0 +1,19 @@
+{
+  "platform_id": "ras_gen1",
+  "platform_type": "generic",
+  "display_name": "RAS Gen 1 Platform",
+  "extensions": [
+    {
+      "name": "ras",
+      "enabled": true,
+      "config": {
+        "endpoint_config": "ras_endpoint_config.json",
+        "log_service_enabled": true,
+        "event_service_enabled": true,
+        "queue_enabled": true,
+        "analytics_enabled": true,
+        "remediation_enabled": true
+      }
+    }
+  ]
+}

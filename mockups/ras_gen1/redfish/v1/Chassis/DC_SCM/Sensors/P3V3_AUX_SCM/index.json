@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/DC_SCM/Sensors/P3V3_AUX_SCM",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "P3V3_AUX_SCM Sensor",
+  "Id": "P3V3_AUX_SCM",
+  "Name": "P3V3 AUX SCM",
+  "Reading": 3.32,
+  "ReadingRangeMax": 3.6,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Voltage",
+  "ReadingUnits": "V",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": 3.1
+    },
+    "LowerCritical": {
+      "Reading": 2.97
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 3.5
+    },
+    "UpperCritical": {
+      "Reading": 3.63
+    },
+    "UpperFatal": {
+      "Reading": 3.8
+    }
+  }
+}

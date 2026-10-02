@@ -1,0 +1,49 @@
+{
+  "@odata.id": "/redfish/v1/Managers/System/EthernetInterfaces/sit0",
+  "@odata.type": "#EthernetInterface.v1_4_1.EthernetInterface",
+  "DHCPv4": {
+    "DHCPEnabled": true,
+    "UseDNSServers": true,
+    "UseDomainName": true,
+    "UseNTPServers": true
+  },
+  "DHCPv6": {
+    "OperatingMode": "Stateful",
+    "UseDNSServers": true,
+    "UseDomainName": true,
+    "UseNTPServers": true
+  },
+  "Description": "Management Network Interface",
+  "FQDN": "m1120-c219b",
+  "HostName": "m1120-c219b",
+  "IPv4Addresses": [],
+  "IPv4StaticAddresses": [],
+  "IPv6AddressPolicyTable": [],
+  "IPv6Addresses": [
+    {
+      "Address": "::127.0.0.1",
+      "AddressOrigin": "DHCPv6",
+      "AddressState": null,
+      "PrefixLength": 96
+    }
+  ],
+  "IPv6DefaultGateway": "0:0:0:0:0:0:0:0",
+  "IPv6StaticAddresses": [],
+  "Id": "sit0",
+  "InterfaceEnabled": true,
+  "LinkStatus": "LinkUp",
+  "MACAddress": "00:00:00:00:00:00",
+  "MTUSize": 1480,
+  "Name": "Manager Ethernet Interface",
+  "NameServers": [],
+  "SpeedMbps": 0,
+  "StaticNameServers": [],
+  "Status": {
+    "Health": "OK",
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "VLANs": {
+    "@odata.id": "/redfish/v1/Managers/System/EthernetInterfaces/sit0/VLANs"
+  }
+}

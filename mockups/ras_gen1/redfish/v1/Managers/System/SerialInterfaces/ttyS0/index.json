@@ -1,0 +1,14 @@
+{
+  "@odata.context": "/redfish/v1/$metadata#SerialInterface.SerialInterface",
+  "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces/ttyS0",
+  "@odata.type": "#SerialInterface.v1_1_5.SerialInterface",
+  "BitRate": "115200",
+  "DataBits": "8",
+  "Description": "Serial device @ /dev/ttyS0",
+  "FlowControl": "None",
+  "Id": "ttyS0",
+  "InterfaceEnabled": false,
+  "Name": "ttyS0",
+  "Parity": "None",
+  "StopBits": "1"
+}

@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_CORE_0_CUR",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "VR_CORE_0_CUR Sensor",
+  "Id": "VR_CORE_0_CUR",
+  "Name": "VR CORE 0 CUR",
+  "Reading": 5.687,
+  "ReadingRangeMax": 255.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Current",
+  "ReadingUnits": "A",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": null
+    },
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 350.0
+    },
+    "UpperCritical": {
+      "Reading": 355.0
+    },
+    "UpperFatal": {
+      "Reading": 360.0
+    }
+  }
+}

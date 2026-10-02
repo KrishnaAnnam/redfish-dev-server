@@ -1,0 +1,36 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_CORE_0_PWR",
+  "@odata.type": "#Sensor.v1_2_0.Sensor",
+  "Description": "VR_CORE_0_PWR Sensor",
+  "Id": "VR_CORE_0_PWR",
+  "Name": "VR CORE 0 PWR",
+  "Reading": 5.25,
+  "ReadingRangeMax": 3000.0,
+  "ReadingRangeMin": 0.0,
+  "ReadingType": "Power",
+  "ReadingUnits": "W",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  },
+  "Thresholds": {
+    "LowerCaution": {
+      "Reading": null
+    },
+    "LowerCritical": {
+      "Reading": null
+    },
+    "LowerFatal": {
+      "Reading": null
+    },
+    "UpperCaution": {
+      "Reading": 700.0
+    },
+    "UpperCritical": {
+      "Reading": 750.0
+    },
+    "UpperFatal": {
+      "Reading": 800.0
+    }
+  }
+}

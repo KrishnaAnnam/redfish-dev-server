@@ -1,0 +1,67 @@
+{
+  "header": {
+    "revision": {
+      "major": 0,
+      "minor": 0
+    },
+    "sectionCount": 1,
+    "severity": {
+      "code": 3,
+      "name": "Informational"
+    },
+    "recordLength": 264,
+    "timestamp": "2025-06-27T12:15:05+00:00",
+    "timestampIsPrecise": false,
+    "platformID": "990f8820-bd4d-5064-58cc-961a053dea79",
+    "creatorID": "11111111-2222-3333-4444-555555555555",
+    "notificationType": {
+      "guid": "00000000-0000-0000-0000-000000000000",
+      "type": "Unknown"
+    },
+    "recordID": 1804289383,
+    "flags": {
+      "value": 4,
+      "name": "HW_ERROR_FLAGS_SIMULATED"
+    },
+    "persistenceInfo": 0,
+    "partitionID": "22222222-3333-4444-5555-666666666666"
+  },
+  "sectionDescriptors": [
+    {
+      "sectionOffset": 200,
+      "sectionLength": 64,
+      "revision": {
+        "major": 155,
+        "minor": 24
+      },
+      "flags": {
+        "containmentWarning": false,
+        "errorThresholdExceeded": true,
+        "latentError": true,
+        "overflow": false,
+        "primary": true,
+        "propagated": false,
+        "reset": false,
+        "resourceNotAccessible": false,
+        "actionSuccess": true
+      },
+      "sectionType": {
+        "data": "6730c5e9-5aed-45a6-887d-cecb837403dc",
+        "type": "Info-action-ppr"
+      },
+      "fruID": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+      "fruText": "DIMM A1",
+      "severity": {
+        "code": 3,
+        "name": "Informational"
+      }
+    }
+  ],
+  "sections": [
+    {
+      "InfoActionPpr": {
+        "data": "z1WxAi/l7ezoCbekJWXVz2HSIcEWH4NFiEjoidkDvRkKykCaBK3qDNosILQdU1/4t/U1T5qFhHTvQtMVFgo7wA=="
+      }
+    }
+  ]
+}

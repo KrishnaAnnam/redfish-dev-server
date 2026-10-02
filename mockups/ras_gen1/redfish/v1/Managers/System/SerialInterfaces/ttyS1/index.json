@@ -1,0 +1,22 @@
+{
+  "@odata.context": "/redfish/v1/$metadata#SerialInterface.SerialInterface",
+  "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces/ttyS1",
+  "@odata.type": "#SerialInterface.v1_1_5.SerialInterface",
+  "BitRate": "115200",
+  "DataBits": "8",
+  "Description": "Serial device @ /dev/ttyS1",
+  "FlowControl": "None",
+  "Id": "ttyS1",
+  "InterfaceEnabled": true,
+  "Name": "ttyS1",
+  "Oem": {
+    "ConsoleLog": {
+      "@odata.id": "/redfish/v1/Managers/System/SerialInterfaces/SAC/ConsoleLog",
+      "LastUpdated": "2025-10-11T00:22:13+00:00",
+      "Name": "SAC",
+      "OutputSize": 26206
+    }
+  },
+  "Parity": "None",
+  "StopBits": "1"
+}

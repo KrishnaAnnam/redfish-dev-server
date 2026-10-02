@@ -1,0 +1,20 @@
+{
+  "@odata.id": "/redfish/v1/Chassis",
+  "@odata.type": "#ChassisCollection.ChassisCollection",
+  "Members": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/DC_SCM"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/DefaultSetting"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/Glacier_Peak"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System"
+    }
+  ],
+  "Members@odata.count": 4,
+  "Name": "Chassis Collection"
+}

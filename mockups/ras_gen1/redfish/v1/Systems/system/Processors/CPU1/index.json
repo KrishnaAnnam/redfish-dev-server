@@ -1,0 +1,14 @@
+{
+  "@odata.id": "/redfish/v1/Systems/system/Processors/CPU1",
+  "@odata.type": "#Processor.v1_11_0.Processor",
+  "Id": "CPU1",
+  "MaxSpeedMHz": 3250,
+  "Model": "Turin",
+  "Name": "Processor",
+  "ProcessorType": "CPU",
+  "Socket": 1,
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

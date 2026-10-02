@@ -1,0 +1,56 @@
+{
+  "@odata.id": "/redfish/v1/Managers/System/EthernetInterfaces/eth0",
+  "@odata.type": "#EthernetInterface.v1_4_1.EthernetInterface",
+  "DHCPv4": {
+    "DHCPEnabled": true,
+    "UseDNSServers": true,
+    "UseDomainName": true,
+    "UseNTPServers": true
+  },
+  "DHCPv6": {
+    "OperatingMode": "Stateful",
+    "UseDNSServers": true,
+    "UseDomainName": true,
+    "UseNTPServers": true
+  },
+  "Description": "Management Network Interface",
+  "FQDN": "m1120-c219b",
+  "HostName": "m1120-c219b",
+  "IPv4Addresses": [
+    {
+      "Address": "172.17.0.37",
+      "AddressOrigin": "DHCP",
+      "Gateway": "172.17.0.38",
+      "SubnetMask": "255.255.255.252"
+    }
+  ],
+  "IPv4StaticAddresses": [],
+  "IPv6AddressPolicyTable": [],
+  "IPv6Addresses": [
+    {
+      "Address": "fe80::5efe:9eff:fe0b:a34d",
+      "AddressOrigin": "LinkLocal",
+      "AddressState": null,
+      "PrefixLength": 64
+    }
+  ],
+  "IPv6DefaultGateway": "0:0:0:0:0:0:0:0",
+  "IPv6StaticAddresses": [],
+  "Id": "eth0",
+  "InterfaceEnabled": true,
+  "LinkStatus": "LinkUp",
+  "MACAddress": "5c:fe:9e:0b:a3:4d",
+  "MTUSize": 1500,
+  "Name": "Manager Ethernet Interface",
+  "NameServers": [],
+  "SpeedMbps": 0,
+  "StaticNameServers": [],
+  "Status": {
+    "Health": "OK",
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "VLANs": {
+    "@odata.id": "/redfish/v1/Managers/System/EthernetInterfaces/eth0/VLANs"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "@odata.id": "/redfish/v1/chassis/System/FRU",
+  "@odata.type": "#FRUCollection.FRUCollection",
+  "Description": "Collection of FRU's for this Chassis",
+  "Members": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/FRU/M1120"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/FRU/C219B__"
+    }
+  ],
+  "Members@odata.count": 2,
+  "Name": "FRU Collection"
+}

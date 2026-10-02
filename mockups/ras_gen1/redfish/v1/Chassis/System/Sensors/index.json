@@ -1,0 +1,330 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/System/Sensors",
+  "@odata.type": "#SensorCollection.SensorCollection",
+  "Description": "Collection of Sensors for this Chassis",
+  "Members": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/HSC0_Output_Curr"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_CORE_0_CUR"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_CORE_1_CUR"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_SOC_CUR"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_SUS_CUR"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_VDDIO_CUR"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/ACPI_STATE"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/BIOS_SMI_Timeout"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_Action"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/PWM_1"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Pwm_PSU_Fan_1"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Pwm_PSU_Fan_2"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Pwm_PSU_Fan_3"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_1A"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_1B"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_2A"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_2B"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_3A"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_3B"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_4A"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_4B"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_5A"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_5B"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_6A"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_6B"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_PSU_1"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_PSU_2"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Fan_PSU_3"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_CTRL_1"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_CTRL_10"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_CTRL_2"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_CTRL_3"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_CTRL_4"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_CTRL_5"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_CTRL_6"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_CTRL_7"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_CTRL_8"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_CTRL_9"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1S_Present"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/PSUFeed"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/PSUStatus"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/HSC0_Input_Power"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_CPU0"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_A"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_B"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_C"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_D"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_E"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_F"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_G"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_H"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_I"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_J"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_K"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Power_DIMM_L"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_CORE_0_PWR"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_CORE_1_PWR"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_SOC_PWR"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_SUS_PWR"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/VR_VDDIO_PWR"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1_S1"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1_S10"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1_S2"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1_S3"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1_S4"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1_S5"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1_S6"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1_S7"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1_S8"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/E1_S9"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/M2_S1"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/M2_S2"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_CPU0"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_A"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_B"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_C"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_D"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_E"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_F"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_G"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_H"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_I"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_J"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_K"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_L"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_DIMM_MAX"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_E1S_High"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_HSC0"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_Inlet"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_M2_High"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_PSU_HOTSPOT"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_PSU_INLET"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_PSU_OUTLET"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_VR_0"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/Temp_VR_1"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/HSC0_Input_Volt"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/P0_11_SUS"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/P0_CORE_0_RUN"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/P0_CORE_1_RUN"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/P0_SOC_RUN"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/P0_VDDIO_RUN"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/P12V"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/P12V_AUX_HPM"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/P1V8_AUX_HPM"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/P3V3"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/P3V3_AUX_HPM"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/System/Sensors/P5V_AUX_HPM"
+    }
+  ],
+  "Members@odata.count": 107,
+  "Name": "Sensors"
+}

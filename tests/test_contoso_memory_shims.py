@@ -1,0 +1,1352 @@
+#!/usr/bin/env python3
+"""Focused tests for Contoso memory-vendor shim integration."""
+
+import base64
+import copy
+import contextlib
+import importlib.util
+import io
+import json
+import sys
+import tempfile
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+CONTOSO_DIR = ROOT / "examples" / "ras_api_demo" / "analyzers" / "contoso"
+RAS_DEMO_DIR = ROOT / "examples" / "ras_api_demo"
+sys.path.insert(0, str(CONTOSO_DIR))
+sys.path.insert(0, str(RAS_DEMO_DIR))
+sys.path.insert(0, str(ROOT))
+
+import contoso_action_parameters as action_parameters  # noqa: E402
+import contoso_catalog as catalog  # noqa: E402
+import contoso_encoder as encoder  # noqa: E402
+import injection_spec as spec_model  # noqa: E402
+from memory_address_translation import (  # noqa: E402
+    MemoryAddressConfiguration,
+    MemoryChannelAddress,
+    MemoryOrganization,
+    memory_address_to_physical_address,
+)
+import analysis_orchestrator as orchestrator_module  # noqa: E402
+from memory_events import decode_memory_events  # noqa: E402
+from memory_controller_analyzer import MemoryControllerAnalyzer  # noqa: E402
+from memory_shims.contract import (  # noqa: E402
+    ShimContractError,
+    discover_memory_shims,
+)
+from analysis_orchestrator import AnalysisOrchestrator  # noqa: E402
+
+
+ANALYZER_PATH = CONTOSO_DIR / "analyzer-contoso.py"
+SPEC = importlib.util.spec_from_file_location("analyzer_contoso_shims", ANALYZER_PATH)
+assert SPEC and SPEC.loader
+ANALYZER_MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(ANALYZER_MODULE)
+ContosoAnalyzer = ANALYZER_MODULE.ContosoAnalyzer
+
+PLATFORM_ID = "990f8820-bd4d-5064-58cc-961a053dea79"
+PARTITION_ID = "22222222-3333-4444-5555-666666666666"
+CREATOR_ID = "11111111-2222-3333-4444-555555555555"
+FRU_ID = "75824856-bd36-2cc8-61f4-39bb3276da2a"
+FRU_TEXT = "DIMM A1"
+MICRON = [0x80, 0x2C]
+SAMSUNG = [0x80, 0xCE]
+
+
+def _memory_cper(vendor=MICRON, record_id=1, fru_id=FRU_ID,
+                 fru_text=FRU_TEXT, error_name="Corrected Memory ECC Error",
+                 column=567):
+    spec = spec_model.build_template(
+        "Memory Controller - First Generation", error_name)
+    spec["section"]["subcomponent"] = {"chiplet": 0, "controller": 0}
+    spec["section"]["additional"].update({
+        "channel": 0,
+        "dimm": 1,
+        "subchannel": 0,
+        "rank": 0,
+        "device": 3,
+        "bank_group": 2,
+        "bank": 3,
+        "row": 1234,
+        "column": column,
+        "dram_manufacturer_id": vendor,
+        "serial_number": "SERIAL",
+        "part_number": "PART",
+    })
+    configuration = MemoryAddressConfiguration(MemoryOrganization(
+        version=1,
+        address_translation="contoso-simple-v1",
+        dimm_size_gib=64,
+    ))
+    spec["section"]["errorAddress"] = hex(
+        memory_address_to_physical_address(
+            MemoryChannelAddress(
+                socket=0,
+                chiplet=0,
+                memory_controller=0,
+                channel=0,
+                dimm=1,
+                subchannel=0,
+                rank=0,
+                bank_group=2,
+                bank=3,
+                row=1234,
+                column=column,
+            ),
+            configuration,
+        ))
+    body = encoder.pack_section_body(
+        "Memory Controller - First Generation", "DRAM Errors",
+        spec_model.to_encoder_fields(spec))
+    return {
+        "header": {
+            "platformID": PLATFORM_ID,
+            "partitionID": PARTITION_ID,
+            "creatorID": CREATOR_ID,
+            "recordID": record_id,
+            "severity": {"name": "Corrected", "code": 2},
+        },
+        "sectionDescriptors": [{
+            "sectionType": {
+                "data": catalog.SECTION_TYPES[
+                    "Memory Controller - First Generation"]["guid"],
+                "type": "Unknown",
+            },
+            "fruID": fru_id,
+            "fruText": fru_text,
+        }],
+        "sections": [{"Unknown": {
+            "data": base64.b64encode(body).decode("ascii"),
+        }}],
+    }
+
+
+def _action_cper(action_id="0x9001", return_code="0x01",
+                 fru_id=FRU_ID, fru_text=FRU_TEXT):
+    return {
+        "header": {
+            "platformID": PLATFORM_ID,
+            "partitionID": PARTITION_ID,
+            "creatorID": CREATOR_ID,
+            "recordID": 2,
+            "severity": {"name": "Platform Action Event", "code": 4},
+        },
+        "sectionDescriptors": [{
+            "sectionType": {"type": "Platform Action Event"},
+            "fruID": fru_id,
+            "fruText": fru_text,
+        }],
+        "sections": [{"PlatformActionEvent": {
+            "cpadActionId": action_id,
+            "actionReturnCode": return_code,
+            "actionReturnReasonCode": "0x55",
+            "cpadRecordId": "0x1234",
+            "cpadSectionIndex": 0,
+        }}],
+    }
+
+
+def _cpu_section():
+    fields = {
+        "subcomponent": {"chiplet": 0, "core": 1},
+        "error_status": (True, False, 3, 2),
+        "error_address": 0x1234,
+        "misc0": (False, 0),
+        "misc1": 0,
+        "additional": {
+            "timeout_transaction_details": 0,
+            "register_parity_details": 0,
+            "cache_location": 0,
+            "assert_details": 0,
+            "core_debug_details": 0,
+        },
+    }
+    body = encoder.pack_section_body(
+        "CPU Core - First Generation", "Core Errors", fields)
+    return (
+        {"sectionType": {
+            "data": catalog.SECTION_TYPES[
+                "CPU Core - First Generation"]["guid"],
+            "type": "Unknown",
+        }},
+        {"Unknown": {"data": base64.b64encode(body).decode("ascii")}},
+    )
+
+
+def _other_memory_cper():
+    fields = {
+        "subcomponent": {"chiplet": 0, "controller": 2},
+        "error_status": (True, False, 3, 1),
+        "error_address": 0,
+        "misc0": (False, 1),
+        "misc1": 0,
+        "additional": {
+            "DllLockLossInfo": 7,
+            "ErrorStructure": 8,
+            "OtherMeshEntity": 9,
+        },
+    }
+    body = encoder.pack_section_body(
+        "Memory Controller - First Generation", "Other Errors", fields)
+    cper = _memory_cper()
+    cper["sectionDescriptors"] = [cper["sectionDescriptors"][0]]
+    cper["sections"] = [{"Unknown": {
+        "data": base64.b64encode(body).decode("ascii"),
+    }}]
+    return cper
+
+
+def _records(*cpers):
+    return [
+        {
+            "cper_data": cper,
+            "cper_file": f"record-{index}.cper",
+            "is_newest": index == 0,
+        }
+        for index, cper in enumerate(cpers)
+    ]
+
+
+def _cpad_for_event(event, action_id="0x9001"):
+    return {
+        "header": {
+            "platformID": event["header"]["platformID"],
+            "partitionID": event["header"]["partitionID"],
+            "creatorID": event["header"]["creatorID"],
+            "sectionCount": 1,
+            "urgency": 0,
+        },
+        "sectionDescriptors": [{
+            "actionID": {"code": action_id, "name": "Vendor action"},
+            "confidence": 90,
+            "urgency": 0,
+            "fruID": event["section_descriptor"]["fruID"],
+            "fruText": event["section_descriptor"]["fruText"],
+        }],
+        "sections": [{"Unknown": {"data": ""}}],
+    }
+
+
+def _action_request_for_event(
+        event, action_id=action_parameters.PAGE_OFFLINE_ACTION_ID,
+        parameters=None, urgency=False):
+    if parameters is None:
+        if action_id == action_parameters.PPR_ACTION_ID:
+            error = event["memory_error"]
+            subcomponent = error["subcomponent"]
+            additional = error["additional"]
+            parameters = {
+                "ppr_type": action_parameters.PPR_TYPE_SOFT_RUNTIME,
+                "chiplet": subcomponent["chiplet"],
+                "controller": subcomponent["controller"],
+                "channel": additional["channel"],
+                "dimm": additional["dimm"],
+                "subchannel": additional["subchannel"],
+                "rank": additional["rank"],
+                "device": additional["device"],
+                "bank_group": additional["bank_group"],
+                "bank": additional["bank"],
+                "row": additional["row"],
+            }
+        elif action_id == action_parameters.PAGE_OFFLINE_ACTION_ID:
+            parameters = {
+                "page_ranges": [{
+                    "start_address":
+                        event["memory_error"]["error_address"] & ~0xFFF,
+                    "page_count": 1,
+                }],
+            }
+        else:
+            parameters = {}
+    if action_id in {
+            action_parameters.RESEAT_PART_ACTION_ID,
+            action_parameters.SHUFFLE_PART_ACTION_ID,
+            action_parameters.REPLACE_PART_ACTION_ID,
+            action_parameters.PPR_ACTION_ID,
+            action_parameters.PAGE_OFFLINE_ACTION_ID}:
+        parameters = {
+            "fru_id": event["fru_id"],
+            "fru_text": event["fru_text"],
+            **parameters,
+        }
+    return {
+        "cper_file": event["cper_file"],
+        "section_index": event["section_index"],
+        "action_id": action_id,
+        "confidence": 90,
+        "urgency": urgency,
+        "parameters": parameters,
+    }
+
+
+def _proposal(*requests):
+    return {"sections": list(requests)}
+
+
+class FakeShim:
+    def __init__(self, result=None, error=None, vendor="micron"):
+        self.name = f"{vendor.title()} Fake Shim"
+        self.path = Path(f"analyzer_{vendor}.py")
+        self.result = result
+        self.error = error
+        self.received = None
+
+    def analyze(self, events):
+        self.received = copy.deepcopy(events)
+        if self.error:
+            raise RuntimeError(self.error)
+        if callable(self.result):
+            return self.result(events)
+        return copy.deepcopy(self.result or [])
+
+
+def test_discovers_three_stub_shims():
+    shims, errors = discover_memory_shims(CONTOSO_DIR / "memory_shims")
+
+    assert errors == []
+    assert set(shims) == {(0x80, 0x2C), (0x80, 0xCE), (0x80, 0xAD)}
+    samsung_event = decode_memory_events(
+        _records(_memory_cper(SAMSUNG)))[0]
+    assert shims[tuple(SAMSUNG)].analyze([samsung_event]) == []
+    assert shims[tuple(MICRON)].analyze([]) == []
+    assert shims[(0x80, 0xAD)].analyze([]) == []
+
+
+def test_rejects_version_4_shim_contract():
+    with tempfile.TemporaryDirectory() as directory:
+        shim_dir = Path(directory)
+        (shim_dir / "analyzer_legacy.py").write_text(
+            "SHIM_INFO = {'api_version': 4, 'name': 'Legacy', "
+            "'version': '1', 'dram_manufacturer_ids': [[128, 44]]}\n"
+            "def analyze_memory_events(events): return []\n")
+
+        shims, errors = discover_memory_shims(shim_dir)
+
+        assert shims == {}
+        assert len(errors) == 1
+        assert "unsupported api_version 4" in errors[0]
+
+
+def test_multi_id_shim_registration_is_atomic_on_conflict():
+    with tempfile.TemporaryDirectory() as directory:
+        shim_dir = Path(directory)
+        (shim_dir / "analyzer_a.py").write_text(
+            "SHIM_INFO = {'api_version': 5, 'name': 'A', 'version': '1', "
+            "'dram_manufacturer_ids': [[128, 206]]}\n"
+            "def analyze_memory_events(events): return []\n")
+        (shim_dir / "analyzer_b.py").write_text(
+            "SHIM_INFO = {'api_version': 5, 'name': 'B', 'version': '1', "
+            "'dram_manufacturer_ids': [[128, 44], [128, 206]]}\n"
+            "def analyze_memory_events(events): return []\n")
+
+        shims, errors = discover_memory_shims(shim_dir)
+
+        assert set(shims) == {tuple(SAMSUNG)}
+        assert len(errors) == 1
+        assert "duplicates manufacturer ID" in errors[0]
+
+
+def test_decodes_complete_memory_error():
+    events = decode_memory_events(_records(_memory_cper()))
+
+    assert len(events) == 1
+    event = events[0]
+    assert list(event)[:3] == [
+        "cper_file", "section_index", "event_type"]
+    assert event["cper_file"] == "record-0.cper"
+    assert event["section_index"] == 0
+    assert event["event_type"] == "memory_error"
+    assert event["source"] == {
+        "cper_file": "record-0.cper",
+        "window_index": 0,
+        "section_index": 0,
+        "is_newest": True,
+    }
+    assert event["fru"] == {"id": FRU_ID, "text": FRU_TEXT}
+    assert event["fru_id"] == FRU_ID
+    assert event["fru_text"] == FRU_TEXT
+    assert event["dram_manufacturer_id"] == MICRON
+    assert event["memory_organization"] == {
+        "version": 1,
+        "address_translation": "contoso-simple-v1",
+        "dimm_size_gib": 64,
+    }
+    assert event["address_translation"]["coordinates_match_cper"] is True
+    assert event["address_translation"]["memory_address"]["dimm"] == 1
+    assert event["address_translation"]["memory_address"]["column"] == 567
+    assert event["memory_error"]["bank"] == "DRAM Errors"
+    assert event["memory_error"]["name"] == "Corrected Memory ECC Error"
+    assert event["memory_error"]["subcomponent"] == {
+        "chiplet": 0, "controller": 0}
+
+
+def test_memory_event_reports_mismatched_translated_coordinates():
+    cper = _memory_cper()
+    body = bytearray(base64.b64decode(
+        cper["sections"][0]["Unknown"]["data"]))
+    body[16:24] = (0).to_bytes(8, "little")
+    cper["sections"][0]["Unknown"]["data"] = base64.b64encode(
+        body).decode("ascii")
+
+    event = decode_memory_events(_records(cper))[0]
+
+    assert event["address_translation"]["coordinates_match_cper"] is False
+    additional = event["memory_error"]["additional"]
+    assert additional["serial_number"] == "SERIAL"
+    assert event["spd_temperature"] is None
+    assert additional["spd_temperature"] is None
+    assert additional["device"] == 3
+    assert additional["row"] == 1234
+    assert "beat_mask" in additional
+    assert "repairs" in additional
+
+
+def test_decodes_every_memory_section_in_source_order():
+    first = _memory_cper(MICRON)
+    second = _memory_cper(MICRON)
+    combined = copy.deepcopy(first)
+    combined["sectionDescriptors"].append(second["sectionDescriptors"][0])
+    combined["sections"].append(second["sections"][0])
+
+    events = decode_memory_events(_records(combined))
+
+    assert len(events) == 2
+    assert [event["source"]["section_index"] for event in events] == [0, 1]
+
+
+def test_memory_history_keeps_only_same_identity_and_newest_dram_vendor():
+    newest = _memory_cper(MICRON)
+    mixed_history = _memory_cper(MICRON, record_id=2)
+    cpu_descriptor, cpu_body = _cpu_section()
+    mixed_history["sectionDescriptors"].insert(0, cpu_descriptor)
+    mixed_history["sections"].insert(0, cpu_body)
+    other_vendor = _memory_cper(SAMSUNG, record_id=3)
+    other_platform = _memory_cper(MICRON, record_id=4)
+    other_platform["header"]["platformID"] = (
+        "00000000-0000-0000-0000-000000000001")
+
+    events = MemoryControllerAnalyzer._filtered_events(
+        _records(newest, mixed_history, other_vendor, other_platform),
+        tuple(MICRON),
+    )
+
+    assert [(event["source"]["cper_file"],
+             event["source"]["section_index"])
+            for event in events] == [
+        ("record-0.cper", 0),
+        ("record-1.cper", 1),
+    ]
+    assert all(event["dram_manufacturer_id"] == MICRON for event in events)
+
+
+def test_newest_dram_sections_require_one_manufacturer():
+    sections = [
+        {"decoded": {
+            "bank_name": "DRAM Errors",
+            "additional": {"dram_manufacturer_id": MICRON},
+        }},
+        {"decoded": {
+            "bank_name": "DRAM Errors",
+            "additional": {"dram_manufacturer_id": SAMSUNG},
+        }},
+    ]
+
+    try:
+        MemoryControllerAnalyzer._newest_dram_vendor(sections)
+    except ValueError as exc:
+        assert "must identify one manufacturer" in str(exc)
+    else:
+        raise AssertionError("mixed newest DRAM manufacturers were accepted")
+
+
+def test_memory_other_errors_are_contoso_owned_and_skip_vendor_shims():
+    analyzer = ContosoAnalyzer()
+    shim = FakeShim()
+    memory = MemoryControllerAnalyzer.__new__(MemoryControllerAnalyzer)
+    memory.host = analyzer
+    memory.shims = {tuple(MICRON): shim}
+    memory.shim_errors = []
+    cper = _other_memory_cper()
+    records = _records(cper)
+    grouped = ANALYZER_MODULE.decode_newest_sections(
+        analyzer, cper, "other.cper")
+
+    result = memory.analyze(
+        grouped["memory_controller"], records, "other")
+
+    assert shim.received is None
+    assert result["shim_result"]["invocations"] == []
+    assert len(result["findings"]) == 1
+    assert result["findings"][0]["analysis_owner"] == "contoso"
+    assert result["findings"][0]["error"]["bank"] == "Other Errors"
+    assert result["history_summary"]["messages"] == [
+        "Evaluated 0 prior CPER candidate(s) for matching "
+        "memory-controller errors.",
+        "Selected 0 same-vendor memory record(s).",
+    ]
+    assert result["analysis_route"]["messages"] == [
+        "Using the default Contoso memory-controller analyzer.",
+        "Reason: No DRAM vendor applies to this error.",
+    ]
+
+
+def test_memory_routing_uses_default_when_no_vendor_analyzers_are_available():
+    analyzer = ContosoAnalyzer()
+    memory = MemoryControllerAnalyzer.__new__(MemoryControllerAnalyzer)
+    memory.host = analyzer
+    memory.shims = {}
+    memory.shim_errors = []
+    cper = _memory_cper()
+    records = _records(cper)
+    grouped = ANALYZER_MODULE.decode_newest_sections(
+        analyzer, cper, "memory.cper")
+
+    result = memory.analyze(
+        grouped["memory_controller"], records, "memory")
+
+    assert result["analysis_route"]["messages"] == [
+        "Using the default Contoso memory analyzer.",
+        "Reason: No memory-vendor analyzers are available.",
+    ]
+
+
+def test_memory_routing_identifies_selected_vendor_analyzer():
+    analyzer = ContosoAnalyzer()
+    shim = FakeShim()
+    memory = MemoryControllerAnalyzer.__new__(MemoryControllerAnalyzer)
+    memory.host = analyzer
+    memory.shims = {tuple(MICRON): shim}
+    memory.shim_errors = []
+    cper = _memory_cper()
+    records = _records(cper)
+    grouped = ANALYZER_MODULE.decode_newest_sections(
+        analyzer, cper, "memory.cper")
+
+    result = memory.analyze(
+        grouped["memory_controller"], records, "memory")
+
+    assert result["analysis_route"]["messages"] == [
+        "Using memory-vendor analyzer: Micron Fake Shim",
+        "DRAM manufacturer: 80 2C",
+    ]
+
+
+def test_uncorrected_memory_error_does_not_report_failed_sppr_generation():
+    analyzer = ContosoAnalyzer()
+    memory = MemoryControllerAnalyzer.__new__(MemoryControllerAnalyzer)
+    memory.host = analyzer
+    memory.shims = {}
+    memory.shim_errors = []
+    newest = _memory_cper(
+        record_id=2,
+        error_name="Uncorrected Memory ECC Error",
+        column=891,
+    )
+    prior = _memory_cper(record_id=1, column=567)
+    records = _records(newest, prior)
+    grouped = ANALYZER_MODULE.decode_newest_sections(
+        analyzer, newest, "uncorrected.cper")
+
+    result = memory.analyze(
+        grouped["memory_controller"], records, "uncorrected")
+
+    assert result["dram_row_failure_detected"] is False
+    assert result["cpad_generation_failed"] is False
+    assert result["default_cpads"] == []
+
+
+def test_correlates_arbitrary_action_to_prior_memory_error_by_fru():
+    events = decode_memory_events(_records(
+        _action_cper(action_id="0x9123", return_code="0x01",
+                     fru_id=FRU_ID.upper(), fru_text=f" {FRU_TEXT} "),
+        _memory_cper(),
+    ))
+
+    assert [event["event_type"] for event in events] == [
+        "platform_action", "memory_error"]
+    action = events[0]
+    assert list(action)[:3] == [
+        "cper_file", "section_index", "event_type"]
+    assert action["cper_file"] == "record-0.cper"
+    assert action["section_index"] == 0
+    assert action["dram_manufacturer_id"] == MICRON
+    assert action["correlation"] == {
+        "method": "fru_id_and_text",
+        "matched": True,
+        "ambiguous": False,
+        "source_error_cper": "record-1.cper",
+        "source_error_section_index": 0,
+    }
+    assert action["platform_action"]["action_id"] == "0x9123"
+    assert action["platform_action"]["return_code"] == "0x01"
+    assert action["platform_action"]["reason_code"] == "0x55"
+    assert action["platform_action"]["successful"] is False
+    assert action["memory_target"]["serial_number"] == "SERIAL"
+
+
+def test_action_requires_both_fru_fields_and_unambiguous_vendor():
+    mismatched = decode_memory_events(_records(
+        _action_cper(fru_text="Another DIMM"), _memory_cper()))[0]
+    assert mismatched["correlation"]["matched"] is False
+    assert mismatched["dram_manufacturer_id"] is None
+
+    ambiguous = decode_memory_events(_records(
+        _action_cper(),
+        _memory_cper(MICRON, record_id=2),
+        _memory_cper(SAMSUNG, record_id=1),
+    ))[0]
+    assert ambiguous["correlation"]["matched"] is False
+    assert ambiguous["correlation"]["ambiguous"] is True
+    assert ambiguous["dram_manufacturer_id"] is None
+
+
+def test_same_cper_memory_error_does_not_correlate_action():
+    action = _action_cper()
+    memory = _memory_cper()
+    action["sectionDescriptors"].append(memory["sectionDescriptors"][0])
+    action["sections"].append(memory["sections"][0])
+
+    events = decode_memory_events(_records(action))
+    action_event = next(event for event in events
+                        if event["event_type"] == "platform_action")
+
+    assert action_event["correlation"]["matched"] is False
+    assert action_event["dram_manufacturer_id"] is None
+
+
+def test_valid_empty_stub_owns_newest_vendor_events():
+    analyzer = ContosoAnalyzer()
+    shim = FakeShim()
+    analyzer.memory_shims = {tuple(MICRON): shim}
+
+    result = analyzer.analyze_memory_event_window(_records(
+        _action_cper(), _memory_cper()))
+
+    assert result["cpads"] == []
+    assert result["handled_manufacturers"] == {tuple(MICRON)}
+    assert result["failed_manufacturers"] == set()
+    assert [event["event_type"] for event in shim.received] == [
+        "platform_action", "memory_error"]
+    assert result["invocations"][0]["event_count"] == 2
+    assert analyzer.default_memory_events(result) == []
+
+
+def test_mixed_newest_vendors_fall_back_only_for_unhandled_sections():
+    analyzer = ContosoAnalyzer()
+    analyzer.memory_shims = {tuple(MICRON): FakeShim()}
+    micron = _memory_cper(MICRON)
+    samsung = _memory_cper(SAMSUNG)
+    combined = copy.deepcopy(micron)
+    combined["sectionDescriptors"].append(samsung["sectionDescriptors"][0])
+    combined["sections"].append(samsung["sections"][0])
+
+    result = analyzer.analyze_memory_event_window(_records(combined))
+    fallback = analyzer.default_memory_events(result)
+
+    assert result["handled_manufacturers"] == {tuple(MICRON)}
+    assert len(fallback) == 1
+    assert fallback[0]["dram_manufacturer_id"] == SAMSUNG
+
+
+def test_shim_failure_is_reported_for_default_fallback():
+    analyzer = ContosoAnalyzer()
+    analyzer.memory_shims = {tuple(MICRON): FakeShim(error="vendor failed")}
+
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+
+    assert result["handled_manufacturers"] == set()
+    assert result["failed_manufacturers"] == {tuple(MICRON)}
+    assert result["invocations"][0]["status"] == "failed"
+    assert "vendor failed" in result["invocations"][0]["error"]
+
+
+def test_action_only_window_never_enters_default_analysis():
+    analyzer = ContosoAnalyzer()
+
+    result = analyzer.analyze_memory_event_window(_records(_action_cper()))
+
+    assert analyzer.default_memory_events(result) == []
+
+
+def test_missing_and_failed_shims_can_create_default_sppr():
+    with tempfile.TemporaryDirectory() as directory:
+        analyzer = ContosoAnalyzer(output_dir=directory)
+        current_cper = _memory_cper(MICRON)
+        event = decode_memory_events(_records(current_cper))[0]
+        current_location = analyzer._memory_location_from_event(event)
+        prior_location = copy.deepcopy(current_location)
+        prior_location["column"] = current_location["column"] - 1
+        analyzer.seen_locations = [prior_location]
+
+        class Decoder:
+            @staticmethod
+            def _convert_json_to_binary_cpad(json_path, binary_path):
+                Path(binary_path).write_bytes(b"CPAD")
+                return binary_path
+
+        analyzer.decoder = Decoder()
+        analyzer.memory_shims = {}
+        missing_result = analyzer.analyze_memory_event_window(
+            _records(current_cper))
+        missing_event = analyzer.default_memory_events(missing_result)[0]
+        missing_path = analyzer.create_sppr_cpad_from_memory_event(
+            missing_event, current_cper, output_stem="missing",
+            record_location=False)
+
+        analyzer.memory_shims = {
+            tuple(MICRON): FakeShim(error="vendor failed")}
+        failed_result = analyzer.analyze_memory_event_window(
+            _records(current_cper))
+        failed_event = analyzer.default_memory_events(failed_result)[0]
+        failed_path = analyzer.create_sppr_cpad_from_memory_event(
+            failed_event, current_cper, output_stem="failed",
+            record_location=False)
+
+        assert Path(missing_path).name == "missing_sppr_cpad.cpad"
+        assert Path(failed_path).name == "failed_sppr_cpad.cpad"
+
+
+def test_invalid_later_action_request_discards_entire_shim_result():
+    analyzer = ContosoAnalyzer()
+
+    def partly_invalid(events):
+        valid = _action_request_for_event(events[0])
+        invalid = copy.deepcopy(valid)
+        invalid["confidence"] = 101
+        return [_proposal(valid, invalid)]
+
+    analyzer.memory_shims = {
+        tuple(MICRON): FakeShim(result=partly_invalid),
+    }
+
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+
+    assert result["cpads"] == []
+    assert result["handled_manufacturers"] == set()
+    assert result["failed_manufacturers"] == {tuple(MICRON)}
+    assert "confidence" in result["invocations"][0]["error"]
+
+
+def test_rejects_non_boolean_shim_action_urgency():
+    analyzer = ContosoAnalyzer()
+
+    def invalid_urgency(events):
+        request = _action_request_for_event(events[0])
+        request["urgency"] = 1
+        return [_proposal(request)]
+
+    analyzer.memory_shims = {
+        tuple(MICRON): FakeShim(result=invalid_urgency),
+    }
+
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+
+    assert result["cpads"] == []
+    assert result["handled_manufacturers"] == set()
+    assert result["failed_manufacturers"] == {tuple(MICRON)}
+    assert "urgency must be a boolean" in result["invocations"][0]["error"]
+
+
+def test_rejects_invalid_shim_action_request_structure():
+    analyzer = ContosoAnalyzer()
+
+    def missing_urgency(events):
+        request = _action_request_for_event(events[0])
+        del request["urgency"]
+        return [_proposal(request)]
+
+    analyzer.memory_shims = {
+        tuple(MICRON): FakeShim(result=missing_urgency),
+    }
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+    assert result["cpads"] == []
+    assert "must contain exactly" in result["invocations"][0]["error"]
+
+    def missing_source_section(events):
+        request = _action_request_for_event(events[0])
+        del request["section_index"]
+        return [_proposal(request)]
+
+    analyzer.memory_shims = {
+        tuple(MICRON): FakeShim(result=missing_source_section),
+    }
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+    assert result["cpads"] == []
+    assert "must contain exactly" in result["invocations"][0]["error"]
+
+    def invalid_source(events):
+        request = _action_request_for_event(events[0])
+        request["section_index"] = 99
+        return [_proposal(request)]
+
+    analyzer.memory_shims = {
+        tuple(MICRON): FakeShim(result=invalid_source),
+    }
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+    assert result["cpads"] == []
+    assert "identify one input" in result["invocations"][0]["error"]
+
+
+def test_rejects_incomplete_shim_ppr_parameters():
+    analyzer = ContosoAnalyzer()
+
+    def missing_ppr_row(events):
+        request = _action_request_for_event(
+            events[0], action_id=action_parameters.PPR_ACTION_ID)
+        del request["parameters"]["row"]
+        return [_proposal(request)]
+
+    analyzer.memory_shims = {
+        tuple(MICRON): FakeShim(result=missing_ppr_row),
+    }
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+
+    assert result["cpads"] == []
+    assert "row" in result["invocations"][0]["error"]
+
+
+def test_builds_and_deduplicates_shim_action_requests():
+    analyzer = ContosoAnalyzer()
+
+    def duplicate_actions(events):
+        request = _action_request_for_event(events[0])
+        proposal = _proposal(request)
+        return [proposal, copy.deepcopy(proposal)]
+
+    shim = FakeShim(result=duplicate_actions)
+    analyzer.memory_shims = {tuple(MICRON): shim}
+
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+
+    assert result["handled_manufacturers"] == {tuple(MICRON)}
+    assert len(result["cpads"]) == 1
+    assert result["invocations"][0]["cpad_count"] == 1
+    cpad = result["cpads"][0][1]
+    assert cpad["sectionDescriptors"][0]["actionID"]["code"] == (
+        action_parameters.PAGE_OFFLINE_ACTION_ID)
+    assert cpad["sectionDescriptors"][0]["sectionType"]["data"] == (
+        action_parameters.CONTOSO_ACTION_PARAMETER_GUID)
+
+
+def test_vendor_action_uses_supplied_parameters_and_newest_partition():
+    analyzer = ContosoAnalyzer()
+    analyzer.sppr_template_path = (
+        RAS_DEMO_DIR / "cpad_storage" / "spprTemplate.json")
+    newest = _memory_cper(record_id=2)
+    newest["header"]["partitionID"] = "newest-partition"
+    prior = _memory_cper(record_id=1)
+    events = decode_memory_events(_records(newest, prior))
+    source = events[1]
+    assert source["memory_error"]["additional"]["row"] == 1234
+    parameters = _action_request_for_event(
+        source,
+        action_id=action_parameters.PPR_ACTION_ID,
+    )["parameters"]
+    parameters["row"] = 9876
+    request = _action_request_for_event(
+        source,
+        action_id=action_parameters.PPR_ACTION_ID,
+        parameters={
+            **parameters,
+            "ppr_type": action_parameters.PPR_TYPE_SOFT_BOOT_TIME,
+        },
+    )
+
+    cpad = analyzer._build_shim_action_cpad(request, events)
+    body = base64.b64decode(
+        cpad["sections"][0]["Unknown"]["data"], validate=True)
+    decoded = action_parameters.decode_action_parameters(
+        action_parameters.PPR_ACTION_ID, body)
+
+    assert cpad["header"]["partitionID"] == "newest-partition"
+    assert decoded["ppr_type"] == (
+        action_parameters.PPR_TYPE_SOFT_BOOT_TIME)
+    assert decoded["row"] == 9876
+
+
+def test_action_body_is_independent_of_source_cper_context():
+    analyzer = ContosoAnalyzer()
+    first_events = decode_memory_events(_records(_memory_cper(record_id=1)))
+    second_cper = _memory_cper(record_id=99)
+    second_cper["header"]["partitionID"] = "different-partition"
+    second_events = decode_memory_events(_records(second_cper))
+    second_events[0]["memory_error"]["additional"]["row"] = 4321
+    parameters = _action_request_for_event(
+        first_events[0],
+        action_id=action_parameters.PPR_ACTION_ID,
+    )["parameters"]
+
+    first_request = _action_request_for_event(
+        first_events[0],
+        action_id=action_parameters.PPR_ACTION_ID,
+        parameters=copy.deepcopy(parameters),
+    )
+    second_request = _action_request_for_event(
+        second_events[0],
+        action_id=action_parameters.PPR_ACTION_ID,
+        parameters=copy.deepcopy(parameters),
+    )
+    first_cpad = analyzer._build_shim_action_cpad(
+        first_request, first_events)
+    second_cpad = analyzer._build_shim_action_cpad(
+        second_request, second_events)
+
+    assert first_cpad["sections"] == second_cpad["sections"]
+    assert first_cpad["header"]["partitionID"] == PARTITION_ID
+    assert second_cpad["header"]["partitionID"] == "different-partition"
+
+
+def test_large_page_offline_request_builds_multiple_correlated_cpads():
+    analyzer = ContosoAnalyzer()
+    pages = []
+
+    def offline_pages(events):
+        base = events[0]["memory_error"]["error_address"] & ~0xFFF
+        pages.extend({
+            "start_address": base + index * 0x100000,
+            "page_count": 1,
+        } for index in range(10_000))
+        return [_proposal(_action_request_for_event(
+            events[0],
+            action_id=action_parameters.PAGE_OFFLINE_ACTION_ID,
+            parameters={"page_ranges": pages},
+            urgency=True,
+        ))]
+
+    analyzer.memory_shims = {
+        tuple(MICRON): FakeShim(result=offline_pages),
+    }
+    result = analyzer.analyze_memory_event_window(_records(_memory_cper()))
+    cpads = [cpad for _shim, cpad in result["cpads"]]
+    decoded = [
+        action_parameters.decode_action_parameters(
+            action_parameters.PAGE_OFFLINE_ACTION_ID,
+            base64.b64decode(
+                cpad["sections"][0]["Unknown"]["data"], validate=True),
+        )
+        for cpad in cpads
+    ]
+
+    assert len(cpads) == 4
+    assert len({cpad["header"]["recordID"] for cpad in cpads}) == 4
+    assert all(cpad["header"]["urgency"] == 1 for cpad in cpads)
+    assert all(
+        cpad["sectionDescriptors"][0]["urgency"] == 1
+        for cpad in cpads
+    )
+    assert all(
+        cpad["sectionDescriptors"][0]["confidence"] == 90
+        for cpad in cpads
+    )
+    assert sum(parameters["page_count"] for parameters in decoded) == 10_000
+    assert len({parameters["batch_id"] for parameters in decoded}) == 1
+    assert [parameters["chunk_index"] for parameters in decoded] == [
+        0, 1, 2, 3]
+
+
+def test_builds_multi_section_cpad_for_distinct_frus():
+    second_fru_id = "97fb9d52-b648-497d-b092-903b8925f6e8"
+    events = decode_memory_events(_records(
+        _memory_cper(record_id=2),
+        _memory_cper(
+            record_id=1, fru_id=second_fru_id, fru_text="DIMM B1"),
+    ))
+    first = _action_request_for_event(
+        events[0],
+        action_id=action_parameters.REPLACE_PART_ACTION_ID,
+        urgency=False,
+    )
+    second = _action_request_for_event(
+        events[1],
+        action_id=action_parameters.REPLACE_PART_ACTION_ID,
+        urgency=True,
+    )
+    analyzer = ContosoAnalyzer()
+
+    cpads = analyzer._build_shim_proposal_cpads(
+        _proposal(first, second), events)
+
+    assert len(cpads) == 1
+    cpad = cpads[0]
+    assert cpad["header"]["sectionCount"] == 2
+    assert cpad["header"]["urgency"] == 1
+    assert [item["fruText"] for item in cpad["sectionDescriptors"]] == [
+        "DIMM A1", "DIMM B1"]
+    assert [item["fruID"] for item in cpad["sectionDescriptors"]] == [
+        FRU_ID.lower(), second_fru_id]
+    assert [item["sectionOffset"] for item in cpad["sectionDescriptors"]] == [
+        276, 284]
+    assert cpad["header"]["recordLength"] == 292
+
+
+def test_non_fru_action_uses_unambiguous_newest_cper_fru():
+    events = decode_memory_events(_records(_memory_cper()))
+    request = _action_request_for_event(
+        events[0],
+        action_id=action_parameters.REBOOT_WITH_RETRAINING_ACTION_ID,
+        parameters={},
+        urgency=True,
+    )
+    analyzer = ContosoAnalyzer()
+
+    cpad = analyzer._build_shim_action_cpad(request, events)
+
+    descriptor = cpad["sectionDescriptors"][0]
+    assert descriptor["fruID"] == FRU_ID.lower()
+    assert descriptor["fruText"] == FRU_TEXT
+
+
+def test_page_offline_rejects_overlapping_ranges_for_different_frus():
+    second_fru_id = "97fb9d52-b648-497d-b092-903b8925f6e8"
+    events = decode_memory_events(_records(
+        _memory_cper(record_id=2),
+        _memory_cper(
+            record_id=1, fru_id=second_fru_id, fru_text="DIMM B1"),
+    ))
+    parameters = {
+        "page_ranges": [{
+            "start_address": 0x20000000,
+            "page_count": 2,
+        }],
+    }
+    first = _action_request_for_event(
+        events[0], parameters=copy.deepcopy(parameters))
+    second = _action_request_for_event(
+        events[1], parameters=copy.deepcopy(parameters))
+    analyzer = ContosoAnalyzer()
+
+    try:
+        analyzer._build_shim_proposal_cpads(
+            _proposal(first, second), events)
+    except ShimContractError as exc:
+        assert "referenced memory-error FRU" in str(exc)
+    else:
+        raise AssertionError("overlapping cross-FRU pages were accepted")
+
+
+def test_emits_only_binary_shim_files():
+    with tempfile.TemporaryDirectory() as directory:
+        analyzer = ContosoAnalyzer(output_dir=directory)
+        event = decode_memory_events(_records(_memory_cper()))[0]
+        shim = FakeShim()
+        cpad = _cpad_for_event(event)
+        converted_cpads = []
+
+        class Decoder:
+            @staticmethod
+            def _convert_json_to_binary_cpad(json_path, binary_path):
+                converted_cpads.append(json.loads(
+                    Path(json_path).read_text()))
+                Path(binary_path).write_bytes(b"CPAD")
+                return binary_path
+
+        analyzer.decoder = Decoder()
+        outputs = analyzer.emit_shim_cpads([(shim, cpad)], "source")
+
+        binary = Path(outputs[0])
+        assert binary.name == "source_micron_1_cpad.cpad"
+        assert binary.read_bytes() == b"CPAD"
+        assert converted_cpads[0]["header"] == cpad["header"]
+        assert list(Path(directory).glob("*.json")) == []
+
+
+def test_one_vendor_emission_failure_preserves_other_vendor_outputs():
+    with tempfile.TemporaryDirectory() as directory:
+        analyzer = ContosoAnalyzer(output_dir=directory)
+        micron_event = decode_memory_events(_records(_memory_cper(MICRON)))[0]
+        samsung_event = decode_memory_events(_records(_memory_cper(SAMSUNG)))[0]
+        micron_shim = FakeShim(vendor="micron")
+        samsung_shim = FakeShim(vendor="samsung")
+        result = {
+            "cpads_by_manufacturer": {
+                tuple(MICRON): [(micron_shim, _cpad_for_event(micron_event))],
+                tuple(SAMSUNG): [(samsung_shim, _cpad_for_event(samsung_event))],
+            },
+            "handled_manufacturers": {tuple(MICRON), tuple(SAMSUNG)},
+            "failed_manufacturers": set(),
+            "invocations": [
+                {"manufacturer_id": MICRON, "status": "ok", "cpad_count": 1},
+                {"manufacturer_id": SAMSUNG, "status": "ok", "cpad_count": 1},
+            ],
+        }
+
+        class Decoder:
+            @staticmethod
+            def _convert_json_to_binary_cpad(json_path, binary_path):
+                if "samsung" in binary_path:
+                    return None
+                Path(binary_path).write_bytes(b"CPAD")
+                return binary_path
+
+        analyzer.decoder = Decoder()
+        outputs, errors = analyzer.emit_shim_cpad_groups(result, "source")
+
+        assert [Path(path).name for path in outputs] == [
+            "source_micron_802c_1_cpad.cpad"]
+        assert len(errors) == 1
+        assert result["handled_manufacturers"] == {tuple(MICRON)}
+        assert result["failed_manufacturers"] == {tuple(SAMSUNG)}
+        assert list(Path(directory).glob("*.json")) == []
+
+
+def test_multi_id_shim_outputs_have_distinct_names():
+    with tempfile.TemporaryDirectory() as directory:
+        analyzer = ContosoAnalyzer(output_dir=directory)
+        micron_event = decode_memory_events(_records(_memory_cper(MICRON)))[0]
+        samsung_event = decode_memory_events(_records(_memory_cper(SAMSUNG)))[0]
+        shim = FakeShim(vendor="multi")
+        result = {
+            "cpads_by_manufacturer": {
+                tuple(MICRON): [(shim, _cpad_for_event(micron_event))],
+                tuple(SAMSUNG): [(shim, _cpad_for_event(samsung_event))],
+            },
+            "handled_manufacturers": {tuple(MICRON), tuple(SAMSUNG)},
+            "failed_manufacturers": set(),
+            "invocations": [
+                {"manufacturer_id": MICRON, "status": "ok", "cpad_count": 1},
+                {"manufacturer_id": SAMSUNG, "status": "ok", "cpad_count": 1},
+            ],
+        }
+
+        class Decoder:
+            @staticmethod
+            def _convert_json_to_binary_cpad(json_path, binary_path):
+                Path(binary_path).write_bytes(b"CPAD")
+                return binary_path
+
+        analyzer.decoder = Decoder()
+        outputs, errors = analyzer.emit_shim_cpad_groups(result, "source")
+
+        assert errors == []
+        assert [Path(path).name for path in outputs] == [
+            "source_multi_802c_1_cpad.cpad",
+            "source_multi_80ce_1_cpad.cpad",
+        ]
+
+
+def test_default_conversion_failure_cleans_outputs_and_returns_none():
+    with tempfile.TemporaryDirectory() as directory:
+        analyzer = ContosoAnalyzer(output_dir=directory)
+        cper = _memory_cper()
+        event = decode_memory_events(_records(cper))[0]
+        current = analyzer._memory_location_from_event(event)
+        prior = copy.deepcopy(current)
+        prior["column"] -= 1
+        analyzer.seen_locations = [prior]
+
+        class Decoder:
+            @staticmethod
+            def _convert_json_to_binary_cpad(json_path, binary_path):
+                Path(binary_path).write_bytes(b"partial")
+                raise RuntimeError("conversion failed")
+
+        analyzer.decoder = Decoder()
+        output = analyzer.create_sppr_cpad_from_memory_event(
+            event, cper, output_stem="failed", record_location=False)
+
+        assert output is None
+        assert list(Path(directory).glob("failed_sppr_cpad.*")) == []
+
+
+def test_default_conversion_failure_is_not_reported_as_recommendation():
+    analyzer = ContosoAnalyzer()
+    location = analyzer._memory_location_from_event(
+        decode_memory_events(_records(_memory_cper()))[0])
+    output = io.StringIO()
+
+    with contextlib.redirect_stdout(output):
+        analyzer.print_batch_recommendation(
+            [{
+                "cper_data": _memory_cper(),
+                "sppr_created": False,
+                "sppr_filename": None,
+                "dram_row_failure_detected": True,
+                "memory_location": location,
+            }],
+            successful=1,
+            cpad_generation_failed=True,
+        )
+
+    report = output.getvalue()
+    assert "Recommendation:     No action emitted" in report
+    assert "Reason:             CPAD generation failed." in report
+    assert "Recommendation:     Perform SPPR" not in report
+    assert "Recommendation:     Soft Post Package Repair" not in report
+
+
+def test_vendor_action_takes_precedence_over_sibling_generation_failure():
+    analyzer = ContosoAnalyzer()
+    output = io.StringIO()
+
+    with contextlib.redirect_stdout(output):
+        analyzer.print_batch_recommendation(
+            [{
+                "cper_data": _memory_cper(),
+                "sppr_created": False,
+                "sppr_filename": None,
+                "dram_row_failure_detected": True,
+                "memory_location": None,
+            }],
+            successful=1,
+            vendor_cpad_files=["vendor.cpad"],
+            cpad_generation_failed=True,
+        )
+
+    report = output.getvalue()
+    assert "Recommendation:     Memory vendor-recommended RAS action" in report
+    assert "Warning:            CPAD generation failed for another memory section." in report
+    assert "Recommendation:     No action emitted" not in report
+
+
+def test_orchestrator_routes_binary_cpads_without_json_sidecars():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        analyzer_dir = root / "analyzer"
+        destination = root / "records"
+        analyzer_dir.mkdir()
+        destination.mkdir()
+        cper_path = destination / "newest.cper"
+        cper_path.write_bytes(b"CPER")
+        (analyzer_dir / "run_analysis.json").write_text("{}")
+        unexpected_json = analyzer_dir / "run_micron_1_cpad.json"
+        unexpected_json.write_text("{}")
+        for stem in ("run_micron_1_cpad", "run_samsung_1_cpad"):
+            (analyzer_dir / f"{stem}.cpad").write_bytes(b"CPAD")
+
+        orchestrator = AnalysisOrchestrator.__new__(AnalysisOrchestrator)
+        routed = []
+        orchestrator._policy_and_submit = lambda **kwargs: routed.append(kwargs)
+
+        orchestrator._handle_outputs(analyzer_dir, cper_path)
+
+        assert [item["cpad_binary"].stem for item in routed] == [
+            "run_micron_1_cpad",
+            "run_samsung_1_cpad",
+        ]
+        assert (destination / "run_analysis.json").exists()
+        assert not unexpected_json.exists()
+        assert not (destination / unexpected_json.name).exists()
+
+
+def test_orchestrator_sends_binary_cpad_to_policy_and_honors_denial():
+    with tempfile.TemporaryDirectory() as directory:
+        binary = Path(directory) / "proposed.cpad"
+        binary.write_bytes(b"CPAD")
+        orchestrator = AnalysisOrchestrator.__new__(AnalysisOrchestrator)
+
+        class DeniedDecision:
+            reason = "not permitted"
+
+            def __bool__(self):
+                return False
+
+        class Policy:
+            def __init__(self):
+                self.calls = []
+
+            def evaluate_cpad(self, path):
+                self.calls.append(path)
+                return DeniedDecision()
+
+        class Submitter:
+            def __init__(self):
+                self.called = False
+
+            def submit(self, *args, **kwargs):
+                self.called = True
+
+        orchestrator.policy_engine = Policy()
+        orchestrator.submitter = Submitter()
+        rejections = []
+        orchestrator._emit_policy_rejection_cper = (
+            lambda cpad, decision: rejections.append((cpad, decision)))
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            orchestrator._policy_and_submit(cpad_binary=binary)
+
+        assert orchestrator.policy_engine.calls == [str(binary)]
+        assert orchestrator.submitter.called is False
+        assert len(rejections) == 1
+        assert rejections[0][0] == binary
+        assert isinstance(rejections[0][1], DeniedDecision)
+
+
+def test_orchestrator_retries_listener_connection():
+    orchestrator = AnalysisOrchestrator.__new__(AnalysisOrchestrator)
+    orchestrator.listener_host = "localhost"
+    orchestrator.listener_port = 8889
+    orchestrator._listener_sock = None
+    attempts = []
+
+    class FakeSocket:
+        def settimeout(self, value):
+            assert value is None
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+    original_create_connection = (
+        orchestrator_module.socket.create_connection)
+    original_thread = orchestrator_module.threading.Thread
+
+    def create_connection(address, timeout):
+        attempts.append((address, timeout))
+        if len(attempts) < 3:
+            raise ConnectionRefusedError("listener is starting")
+        return FakeSocket()
+
+    orchestrator_module.socket.create_connection = create_connection
+    orchestrator_module.threading.Thread = FakeThread
+    try:
+        connected = orchestrator.connect_listener(
+            timeout=0.1, retry_interval=0.001)
+    finally:
+        orchestrator_module.socket.create_connection = (
+            original_create_connection)
+        orchestrator_module.threading.Thread = original_thread
+
+    assert connected is True
+    assert len(attempts) == 3
+    assert orchestrator._listener_sock is not None
+
+
+def test_add_host_fails_when_monitoring_cannot_be_established():
+    monitored = orchestrator_module.MonitoredHost(
+        name="host",
+        base_url="http://localhost:8000",
+        host="localhost",
+        port=8000,
+        manager_id="System",
+        platform_id=PLATFORM_ID,
+        endpoints=[],
+    )
+    orchestrator = AnalysisOrchestrator.__new__(AnalysisOrchestrator)
+    orchestrator.hosts = {}
+    orchestrator.submitter = None
+    orchestrator.discover_host = lambda *args, **kwargs: monitored
+    orchestrator._subscribe_host_events = lambda _host: False
+
+    added = orchestrator.add_host("host", "localhost", 8000)
+
+    assert added is False
+    assert orchestrator.hosts == {}
+
+
+if __name__ == "__main__":
+    failures = 0
+    for name, test in sorted(globals().items()):
+        if name.startswith("test_") and callable(test):
+            try:
+                test()
+                print(f"  [PASS] {name}")
+            except Exception as exc:
+                failures += 1
+                print(f"  [FAIL] {name}: {exc}")
+    print(f"\n{'ALL PASS' if failures == 0 else str(failures) + ' FAILURE(S)'}")
+    raise SystemExit(1 if failures else 0)

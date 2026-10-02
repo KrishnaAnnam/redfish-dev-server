@@ -36,7 +36,7 @@ def create_event_subscription(bmc_url, listener_url):
         ],
         "RegistryPrefixes": [
             "Base",
-            "RasProto"
+            "OCPRAS"
         ],
         "ResourceTypes": [
             "LogEntry"
@@ -137,7 +137,10 @@ def main():
     if success:
         print("✅ Setup complete! Events will be sent to the listener.")
         print("\nNext steps:")
-        print("   1. Run the RAS demo: python3 examples/ras_plugin_parity_demo.py")
+        print(
+            "   1. Run the RAS demo: "
+            "python3 examples/ras_api_demo/ras_api_plugin_demo.py"
+        )
         print("   2. Watch the event listener output for incoming events")
         return 0
     else:

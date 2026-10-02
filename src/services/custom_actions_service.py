@@ -219,8 +219,12 @@ class CustomActionsService:
         if 'LastResetTime' in resource_data:
             resource_data['LastResetTime'] = datetime.utcnow().isoformat() + 'Z'
         
-        # Save updated resource
-        self._update_resource_data(resource_path, resource_data, cached_links)
+        # Save updated resource before reporting the reset to plugins.
+        if not self._update_resource_data(
+                resource_path, resource_data, cached_links):
+            return 500, {}, {
+                "error": "Failed to update ComputerSystem state"
+            }
         
         # Trigger event
         self._trigger_action_event('ComputerSystem.Reset', resource_path, data_received, 'Success')

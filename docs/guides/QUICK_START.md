@@ -56,9 +56,6 @@ curl -u admin:admin http://localhost:8000/redfish/v1/Systems/
 
 ### 2. Developing Platform-Specific Features
 ```bash
-# Use RAS-enabled platform for error testing
-python servers/redfishMockupServer_platform.py --platform generic -D mockups/public-rackmount1/
-
 # Use generic platform for basic testing  
 python servers/redfishMockupServer_platform.py --platform generic -D mockups/public-rackmount1/
 

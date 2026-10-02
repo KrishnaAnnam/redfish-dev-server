@@ -11,6 +11,7 @@ and proper Redfish message registry compliance.
 
 import json
 import logging
+from urllib.parse import urlparse
 from .base_handler import BaseRedfishHandler
 from ..utils.helpers import dict_merge
 from ..services.log_entry_service import LogEntryService
@@ -86,8 +87,27 @@ class PatchHandler(BaseRedfishHandler):
                 print('Decoding JSON has failed, sending 400')
                 data_received = None
 
-        if data_received:
+        if data_received is not None:
             logger.info("PATCH: Data: {}".format(data_received))
+
+            request_path = urlparse(self.path).path
+            try:
+                plugin_response = self.plugin_loader.handle_patch(
+                    request_path,
+                    data_received,
+                    self.cached_links,
+                )
+            except Exception:
+                logger.exception(
+                    "Plugin PATCH handler failed for %s",
+                    request_path,
+                )
+                self._send_plugin_error()
+                return
+
+            if plugin_response is not None:
+                self._send_plugin_response(plugin_response)
+                return
             
             # Handle LogEntry PATCH requests
             if "LogServices" in self.path and "/Entries/" in self.path and not self.path.endswith("/Entries"):

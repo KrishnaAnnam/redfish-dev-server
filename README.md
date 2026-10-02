@@ -131,7 +131,6 @@ The `mockups/` directory contains several pre-configured Redfish mockup datasets
 ### mockup Archives (.tgz)
 
 - **`FullBMCMockup.tgz`** - Comprehensive BMC simulation mockup dataset
-- **`RASMockup.tgz`** - Reliability, Availability, Serviceability focused mockup
 - **`sample_mockup.tgz`** - Minimal example mockup for development
 
 ### Using Redfish mockups
@@ -200,36 +199,23 @@ Features:
 - Advanced sensor and metric emulation
 - Multi-chassis and multi-node support
 
-## 🔌 RAS Plugin (Reliability, Availability, Serviceability)
+## 🔌 Feature Plugin SDK
 
-**New!** Complete RAS plugin for error detection, analysis, and remediation workflows.
+The Plugin SDK supports isolated Redfish feature development without
+feature-specific changes to common handlers or server entry points.
 
-### Quick Start
+- Convention-based loading from `src.plugins.<name>`
+- Explicit GET, POST, PATCH, and DELETE route ownership
+- Existing EventService publication through a narrow plugin context
+- Successful system-reset notifications for deferred plugin work
+- Deterministic plugin shutdown across all server variants
+- JSON, text, binary, and empty response bodies
 
-```bash
-# Start server with RAS-enabled mockup
-python servers/redfishMockupServer_platform.py -D mockups/ras_gen10 -p 8000
+Telemetry is the current reference plugin. Additional feature plugins,
+including RAS, can be added independently using the same contract.
 
-# Run the parity demo
-python examples/ras_plugin_parity_demo.py
-
-# Or use the tmux launcher for full demo
-./scripts/run_ras_demo.sh
-```
-
-### Features
-- **CPAD Submission**: Submit Corrective Platform Action Descriptors via SubmitCPAD action
-- **CPER Generation**: Template-based Common Platform Error Record generation using libcper
-- **Policy Engine**: Trust-based validation with TRUSTED_CREATORS, KNOWN_ACTIONS, KNOWN_PLATFORMS
-- **LogService**: Redfish-compliant RAS log entries with CPER data
-- **EventService**: Event subscription and notification for RAS alerts
-- **Analytics**: Error pattern analysis and trend detection
-- **Remediation**: Policy-based automated remediation with rate limiting
-
-### Documentation
-- [RAS Plugin Documentation](docs/RAS_PLUGIN.md) - Complete plugin reference
-- [Plugin SDK Guide](docs/PLUGIN_SDK.md) - How to develop plugins
-- [Documentation Index](docs/DOCUMENTATION_INDEX.md) - Navigation guide
+See the [Plugin SDK Guide](docs/PLUGIN_SDK.md) and
+[Documentation Index](docs/DOCUMENTATION_INDEX.md).
 
 ## 🌐 Web UI Interface
 

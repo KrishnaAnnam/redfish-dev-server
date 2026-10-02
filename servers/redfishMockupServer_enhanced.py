@@ -25,6 +25,7 @@ sys.path.insert(2, os.path.join(_project_root, 'servers'))
 # Import base server components
 from redfishMockupServer_modular import main as base_main, parse_arguments as base_parse_arguments
 from src.config.settings import ServerConfig
+from src.plugins import shutdown_plugins
 
 # Import enhanced services
 from src.services.message_service import init_message_service
@@ -174,7 +175,6 @@ def initialize_enhanced_services(config):
 
 def create_enhanced_handler_class():
     """Create enhanced handler class with all HTTP methods"""
-    from src.handlers.base_handler import BaseRedfishHandler
     from src.handlers.get_handler import GetHandler
     from src.handlers.post_handler import PostHandler
     from src.handlers.patch_handler import PatchHandler
@@ -182,7 +182,6 @@ def create_enhanced_handler_class():
     from src.handlers.delete_handler import DeleteHandler
     
     class EnhancedRedfishHandler(
-        BaseRedfishHandler,
         EnhancedGetHandler,
         EnhancedPostHandler, 
         EnhancedPatchHandler,
@@ -191,6 +190,9 @@ def create_enhanced_handler_class():
         """Enhanced Redfish handler with all HTTP methods and enhanced responses"""
         
         def __init__(self, *args, **kwargs):
+            self.message_service = None
+            self.log_service = None
+            self._enhanced_event_service_initialized = False
             super().__init__(*args, **kwargs)
             
         def do_GET(self):
@@ -249,6 +251,7 @@ def enhanced_signal_handler(signum, frame, event_service=None):
             logger.info("Event service stopped")
         except Exception as e:
             logger.error(f"Error stopping event service: {e}")
+    shutdown_plugins()
     
     sys.exit(0)
 
@@ -346,6 +349,7 @@ def main():
                 ssdp_server.stop_server()
             if event_service:
                 event_service.stop()
+            shutdown_plugins()
         
         return 0
         

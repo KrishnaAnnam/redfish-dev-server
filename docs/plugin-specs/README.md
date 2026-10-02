@@ -21,7 +21,7 @@ This directory contains specifications for plugins that extend the BMC Simulator
         │             │             │
         ▼             ▼             ▼
    ┌─────────┐   ┌─────────┐   ┌─────────┐
-   │   RAS   │   │Telemetry│   │ Future  │
+   │Telemetry│   │ Future  │   │ Future  │
    │ Plugin  │   │ Plugin  │   │ Plugin  │
    └─────────┘   └─────────┘   └─────────┘
 ```
@@ -33,10 +33,6 @@ Each plugin has its own subdirectory containing:
 ```
 plugin-specs/
 ├── README.md                 # This file
-├── ras/                      # RAS (Reliability, Availability, Serviceability) Plugin
-│   ├── README.md             # Plugin overview
-│   ├── OCPRAS_MESSAGE_REGISTRY.md  # Custom message registry
-│   └── ...                   # Additional specs
 ├── telemetry/                # Telemetry Plugin
 │   └── README.md             # Plugin overview
 └── <plugin-name>/            # Future plugins
@@ -46,8 +42,8 @@ plugin-specs/
 
 | Plugin | Status | Description |
 |--------|--------|-------------|
-| [RAS](ras/) | Active | CPER/CPAD handling, error injection, PPR/SPPR operations |
 | [Telemetry](telemetry/) | Active | Metric collection, reporting, and streaming |
+| Future feature plugins | Planned | Added through the common Plugin SDK contract |
 
 ## Plugin Contract
 
@@ -74,23 +70,47 @@ Plugins extend the simulator by:
 Plugins are loaded via the plugin loader:
 
 ```python
-from src.plugins import get_plugin_loader
+from src.plugins import load_plugins_from_config
 
-loader = get_plugin_loader(config)
-loader.load_plugins(['ras', 'telemetry'])
+loader = load_plugins_from_config(config)
 
-# Check if a plugin handles a path
-plugin = loader.get_plugin_for_path('/redfish/v1/RASService')
-if plugin:
-    status, headers, body = plugin.handle_get(path)
+# Route a request to a configured plugin.
+response = loader.handle_post(
+    '/redfish/v1/TelemetryService/Actions/'
+    'TelemetryService.SubmitTestMetricReport',
+    data,
+    cached_links,
+)
+if response is not None:
+    status, headers, body = response
 ```
 
 Or via platform configuration:
 
-```yaml
-platform:
-  name: "My Server"
-  extensions:
-    - ras
-    - telemetry
+```json
+{
+  "extensions": [
+    {
+      "name": "telemetry",
+      "enabled": true,
+      "config": {
+        "sample_rate": 30
+      }
+    }
+  ]
+}
 ```
+
+String entries preserve the original configuration format. Structured
+entries provide plugin-owned configuration and can be disabled explicitly.
+The loader rejects malformed, duplicate, and unknown entries; no plugin is
+loaded when `extensions` is absent or empty.
+
+Plugins declare authoritative `PluginRoute` entries for GET, POST, PATCH, and
+DELETE. A plugin-owned path returns 405 for an undeclared method. Unclaimed
+paths continue through normal mockup and platform handling. PUT is not part of
+the domain Plugin SDK.
+
+See [../PLUGIN_SDK.md](../PLUGIN_SDK.md) for package conventions, lifecycle,
+EventService publication, reset notification, shutdown, and conformance
+requirements.

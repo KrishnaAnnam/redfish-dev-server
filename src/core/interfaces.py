@@ -33,7 +33,6 @@ class ServiceCapability(Enum):
     ACCOUNT_SERVICE = "AccountService"
     CERTIFICATE_SERVICE = "CertificateService"
     LICENSE_SERVICE = "LicenseService"
-    RAS_SERVICE = "RASService"
     COMPOSABILITY = "Composability"
     SECURE_BOOT = "SecureBoot"
     BIOS_CONFIG = "BiosConfig"

@@ -18,10 +18,10 @@ This enhanced BMC simulator is built upon the DMTF Redfish-Mockup-Server foundat
 - Enhanced logging and error handling
 - Better performance and reliability
 
-### 🔌 **Platform Plugin System**
+### 🔌 **Extension Systems**
 - Automatic platform detection from mockup data
-- Domain-specific plugins (RAS, Telemetry, etc.)
-- Pluggable architecture for custom platforms
+- Convention-loaded feature plugins (Telemetry and custom plugins)
+- Explicit method-aware route ownership
 - Registry system for dynamic platform discovery
 
 ### 🚀 **Enhanced Services**
@@ -84,9 +84,9 @@ python redfishMockupServer_platform.py --platform-info -D mockup/
 - **Configuration**: Platform configuration and detection system
 
 ### Domain Plugins (`src/plugins/`)
-- **RAS**: Reliability, Availability, Serviceability (CPER/CPAD handling)
-- **Telemetry**: Metric collection and reporting
-- **Custom**: Template for creating new domain-specific plugins
+- **Telemetry**: Current reference feature plugin
+- **Contracts**: Shared route and context interfaces
+- **Custom**: Additional feature packages loaded by convention
 
 ### Enhanced Components (`src/`)
 - **Handlers**: Modular HTTP request handlers
@@ -94,13 +94,15 @@ python redfishMockupServer_platform.py --platform-info -D mockup/
 - **Utils**: Shared utilities and helper functions
 - **Config**: Configuration management and validation
 
-## Platform Support
+## Platform and Plugin Support
 
 ### Supported Platforms
-- **RAS Plugin**: Reliability, Availability, Serviceability features
-- **Telemetry Plugin**: Metric collection and reporting
 - **Generic**: Basic Redfish without vendor extensions
 - **Custom**: Extensible framework for new platforms
+
+### Feature Plugins
+- **Telemetry**: Current reference feature plugin
+- **Custom packages**: Convention-loaded from `src.plugins.<name>`
 
 ### Platform Detection
 The server automatically detects platforms using:
@@ -118,7 +120,7 @@ The server automatically detects platforms using:
     "platform_type": "custom",
     "display_name": "Custom BMC Platform",
     "enabled_services": ["EventService", "UpdateService"],
-    "extensions": ["ras", "telemetry"]
+    "extensions": ["telemetry"]
 }
 ```
 
@@ -131,7 +133,13 @@ The server automatically detects platforms using:
         "Model": "Server S100",
         "SerialNumber": "ABC123"
     },
-    "extensions": ["ras", "telemetry"],
+    "extensions": [
+        {
+            "name": "telemetry",
+            "enabled": true,
+            "config": {}
+        }
+    ],
     "oem_actions": ["Custom.ExportSystemConfiguration"],
     "service_settings": {
         "EventService": {
@@ -144,33 +152,14 @@ The server automatically detects platforms using:
 
 ## Development
 
-### Creating Custom Platforms
+### Creating Feature Plugins
 
-1. **Create Platform Structure**
-   ```bash
-   mkdir -p src/plugins/myvendor
-   touch src/plugins/myvendor/{__init__.py,platform.py}
-   ```
+Create a package under `src/plugins/`, export `get_plugin()`, and declare
+method-aware routes with `PluginRoute`. Feature plugins do not require edits to
+common handlers or server entry points.
 
-2. **Implement Platform Provider**
-   ```python
-   from src.core.interfaces import BasePlatformProvider
-   
-   class MyVendorProvider(BasePlatformProvider):
-       def get_platform_info(self):
-           return {
-               "platform_id": "myvendor_bmc",
-               "platform_type": "custom",
-               "display_name": "MyVendor BMC"
-           }
-   
-   MyProvider = MyVendorProvider
-   ```
-
-3. **Add Services and Handlers** (optional)
-   - Extend core services with vendor-specific behavior
-   - Add OEM endpoints and actions
-   - Implement custom authentication or protocols
+See [Plugin SDK](PLUGIN_SDK.md) for the complete contract and conformance
+requirements.
 
 ### Testing
 ```bash
@@ -187,19 +176,18 @@ python scripts/test_migration.py mockup/
 ## Documentation
 
 ### User Guides
-- **[Quick Start Guide](QUICK_START.md)**: Get up and running quickly
-- **[Migration Guide](MIGRATION_GUIDE.md)**: Migrate from original server
-- **[Platform Architecture](PLATFORM_ARCHITECTURE.md)**: Understanding the architecture
+- **[Quick Start Guide](guides/QUICK_START.md)**: Get up and running quickly
+- **[Migration Guide](guides/MIGRATION_GUIDE.md)**: Migrate from original server
+- **[Platform Architecture](specs/PLATFORM_ARCHITECTURE.md)**: Understanding the architecture
 
 ### Developer Documentation  
-- **[Platform Development Guide](PLATFORM_DEVELOPMENT.md)**: Create custom platforms
-- **[API Documentation](docs/API.md)**: Interface specifications
-- **[Configuration Reference](docs/CONFIGURATION.md)**: Configuration options
+- **[Platform Development Guide](specs/PLATFORM_DEVELOPMENT.md)**: Create custom platforms
+- **[Plugin SDK](PLUGIN_SDK.md)**: Create feature plugins
 
 ### Examples
-- **[Platform Configurations](../config/examples/)**: Ready-to-use configurations
-- **[Custom Platform Examples](src/plugins/)**: Platform implementation examples
-- **[Integration Examples](examples/)**: Using with client libraries
+- **[Platform Example](../platforms/example/)**: Platform provider implementation
+- **[Telemetry Plugin](../src/plugins/telemetry/)**: Feature plugin implementation
+- **[Integration Examples](../examples/)**: Using with client libraries
 
 ## Migration from Original Server
 

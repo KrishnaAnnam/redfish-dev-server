@@ -9,12 +9,18 @@ Platform configuration and detection system
 import os
 import json
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from dataclasses import dataclass, field
 from enum import Enum
 from ..core.interfaces import PlatformType, ServiceCapability
 
 logger = logging.getLogger(__name__)
+
+
+def load_platform_config(config_path: str) -> 'PlatformConfig':
+    """Load a platform configuration file."""
+    with open(config_path, encoding='utf-8') as config_file:
+        return PlatformConfig.from_dict(json.load(config_file))
 
 
 class PlatformDetectionMethod(Enum):
@@ -38,6 +44,9 @@ class PlatformConfig:
     # Service configuration
     enabled_services: List[ServiceCapability] = field(default_factory=list)
     service_configs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    # Optional plugins
+    extensions: List[Union[str, Dict[str, Any]]] = field(default_factory=list)
     
     # OEM extensions
     oem_namespace: str = ""
@@ -69,6 +78,7 @@ class PlatformConfig:
             'description': self.description,
             'enabled_services': [s.value for s in self.enabled_services],
             'service_configs': self.service_configs,
+            'extensions': self.extensions,
             'oem_namespace': self.oem_namespace,
             'oem_actions': self.oem_actions,
             'oem_properties': self.oem_properties,
@@ -96,6 +106,7 @@ class PlatformConfig:
             description=data.get('description', ''),
             enabled_services=enabled_services,
             service_configs=data.get('service_configs', {}),
+            extensions=data.get('extensions', []),
             oem_namespace=data.get('oem_namespace', ''),
             oem_actions=data.get('oem_actions', []),
             oem_properties=data.get('oem_properties', {}),
@@ -179,8 +190,6 @@ class PlatformDetector:
                 enabled_services.append(ServiceCapability.ACCOUNT_SERVICE)
             if 'CertificateService' in service_root:
                 enabled_services.append(ServiceCapability.CERTIFICATE_SERVICE)
-            if 'RASService' in service_root:
-                enabled_services.append(ServiceCapability.RAS_SERVICE)
             
             # Get system information
             system_info = self._get_system_info()
@@ -217,10 +226,7 @@ class PlatformDetector:
         for manifest_path in manifest_paths:
             if os.path.exists(manifest_path):
                 try:
-                    with open(manifest_path, 'r') as f:
-                        manifest_data = json.load(f)
-                    
-                    return PlatformConfig.from_dict(manifest_data)
+                    return load_platform_config(manifest_path)
                     
                 except Exception as e:
                     logger.error(f"Error loading platform manifest {manifest_path}: {e}")
@@ -237,10 +243,7 @@ class PlatformDetector:
         for config_path in config_paths:
             if os.path.exists(config_path):
                 try:
-                    with open(config_path, 'r') as f:
-                        config_data = json.load(f)
-                    
-                    return PlatformConfig.from_dict(config_data)
+                    return load_platform_config(config_path)
                     
                 except Exception as e:
                     logger.error(f"Error loading platform config {config_path}: {e}")

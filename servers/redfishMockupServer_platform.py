@@ -18,6 +18,7 @@ import signal
 import logging
 import threading
 from http.server import HTTPServer
+from urllib.parse import parse_qs, urlparse
 
 # Add project root directory to path for imports
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -25,9 +26,14 @@ sys.path.insert(0, project_root)
 
 from src.config.settings import parse_arguments, ServerConfig
 from src.core.discovery import PlatformDiscovery
-from src.core.platform_config import PlatformDetectionMethod
+from src.core.platform_config import (
+    PlatformDetectionMethod,
+    load_platform_config,
+)
 from src.core.extensible_services import ServiceManager
 from src.handlers.main_handler import RedfishMockupHandler
+from src.plugins import shutdown_plugins
+from src.plugins.loader import normalize_plugin_specs
 
 # Add scripts directory to path for rfSsdpServer
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scripts'))
@@ -56,23 +62,27 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
         # Initialize service manager with platform provider
         self.service_manager = server.service_manager
         self.platform_provider = server.platform_provider
-        self.plugin_handlers = getattr(server, 'plugin_handlers', {})
         
         super().__init__(request, client_address, server)
     
     def do_GET(self):
         """Enhanced GET handler with platform and plugin support"""
-        # Check if a plugin can handle this path
-        for plugin_name, plugin_handler in self.plugin_handlers.items():
-            if plugin_handler.can_handle_path(self.path):
-                try:
-                    status, response_data = plugin_handler.handle_get(self.path, {}, self.cached_links)
-                    if status != 405:  # Plugin handled it
-                        self._send_platform_response(status, response_data)
-                        return
-                except Exception as e:
-                    logger.error(f"Plugin {plugin_name} GET handler error: {e}")
-        
+        parsed = urlparse(self.path)
+        try:
+            plugin_response = self.plugin_loader.handle_get(
+                parsed.path,
+                parse_qs(parsed.query, keep_blank_values=True),
+                self.cached_links,
+            )
+        except Exception:
+            logger.exception("Plugin GET handler failed for %s", parsed.path)
+            self._send_plugin_error()
+            return
+
+        if plugin_response is not None:
+            self._send_plugin_response(plugin_response)
+            return
+
         # Check if platform provider can handle this path
         if self.platform_provider:
             handler = self.platform_provider.get_handler_for_path(self.path)
@@ -107,17 +117,22 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
                     self.send_response(400)
                     self.end_headers()
                     return
-        
-        # Check if a plugin can handle this path
-        for plugin_name, plugin_handler in self.plugin_handlers.items():
-            if plugin_handler.can_handle_path(self.path):
-                try:
-                    status, response_data = plugin_handler.handle_post(self.path, data_received or {}, self.cached_links)
-                    if status != 405:  # Plugin handled it
-                        self._send_platform_response(status, response_data)
-                        return
-                except Exception as e:
-                    logger.error(f"Plugin {plugin_name} POST handler error: {e}")
+
+        request_path = urlparse(self.path).path
+        try:
+            plugin_response = self.plugin_loader.handle_post(
+                request_path,
+                data_received or {},
+                self.cached_links,
+            )
+        except Exception:
+            logger.exception("Plugin POST handler failed for %s", request_path)
+            self._send_plugin_error()
+            return
+
+        if plugin_response is not None:
+            self._send_plugin_response(plugin_response)
+            return
         
         # Check if platform provider can handle this path
         if self.platform_provider and data_received:
@@ -170,60 +185,26 @@ class PlatformAwareRedfishServer(HTTPServer):
             # Create platform discovery
             discovery = PlatformDiscovery(self.config.mock_dir)
             
-            # Check for platform_config.json for explicit plugin configuration
+            # Propagate plugin configuration through the server configuration.
             platform_config_path = os.path.join(self.config.mock_dir, 'platform_config.json')
-            explicit_plugins = []
-            
             if os.path.exists(platform_config_path):
-                try:
-                    with open(platform_config_path) as f:
-                        platform_config = json.load(f)
-                        explicit_plugins = platform_config.get('plugins', [])
-                        if explicit_plugins:
-                            logger.info(f"Found explicit plugin configuration: {explicit_plugins}")
-                except Exception as e:
-                    logger.warning(f"Could not read platform_config.json: {e}")
+                platform_config = load_platform_config(platform_config_path)
+                self.config.extensions = platform_config.extensions
+                normalize_plugin_specs(self.config.extensions)
+                logger.info(
+                    "Configured extensions: %s",
+                    self.config.extensions
+                )
             
             # Determine detection method
             detection_method = PlatformDetectionMethod.AUTO_MOCKUP
             platform_hint = getattr(self.config, 'platform_hint', None)
             
-            # Discover and load platform (skip auto-discovery if explicit plugins configured)
+            # Discover and load platform providers independently of plugins.
             self.platform_provider = discovery.discover_and_load_platform(
                 platform_hint=platform_hint,
-                detection_method=detection_method,
-                skip_auto_discover=bool(explicit_plugins)
+                detection_method=detection_method
             )
-            
-            # Load explicit plugins if configured
-            if explicit_plugins:
-                logger.info("Loading explicitly configured plugins...")
-                print(f"DEBUG: Loading {len(explicit_plugins)} plugins")
-                for plugin_spec in explicit_plugins:
-                    if isinstance(plugin_spec, str):
-                        plugin_name = plugin_spec
-                        plugin_config = {}
-                    elif isinstance(plugin_spec, dict):
-                        plugin_name = plugin_spec.get('name')
-                        plugin_config = plugin_spec.get('config', {})
-                    else:
-                        continue
-                    
-                    if plugin_name and plugin_spec.get('enabled', True) if isinstance(plugin_spec, dict) else True:
-                        print(f"DEBUG: Loading plugin: {plugin_name}")
-                        plugin_config['mockup_dir'] = self.config.mock_dir
-                        plugin_handler = discovery.load_plugin_explicitly(plugin_name, plugin_config)
-                        print(f"DEBUG: Plugin handler result: {plugin_handler}")
-                        if plugin_handler:
-                            # Store plugin handler for request routing
-                            if not hasattr(self, 'plugin_handlers'):
-                                self.plugin_handlers = {}
-                            self.plugin_handlers[plugin_name] = plugin_handler
-                            print(f"DEBUG: ✅ Plugin {plugin_name} stored in plugin_handlers")
-                            logger.info(f"Plugin {plugin_name} loaded and registered")
-                        else:
-                            print(f"DEBUG: ❌ Plugin {plugin_name} returned None")
-
             
             # Set platform provider in service manager
             if self.platform_provider:
@@ -241,6 +222,8 @@ class PlatformAwareRedfishServer(HTTPServer):
             global platform_discovery
             platform_discovery = discovery
             
+        except (OSError, json.JSONDecodeError, KeyError, ValueError):
+            raise
         except Exception as e:
             logger.error(f"Platform initialization failed: {e}")
             logger.info("Continuing with generic functionality")
@@ -484,6 +467,7 @@ def signal_handler(signum, frame):
     # Stop servers
     if mockup_server:
         mockup_server.server_close()
+    shutdown_plugins()
     
     sys.exit(0)
 
@@ -552,6 +536,7 @@ def main():
         if mockup_server:
             clear_subscriptions(config.mock_dir)
             mockup_server.server_close()
+        shutdown_plugins()
         logger.info("Server shutdown complete")
 
 

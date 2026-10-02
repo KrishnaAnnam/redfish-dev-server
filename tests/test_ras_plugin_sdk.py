@@ -8,8 +8,10 @@ from src.plugins.ras import provider as provider_module
 from src.plugins.ras.plugin import (
     CPER_ENTRIES_PATH,
     CPER_LOG_SERVICE_PATH,
+    RAS_ANALYTICS_PATH,
     RAS_ACTION_INFO_PATH,
     RAS_ENDPOINTS_PATH,
+    RAS_HEALTH_PATH,
     RAS_SERVICE_PATH,
     RAS_SUBMIT_CPAD_PATH,
     RASPlugin,
@@ -123,6 +125,8 @@ def test_ras_plugin_adapts_configuration_and_routes(monkeypatch, tmp_path):
             f"{CPER_LOG_SERVICE_PATH}/Actions/LogService.ClearLog",
             frozenset({'POST'}),
         ),
+        (RAS_ANALYTICS_PATH, frozenset({'GET'})),
+        (RAS_HEALTH_PATH, frozenset({'GET'})),
     }
 
 

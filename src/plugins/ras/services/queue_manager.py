@@ -82,6 +82,7 @@ class CPERQueueManager:
         # Worker threads
         self.workers: List[threading.Thread] = []
         self.running = False
+        self.stop_event = threading.Event()
         self.processing_lock = threading.Lock()
         
         # Processing handlers
@@ -110,6 +111,7 @@ class CPERQueueManager:
             logger.warning("Queue manager already running")
             return
         
+        self.stop_event.clear()
         self.running = True
         
         # Start worker threads
@@ -141,6 +143,7 @@ class CPERQueueManager:
         
         logger.info("Stopping CPER queue manager...")
         self.running = False
+        self.stop_event.set()
         
         # Wait for workers to finish
         for worker in self.workers:
@@ -283,16 +286,15 @@ class CPERQueueManager:
             try:
                 # Only process deferred items when main queue is not too full
                 if self.queue.qsize() < self.defer_threshold // 2:
-                    item = self.deferred_queue.get(timeout=5.0)
+                    item = self.deferred_queue.get(timeout=1.0)
                     self._process_item(item)
                     self.deferred_queue.task_done()
                 else:
                     # Main queue is busy, wait
-                    time.sleep(2.0)
+                    self.stop_event.wait(2.0)
                     
             except Empty:
-                # No deferred items, wait
-                time.sleep(5.0)
+                continue
             except Exception as e:
                 logger.error(f"Deferred worker error: {e}", exc_info=True)
                 self.stats["processing_errors"] += 1

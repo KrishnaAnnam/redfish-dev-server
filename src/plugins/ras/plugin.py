@@ -24,6 +24,14 @@ CPER_LOG_SERVICE_PATH = (
     "/redfish/v1/Managers/{ManagerId}/LogServices/CPER"
 )
 CPER_ENTRIES_PATH = f"{CPER_LOG_SERVICE_PATH}/Entries"
+RAS_ANALYTICS_PATH = (
+    "/redfish/v1/Managers/{ManagerId}/Oem/"
+    "OpenCompute_FaultMgmt/Analytics"
+)
+RAS_HEALTH_PATH = (
+    "/redfish/v1/Managers/{ManagerId}/Oem/"
+    "OpenCompute_FaultMgmt/Health"
+)
 
 # Plugin metadata
 PLUGIN_INFO = {
@@ -171,6 +179,8 @@ class RASPlugin:
                 f"{CPER_LOG_SERVICE_PATH}/Actions/LogService.ClearLog",
                 {'POST'},
             ),
+            PluginRoute(RAS_ANALYTICS_PATH, {'GET'}),
+            PluginRoute(RAS_HEALTH_PATH, {'GET'}),
         ]
 
     def _publish_event(self, event: Dict[str, Any]) -> None:

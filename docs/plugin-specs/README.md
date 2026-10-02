@@ -87,10 +87,22 @@ if plugin:
 
 Or via platform configuration:
 
-```yaml
-platform:
-  name: "My Server"
-  extensions:
-    - ras
-    - telemetry
+```json
+{
+  "extensions": [
+    "telemetry",
+    {
+      "name": "ras",
+      "enabled": true,
+      "config": {
+        "endpoint_config": "ras_endpoint_config.json"
+      }
+    }
+  ]
+}
 ```
+
+String entries preserve the original configuration format. Structured
+entries provide plugin-owned configuration and can be disabled explicitly.
+The loader rejects malformed, duplicate, and unknown entries; no plugin is
+loaded when `extensions` is absent or empty.

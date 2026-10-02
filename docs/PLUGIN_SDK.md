@@ -1,7 +1,7 @@
 # Plugin SDK Guide - BMC Redfish Simulator
 
 **Version:** 1.0.0  
-**Last Updated:** January 23, 2026
+**Last Updated:** October 2, 2026
 
 ## Table of Contents
 
@@ -497,19 +497,38 @@ AVAILABLE_PLUGINS = {
 
 ### Step 7: Enable Plugin in Configuration
 
-Create or edit your platform configuration to enable the plugin:
+Create or edit `platform_config.json` to enable the plugin. The legacy
+string form remains supported:
 
-```python
-# In server configuration or platform detection
-config.extensions = ['ras', 'telemetry', 'my_plugin']
+```json
+{
+  "extensions": [
+    "telemetry",
+    "my_plugin"
+  ]
+}
 ```
 
-Or enable in base handler:
+Use the structured form when a plugin requires configuration:
 
-```python
-# In src/handlers/base_handler.py
-extensions = getattr(server.config, 'extensions', None) or ['ras', 'telemetry', 'my_plugin']
+```json
+{
+  "extensions": [
+    {
+      "name": "my_plugin",
+      "enabled": true,
+      "config": {
+        "sample_rate": 30
+      }
+    }
+  ]
+}
 ```
+
+Each plugin may appear only once. The loader rejects unknown plugins,
+malformed entries, unsupported fields, and non-object `config` values.
+Entries with `"enabled": false` are validated but not loaded. Plugins are
+not enabled implicitly when `extensions` is absent or empty.
 
 ---
 
@@ -650,14 +669,14 @@ Plugins are automatically loaded in `src/handlers/base_handler.py`:
 ```python
 class BaseHandler(SimpleHTTPRequestHandler):
     def __init__(self, request, client_address, server):
-        # Initialize plugin loader
-        self.plugin_loader = PluginLoader(server.config)
-        
-        # Load configured plugins
-        extensions = getattr(server.config, 'extensions', None) or ['ras', 'telemetry']
-        for plugin_name in extensions:
-            self.plugin_loader.load_plugin(plugin_name)
+        self.plugin_loader = load_plugins_from_config(server.config)
 ```
+
+`load_plugins_from_config()` is the authoritative loading path. The shared
+server configuration and the plugin-owned `config` object are passed
+separately to the plugin's `initialize()` method. Existing plugins with the
+legacy `initialize(server_config)` signature remain supported when they use
+the string configuration form and do not require plugin-specific settings.
 
 ---
 

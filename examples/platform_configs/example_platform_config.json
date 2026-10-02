@@ -6,7 +6,11 @@
     "description": "Example rackmount server configuration for BMC simulator",
     
     "extensions": [
-        "telemetry"
+        {
+            "name": "telemetry",
+            "enabled": true,
+            "config": {}
+        }
     ],
     
     "enabled_services": [

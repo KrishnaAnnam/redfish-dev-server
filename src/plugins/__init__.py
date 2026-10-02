@@ -19,7 +19,7 @@ Usage:
     
     # Or manually load specific plugins
     loader = get_plugin_loader(config)
-    loader.load_plugins(['ras', 'telemetry'])
+    loader.load_plugins(['telemetry'])
     
     # Route requests through plugins
     plugin = loader.get_plugin_for_path(path)

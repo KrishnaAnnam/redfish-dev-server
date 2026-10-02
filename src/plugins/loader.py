@@ -11,7 +11,7 @@ Usage:
     from src.plugins.loader import PluginLoader
     
     loader = PluginLoader(config)
-    loader.load_plugins(['ras', 'telemetry'])
+    loader.load_plugins(['telemetry'])
     
     # Check if a plugin handles a path
     plugin = loader.get_plugin_for_path('/redfish/v1/RASService/Endpoints')
@@ -21,18 +21,100 @@ Usage:
 
 import logging
 import importlib
+import inspect
+from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 # Registry of available plugins
 AVAILABLE_PLUGINS = {
-    'ras': 'src.plugins.ras',
     'telemetry': 'src.plugins.telemetry',
+    # 'ras': 'src.plugins.ras',
     # Future plugins:
     # 'storage': 'src.plugins.storage',
     # 'network': 'src.plugins.network',
 }
+
+
+class PluginConfigurationError(ValueError):
+    """Raised when configured plugin entries are invalid."""
+
+
+class PluginLoadError(RuntimeError):
+    """Raised when a configured plugin cannot be loaded."""
+
+
+@dataclass(frozen=True)
+class PluginSpec:
+    """Normalized configuration for one enabled plugin."""
+
+    name: str
+    config: Dict[str, Any] = field(default_factory=dict)
+
+
+def normalize_plugin_specs(extensions: Any) -> List[PluginSpec]:
+    """Validate and normalize legacy and structured plugin entries."""
+    if extensions is None:
+        return []
+    if not isinstance(extensions, list):
+        raise PluginConfigurationError("'extensions' must be a list")
+
+    normalized = []
+    configured_names = set()
+    allowed_keys = {'name', 'enabled', 'config'}
+
+    for index, entry in enumerate(extensions):
+        if isinstance(entry, str):
+            name = entry
+            enabled = True
+            plugin_config = {}
+        elif isinstance(entry, dict):
+            unsupported_keys = set(entry) - allowed_keys
+            if unsupported_keys:
+                keys = ', '.join(sorted(unsupported_keys))
+                raise PluginConfigurationError(
+                    f"Extension entry {index} contains unsupported keys: {keys}"
+                )
+
+            name = entry.get('name')
+            enabled = entry.get('enabled', True)
+            plugin_config = entry.get('config', {})
+
+            if not isinstance(enabled, bool):
+                raise PluginConfigurationError(
+                    f"Extension entry {index} field 'enabled' must be a boolean"
+                )
+            if not isinstance(plugin_config, dict):
+                raise PluginConfigurationError(
+                    f"Extension entry {index} field 'config' must be an object"
+                )
+        else:
+            raise PluginConfigurationError(
+                f"Extension entry {index} must be a plugin name or object"
+            )
+
+        if not isinstance(name, str) or not name.strip():
+            raise PluginConfigurationError(
+                f"Extension entry {index} requires a non-empty string 'name'"
+            )
+        name = name.strip()
+
+        if name in configured_names:
+            raise PluginConfigurationError(
+                f"Plugin '{name}' is configured more than once"
+            )
+        configured_names.add(name)
+
+        if not enabled:
+            continue
+
+        if name not in AVAILABLE_PLUGINS:
+            raise PluginConfigurationError(f"Unknown plugin: {name}")
+
+        normalized.append(PluginSpec(name=name, config=dict(plugin_config)))
+
+    return normalized
 
 
 class PluginLoader:
@@ -52,6 +134,7 @@ class PluginLoader:
         self._config = config or {}
         self._loaded_plugins: Dict[str, Any] = {}
         self._enabled_plugins: List[str] = []
+        self._plugin_configs: Dict[str, Dict[str, Any]] = {}
         logger.info("Plugin Loader initialized")
     
     @property
@@ -72,13 +155,36 @@ class PluginLoader:
             List of available plugin names
         """
         return list(AVAILABLE_PLUGINS.keys())
+
+    def _initialize_plugin(self, plugin: Any, plugin_name: str,
+                           plugin_config: Dict[str, Any]) -> bool:
+        """Initialize a plugin without breaking the legacy one-argument API."""
+        initialize = plugin.initialize
+        parameters = inspect.signature(initialize).parameters.values()
+        accepts_plugin_config = (
+            len(inspect.signature(initialize).parameters) >= 2 or
+            any(parameter.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ) for parameter in parameters)
+        )
+
+        if accepts_plugin_config:
+            return initialize(self._config, plugin_config)
+        if plugin_config:
+            raise PluginConfigurationError(
+                f"Plugin '{plugin_name}' does not accept plugin-specific config"
+            )
+        return initialize(self._config)
     
-    def load_plugin(self, plugin_name: str) -> bool:
+    def load_plugin(self, plugin_name: str,
+                    plugin_config: Optional[Dict[str, Any]] = None) -> bool:
         """
         Load a single plugin by name.
         
         Args:
             plugin_name: Name of plugin to load
+            plugin_config: Configuration owned by this plugin
             
         Returns:
             True if plugin loaded successfully
@@ -108,16 +214,20 @@ class PluginLoader:
             
             # Initialize the plugin
             if hasattr(plugin, 'initialize'):
-                if not plugin.initialize(self._config):
+                if not self._initialize_plugin(
+                        plugin, plugin_name, plugin_config or {}):
                     logger.error(f"Plugin '{plugin_name}' initialization failed")
                     return False
             
             self._loaded_plugins[plugin_name] = plugin
             self._enabled_plugins.append(plugin_name)
+            self._plugin_configs[plugin_name] = dict(plugin_config or {})
             
             logger.info(f"Plugin '{plugin_name}' loaded successfully")
             return True
             
+        except PluginConfigurationError:
+            raise
         except ImportError as e:
             logger.error(f"Failed to import plugin '{plugin_name}': {e}")
             return False
@@ -163,6 +273,7 @@ class PluginLoader:
             
             del self._loaded_plugins[plugin_name]
             self._enabled_plugins.remove(plugin_name)
+            self._plugin_configs.pop(plugin_name, None)
             
             logger.info(f"Plugin '{plugin_name}' unloaded")
             return True
@@ -182,6 +293,11 @@ class PluginLoader:
             Plugin instance or None
         """
         return self._loaded_plugins.get(plugin_name)
+
+    def get_plugin_config(self, plugin_name: str) -> Optional[Dict[str, Any]]:
+        """Return a copy of a loaded plugin's configuration."""
+        config = self._plugin_configs.get(plugin_name)
+        return dict(config) if config is not None else None
     
     def get_plugin_for_path(self, path: str) -> Optional[Any]:
         """
@@ -292,22 +408,28 @@ def load_plugins_from_config(config: Dict[str, Any]) -> PluginLoader:
     """
     loader = get_plugin_loader(config)
     
-    # Get list of plugins to load from config
     extensions = []
-    
-    # Check various config locations for extensions list
+
     if hasattr(config, 'extensions'):
         extensions = config.extensions
     elif isinstance(config, dict):
         extensions = config.get('extensions', [])
-        # Also check nested platform config
         if 'platform' in config:
             extensions = config['platform'].get('extensions', extensions)
-    
-    if extensions:
-        logger.info(f"Loading plugins from config: {extensions}")
-        loader.load_plugins(extensions)
-    else:
+
+    plugin_specs = normalize_plugin_specs(extensions)
+    if not plugin_specs:
         logger.debug("No plugins specified in configuration")
-    
+        return loader
+
+    logger.info(
+        "Loading plugins from config: %s",
+        [plugin_spec.name for plugin_spec in plugin_specs]
+    )
+    for plugin_spec in plugin_specs:
+        if not loader.load_plugin(plugin_spec.name, plugin_spec.config):
+            raise PluginLoadError(
+                f"Configured plugin '{plugin_spec.name}' failed to load"
+            )
+
     return loader

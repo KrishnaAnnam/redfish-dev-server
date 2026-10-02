@@ -20,7 +20,7 @@ from ..services.event_service import EventServiceHandler
 from ..services.update_service import UpdateServiceHandler
 
 # Plugin system - RAS and Telemetry are now plugins, not core services
-from ..plugins import get_plugin_loader
+from ..plugins import load_plugins_from_config
 
 # Backwards compatibility: try to import old service locations
 # This allows existing code to work while transitioning to plugin model
@@ -139,13 +139,8 @@ class BaseRedfishHandler(BaseHTTPRequestHandler):
         self.event_service = EventServiceHandler(server.config)
         self.update_service = UpdateServiceHandler(server.config)
         
-        # Initialize plugin loader and load configured plugins
-        self.plugin_loader = get_plugin_loader(server.config)
-        
-        # Load plugins based on config (default to loading common plugins for compatibility)
-        extensions = getattr(server.config, 'extensions', None) or ['ras', 'telemetry']
-        for plugin_name in extensions:
-            self.plugin_loader.load_plugin(plugin_name)
+        # Initialize the loader from the authoritative extension configuration.
+        self.plugin_loader = load_plugins_from_config(server.config)
         
         # Backwards compatibility: expose service properties
         # This allows existing code to work while we transition to plugins

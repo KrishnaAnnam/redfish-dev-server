@@ -44,6 +44,7 @@ class TelemetryPlugin:
         self._enabled = False
         self._handler = None
         self._config = None
+        self._plugin_config = {}
         logger.info("Telemetry Plugin initialized")
     
     @property
@@ -61,18 +62,21 @@ class TelemetryPlugin:
         """Get the Telemetry service handler instance"""
         return self._handler
     
-    def initialize(self, config: Dict[str, Any]) -> bool:
+    def initialize(self, config: Dict[str, Any],
+                   plugin_config: Dict[str, Any] = None) -> bool:
         """
         Initialize the plugin with configuration.
         
         Args:
-            config: Server/platform configuration dict
+            config: Shared server configuration
+            plugin_config: Telemetry-specific configuration
             
         Returns:
             True if initialization successful
         """
         try:
             self._config = config
+            self._plugin_config = dict(plugin_config or {})
             
             from .telemetry_service import TelemetryServiceHandler
             

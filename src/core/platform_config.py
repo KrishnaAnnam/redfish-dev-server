@@ -190,8 +190,6 @@ class PlatformDetector:
                 enabled_services.append(ServiceCapability.ACCOUNT_SERVICE)
             if 'CertificateService' in service_root:
                 enabled_services.append(ServiceCapability.CERTIFICATE_SERVICE)
-            if 'RASService' in service_root:
-                enabled_services.append(ServiceCapability.RAS_SERVICE)
             
             # Get system information
             system_info = self._get_system_info()

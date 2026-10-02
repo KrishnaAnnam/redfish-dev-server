@@ -18,6 +18,7 @@ import signal
 import logging
 import threading
 from http.server import HTTPServer
+from urllib.parse import parse_qs, urlparse
 
 # Add project root directory to path for imports
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,6 +32,7 @@ from src.core.platform_config import (
 )
 from src.core.extensible_services import ServiceManager
 from src.handlers.main_handler import RedfishMockupHandler
+from src.plugins import shutdown_plugins
 from src.plugins.loader import normalize_plugin_specs
 
 # Add scripts directory to path for rfSsdpServer
@@ -65,6 +67,22 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
     
     def do_GET(self):
         """Enhanced GET handler with platform and plugin support"""
+        parsed = urlparse(self.path)
+        try:
+            plugin_response = self.plugin_loader.handle_get(
+                parsed.path,
+                parse_qs(parsed.query, keep_blank_values=True),
+                self.cached_links,
+            )
+        except Exception:
+            logger.exception("Plugin GET handler failed for %s", parsed.path)
+            self._send_plugin_error()
+            return
+
+        if plugin_response is not None:
+            self._send_plugin_response(plugin_response)
+            return
+
         # Check if platform provider can handle this path
         if self.platform_provider:
             handler = self.platform_provider.get_handler_for_path(self.path)
@@ -99,6 +117,22 @@ class PlatformAwareRedfishHandler(RedfishMockupHandler):
                     self.send_response(400)
                     self.end_headers()
                     return
+
+        request_path = urlparse(self.path).path
+        try:
+            plugin_response = self.plugin_loader.handle_post(
+                request_path,
+                data_received or {},
+                self.cached_links,
+            )
+        except Exception:
+            logger.exception("Plugin POST handler failed for %s", request_path)
+            self._send_plugin_error()
+            return
+
+        if plugin_response is not None:
+            self._send_plugin_response(plugin_response)
+            return
         
         # Check if platform provider can handle this path
         if self.platform_provider and data_received:
@@ -433,6 +467,7 @@ def signal_handler(signum, frame):
     # Stop servers
     if mockup_server:
         mockup_server.server_close()
+    shutdown_plugins()
     
     sys.exit(0)
 
@@ -501,6 +536,7 @@ def main():
         if mockup_server:
             clear_subscriptions(config.mock_dir)
             mockup_server.server_close()
+        shutdown_plugins()
         logger.info("Server shutdown complete")
 
 

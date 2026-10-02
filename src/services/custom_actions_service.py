@@ -20,7 +20,7 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Dict, Any, Tuple, Optional
+from typing import Callable, Dict, Any, Tuple, Optional
 from ..utils.file_utils import construct_path, get_cached_link
 
 logger = logging.getLogger(__name__)
@@ -29,8 +29,13 @@ logger = logging.getLogger(__name__)
 class CustomActionsService:
     """Service for handling custom Redfish actions"""
     
-    def __init__(self, server_config):
+    def __init__(
+        self,
+        server_config,
+        reset_notifier: Optional[Callable[[str, str], int]] = None,
+    ):
         self.server_config = server_config
+        self.reset_notifier = reset_notifier
         self.logger = logging.getLogger("CustomActions")
         
         # Register action handlers
@@ -219,6 +224,10 @@ class CustomActionsService:
         
         # Trigger event
         self._trigger_action_event('ComputerSystem.Reset', resource_path, data_received, 'Success')
+
+        if self.reset_notifier is not None:
+            system_id = resource_path.rstrip('/').split('/')[-1]
+            self.reset_notifier(system_id, reset_type)
         
         return 204, {}, {}  # No content response for successful action
     

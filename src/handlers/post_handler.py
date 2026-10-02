@@ -47,7 +47,10 @@ class PostHandler(BaseRedfishHandler):
     def custom_actions_service(self):
         """Lazy initialization of custom actions service"""
         if self._custom_actions_service is None:
-            self._custom_actions_service = CustomActionsService(self.server.config)
+            self._custom_actions_service = CustomActionsService(
+                self.server.config,
+                reset_notifier=self.plugin_loader.notify_system_reset,
+            )
         return self._custom_actions_service
     
     @custom_actions_service.setter
@@ -107,24 +110,6 @@ class PostHandler(BaseRedfishHandler):
             self._send_plugin_response(plugin_response)
             return
 
-        # Handle RAS service requests
-        if "RASService" in self.path:
-            result = self.ras_service.handle_post(self.path, data_received)
-            if isinstance(result, tuple):
-                status_code, headers, response_data = result
-                self.send_response(status_code)
-                for header_name, header_value in headers.items():
-                    self.send_header(header_name, header_value)
-                self.send_header("Content-Type", "application/json")
-                encoded_data = json.dumps(response_data, sort_keys=True, indent=4).encode()
-                self.send_header("Content-Length", len(encoded_data))
-                self.end_headers()
-                self.wfile.write(encoded_data)
-            else:
-                self.send_response(result)
-                self.end_headers()
-            return
-
         # Handle LogService/LogEntries requests
         if "LogServices" in self.path and self.path.endswith("/Entries"):
             self._handle_log_entry_post(data_received)
@@ -156,6 +141,10 @@ class PostHandler(BaseRedfishHandler):
             else:
                 self.send_response(result)
                 self.end_headers()
+            return
+
+        if '/Actions/' in request_path:
+            self._handle_action_post(data_received)
             return
 
         # Handle regular POST requests
@@ -343,17 +332,13 @@ class PostHandler(BaseRedfishHandler):
                 self.path, data_received, self.cached_links
             )
             self.send_response(r_code)
-        
-        elif 'RASService/Actions/' in self.path:
-            r_code = self.ras_service.handle_post(self.path, data_received)
-            self.send_response(r_code)
+            self.end_headers()
         
         elif '/Actions/' in self.path:
             self._handle_custom_actions_post(data_received)
         else:
             self.send_response(404)
-
-        self.end_headers()
+            self.end_headers()
 
     def _handle_custom_actions_post(self, data_received):
         """Handle custom actions using CustomActionsService"""

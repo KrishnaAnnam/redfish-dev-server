@@ -134,12 +134,12 @@ bmc-redfish-simulator/
 │   │
 │   ├── plugins/                  # Plugin system
 │   │   ├── __init__.py
-│   │   └── plugin_base.py       # Plugin base classes
+│   │   ├── contracts.py         # Public Plugin SDK contracts
+│   │   ├── loader.py            # Configuration, routing, and lifecycle
+│   │   └── telemetry/           # Reference feature plugin
 │   │
 │   ├── platform_framework/       # Platform support
-│   │   ├── __init__.py
-│   │   ├── platform_base.py     # Platform base class
-│   │   └── platform_manager.py  # Platform management
+│   │   └── __init__.py
 │   │
 │   └── utils/                    # Utility functions
 │       ├── __init__.py
@@ -1421,123 +1421,66 @@ if fw_client.connect():
 
 ## Plugin Development
 
-### Plugin Architecture
-
-Plugins allow extending the BMC simulator without modifying core code:
-
-```
-plugins/
-├── __init__.py
-├── plugin_base.py          # Base plugin class
-├── thermal_plugin.py       # Example: Thermal monitoring
-├── power_plugin.py         # Example: Power management
-└── custom_plugin.py        # Your custom plugin
-```
-
-### Creating a Plugin
+Feature plugins are Python packages under `src/plugins/`. A configured plugin
+named `custom_plugin` is imported as `src.plugins.custom_plugin`, whose
+package must export `get_plugin()`. No central registration table or plugin
+manager edit is required.
 
 ```python
-from src.plugins.plugin_base import PluginBase
+from src.plugins import PluginContext, PluginRoute
 
-class CustomPlugin(PluginBase):
-    """Example custom plugin"""
-    
-    def __init__(self, config: Dict = None):
-        super().__init__("CustomPlugin", "1.0.0")
-        self.config = config or {}
-        
-    def initialize(self):
-        """Initialize plugin"""
-        self.logger.info(f"Initializing {self.name} plugin")
-        # Perform initialization tasks
-        
-    def on_request(self, method: str, path: str, data: Dict = None) -> Optional[Dict]:
-        """
-        Called before request is processed
-        
-        Args:
-            method: HTTP method
-            path: Request path
-            data: Request data
-            
-        Returns:
-            Modified data or None
-        """
-        # Intercept and modify requests
-        if path.startswith("/redfish/v1/Custom"):
-            return self._handle_custom_request(method, path, data)
-        
-        return None  # Let normal handler process
-    
-    def on_response(self, method: str, path: str, response: Dict) -> Dict:
-        """
-        Called before response is sent
-        
-        Args:
-            method: HTTP method
-            path: Request path
-            response: Response data
-            
-        Returns:
-            Modified response
-        """
-        # Add custom headers or modify response
-        if "CustomData" not in response:
-            response["CustomData"] = self._get_custom_data()
-        
-        return response
-    
-    def on_event(self, event_type: str, event_data: Dict):
-        """
-        Called when event is generated
-        
-        Args:
-            event_type: Type of event
-            event_data: Event data
-        """
-        # React to events
-        if event_type == "Alert":
-            self._process_alert(event_data)
-    
-    def _handle_custom_request(self, method: str, path: str, data: Dict) -> Dict:
-        """Handle custom endpoint"""
-        return {
-            "Message": "Custom endpoint handled by plugin",
-            "Method": method,
-            "Path": path
-        }
-    
-    def _get_custom_data(self) -> Dict:
-        """Get custom data"""
-        return {
-            "PluginName": self.name,
-            "PluginVersion": self.version,
-            "Timestamp": datetime.now().isoformat()
-        }
-    
+
+class CustomPlugin:
+    def initialize(
+        self,
+        server_config,
+        plugin_config,
+        context: PluginContext,
+    ):
+        self.config = dict(plugin_config)
+        self.context = context
+        return True
+
+    def get_routes(self):
+        return [
+            PluginRoute('/redfish/v1/Custom', {'GET'}),
+            PluginRoute(
+                '/redfish/v1/Custom/Actions/Custom.Run',
+                {'POST'},
+            ),
+        ]
+
+    def handle_get(self, path, query_params, cached_links):
+        return 200, {}, {'Id': 'Custom'}
+
+    def handle_post(self, path, data, cached_links):
+        return 202, {}, {'Accepted': True}
+
     def shutdown(self):
-        """Cleanup on shutdown"""
-        self.logger.info(f"Shutting down {self.name} plugin")
+        return True
 ```
 
-### Registering Plugins
+Enable it through `extensions`:
 
-```python
-from src.plugins.plugin_manager import PluginManager
-from plugins.custom_plugin import CustomPlugin
-
-# Create plugin manager
-plugin_manager = PluginManager()
-
-# Register plugins
-plugin_manager.register(CustomPlugin(config={"option": "value"}))
-
-# Initialize all plugins
-plugin_manager.initialize_all()
-
-# Use in handlers
-result = plugin_manager.execute_hook("on_request", method="GET", path="/redfish/v1/Custom")
+```json
+{
+  "extensions": [
+    {
+      "name": "custom_plugin",
+      "enabled": true,
+      "config": {}
+    }
+  ]
+}
 ```
+
+GET, POST, PATCH, and DELETE are supported through explicit `PluginRoute`
+declarations. Plugins can publish through the existing EventService using
+`PluginContext`, observe successful system resets with `on_system_reset()`,
+and must stop plugin-owned workers in `shutdown()`.
+
+See [Plugin SDK Guide](../PLUGIN_SDK.md) for the complete contract,
+configuration rules, response types, lifecycle, and conformance tests.
 
 ---
 

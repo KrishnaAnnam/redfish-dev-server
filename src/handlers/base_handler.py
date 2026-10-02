@@ -19,16 +19,7 @@ from ..utils.file_utils import construct_path, get_cached_link, send_header_file
 from ..services.event_service import EventServiceHandler
 from ..services.update_service import UpdateServiceHandler
 
-# Plugin system - RAS and Telemetry are now plugins, not core services
 from ..plugins import load_plugins_from_config
-
-# Backwards compatibility for the legacy RAS service.
-try:
-    from ..services.ras_service import RASServiceHandler as LegacyRASServiceHandler
-    _LEGACY_RAS_AVAILABLE = True
-except ImportError:
-    _LEGACY_RAS_AVAILABLE = False
-    LegacyRASServiceHandler = None
 
 logger = logging.getLogger(__name__)
 
@@ -181,38 +172,17 @@ class BaseRedfishHandler(BaseHTTPRequestHandler):
         ))
 
     def __init__(self, request, client_address, server):
+        self.server_config = server.config
         self.event_service = EventServiceHandler(server.config)
         self.update_service = UpdateServiceHandler(server.config)
         
         # Initialize the loader from the authoritative extension configuration.
         self.plugin_loader = load_plugins_from_config(server.config)
         
-        # Backwards compatibility for the legacy RAS service.
-        self._ras_service = None
-        
         # Add a fallback log_entry_service attribute to prevent property conflicts
         self._fallback_log_entry_service = None
         
         super().__init__(request, client_address, server)
-    
-    @property
-    def ras_service(self):
-        """
-        RAS Service property for backwards compatibility.
-        
-        Returns the RAS plugin handler if loaded, otherwise falls back
-        to legacy RAS service if available.
-        """
-        # Try plugin first
-        ras_plugin = self.plugin_loader.get_plugin('ras')
-        if ras_plugin and ras_plugin.enabled:
-            return ras_plugin.handler
-        
-        # Fallback to legacy service
-        if self._ras_service is None and _LEGACY_RAS_AVAILABLE:
-            self._ras_service = LegacyRASServiceHandler(self.server.config)
-        
-        return self._ras_service
     
     @property
     def log_entry_service(self):

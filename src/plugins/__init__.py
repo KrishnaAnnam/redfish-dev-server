@@ -7,10 +7,6 @@ BMC Simulator Plugin System
 Plugins extend the simulator with optional functionality that can be 
 enabled/disabled per platform configuration.
 
-Available Plugins:
-- ras: Reliability, Availability, Serviceability (CPER/CPAD handling)
-- telemetry: Telemetry Service (metric collection and reporting)
-
 Usage:
     from src.plugins import get_plugin_loader, load_plugins_from_config
     
@@ -21,22 +17,22 @@ Usage:
     loader = get_plugin_loader(config)
     loader.load_plugins(['telemetry'])
     
-    # Route requests through plugins
-    plugin = loader.get_plugin_for_path(path)
-    if plugin:
-        status, headers, body = plugin.handle_get(path)
+    response = loader.handle_get(path, query_params, cached_links)
 """
 
 from .loader import (
     PluginLoader,
     get_plugin_loader,
     load_plugins_from_config,
-    AVAILABLE_PLUGINS
+    shutdown_plugins,
 )
+from .contracts import PluginContext, PluginRoute
 
 __all__ = [
     'PluginLoader',
+    'PluginContext',
+    'PluginRoute',
     'get_plugin_loader', 
     'load_plugins_from_config',
-    'AVAILABLE_PLUGINS'
+    'shutdown_plugins',
 ]

@@ -10,6 +10,8 @@ This module defines the Telemetry plugin's registration with the BMC Simulator c
 import logging
 from typing import Dict, Any, List, Optional, Tuple
 
+from ..contracts import PluginContext, PluginRoute
+
 logger = logging.getLogger(__name__)
 
 SUBMIT_TEST_METRIC_REPORT_PATH = (
@@ -50,6 +52,7 @@ class TelemetryPlugin:
         self._handler = None
         self._config = None
         self._plugin_config = {}
+        self._context = None
         logger.info("Telemetry Plugin initialized")
     
     @property
@@ -68,7 +71,8 @@ class TelemetryPlugin:
         return self._handler
     
     def initialize(self, config: Dict[str, Any],
-                   plugin_config: Dict[str, Any] = None) -> bool:
+                   plugin_config: Dict[str, Any] = None,
+                   context: PluginContext = None) -> bool:
         """
         Initialize the plugin with configuration.
         
@@ -82,6 +86,7 @@ class TelemetryPlugin:
         try:
             self._config = config
             self._plugin_config = dict(plugin_config or {})
+            self._context = context
             
             from .telemetry_service import TelemetryServiceHandler
             
@@ -100,31 +105,18 @@ class TelemetryPlugin:
         try:
             self._enabled = False
             self._handler = None
+            self._context = None
             logger.info("Telemetry Plugin shutdown complete")
             return True
         except Exception as e:
             logger.error(f"Error during Telemetry Plugin shutdown: {e}")
             return False
     
-    def get_routes(self) -> List[str]:
-        """Return list of URL paths this plugin handles."""
+    def get_routes(self) -> List[PluginRoute]:
+        """Return the dynamic routes owned by this plugin."""
         return [
-            "/redfish/v1/TelemetryService",
-            "/redfish/v1/TelemetryService/",
-            "/redfish/v1/TelemetryService/MetricReports",
-            "/redfish/v1/TelemetryService/MetricReports/*",
-            "/redfish/v1/TelemetryService/MetricReportDefinitions",
-            "/redfish/v1/TelemetryService/MetricReportDefinitions/*",
-            "/redfish/v1/TelemetryService/MetricDefinitions",
-            "/redfish/v1/TelemetryService/MetricDefinitions/*",
-            "/redfish/v1/TelemetryService/Triggers",
-            "/redfish/v1/TelemetryService/Triggers/*",
-            "/redfish/v1/TelemetryService/Actions/*",
+            PluginRoute(SUBMIT_TEST_METRIC_REPORT_PATH, {'POST'}),
         ]
-    
-    def handles_path(self, path: str) -> bool:
-        """Check if this plugin handles the given path."""
-        return path.startswith('/redfish/v1/TelemetryService')
     
     def handle_telemetry(self, path: str, data: Dict[str, Any],
                          cached_links: Dict[str, Any] = None) -> int:

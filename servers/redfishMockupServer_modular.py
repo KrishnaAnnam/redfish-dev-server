@@ -26,6 +26,7 @@ sys.path.insert(1, os.path.join(_project_root, 'scripts'))
 
 from src.config.settings import parse_arguments, ServerConfig
 from src.handlers.main_handler import RedfishMockupHandler
+from src.plugins import shutdown_plugins
 from rfSsdpServer import RfSSDPServer
 
 # Configure logging
@@ -134,6 +135,7 @@ def signal_handler(signum, frame):
     # Stop servers
     if mockup_server:
         mockup_server.server_close()
+    shutdown_plugins()
     
     sys.exit(0)
 
@@ -195,6 +197,7 @@ def main():
         if mockup_server:
             clear_subscriptions(config.mock_dir)
             mockup_server.server_close()
+        shutdown_plugins()
         logger.info("Server shutdown complete")
 
 

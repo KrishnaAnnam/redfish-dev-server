@@ -53,32 +53,6 @@ class GetHandler(BaseRedfishHandler):
             self._send_plugin_response(plugin_response)
             return
 
-        # Handle RAS service requests
-        if self.path.startswith('/redfish/v1/RASService'):
-            result = self.ras_service.handle_get(self.path)
-            if result:
-                if isinstance(result, tuple):
-                    status_code, headers, response_data = result
-                    self.send_response(status_code)
-                    for header_name, header_value in headers.items():
-                        self.send_header(header_name, header_value)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("OData-Version", "4.0")
-                    encoded_data = json.dumps(response_data, sort_keys=True, indent=4, separators=(",", ": ")).encode()
-                    self.send_header("Content-Length", len(encoded_data))
-                    self.end_headers()
-                    self.wfile.write(encoded_data)
-                else:
-                    # Fallback for simple response format
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("OData-Version", "4.0")
-                    encoded_data = json.dumps(result, sort_keys=True, indent=4, separators=(",", ": ")).encode()
-                    self.send_header("Content-Length", len(encoded_data))
-                    self.end_headers()
-                    self.wfile.write(encoded_data)
-                return
-
         # Handle special cases for shortForm
         if self.path == '/' and self.server.config.short_form:
             self.send_response(404)

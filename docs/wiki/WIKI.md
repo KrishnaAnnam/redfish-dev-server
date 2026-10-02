@@ -100,7 +100,7 @@ curl http://localhost:8000/redfish/v1
   - Plugin architecture
   - Writing platform providers
   - Platform detection
-  - Domain-specific plugins (RAS, Telemetry)
+  - Convention-loaded feature plugins
 
 #### Advanced Topics
 - **[Platform Architecture Deep Dive](PLATFORM_ARCHITECTURE.md)** - Technical architecture
@@ -154,7 +154,7 @@ curl http://localhost:8000/redfish/v1
 │  Platform Framework:                                             │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │  • Platform Discovery  • Service Manager                  │  │
-│  │  • Plugin System      • Domain Plugins (RAS, Telemetry)     │  │
+│  │  • Plugin System      • Feature Plugins (Telemetry, custom) │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                   │
 │  Client Library:                                                 │
@@ -191,7 +191,7 @@ bmc-redfish-simulator/
 │   ├── models/                   # Data models
 │   ├── config/                   # Configuration management
 │   ├── platform_framework/       # Platform detection & plugins
-│   ├── plugins/                  # Domain-specific plugins (RAS, Telemetry)
+│   ├── plugins/                  # Plugin contracts and feature packages
 │   └── utils/                    # Utility functions
 ├── redfishMockupServer_modular.py    # Modular server
 ├── redfishMockupServer_enhanced.py   # Enhanced server
@@ -236,7 +236,7 @@ mkdir my_platform
 | Task | Documentation | Example |
 |------|---------------|---------|
 | **Testing BMC clients** | [Quick Start](QUICK_START.md) | Run modular server with your mockup |
-| **Simulating with plugins** | [Platform Architecture](PLATFORM_ARCHITECTURE.md) | Use platform server with RAS/Telemetry plugins |
+| **Simulating with plugins** | [Plugin SDK](../PLUGIN_SDK.md) | Configure Telemetry or another feature plugin |
 | **Custom platform development** | [Platform Development](PLATFORM_DEVELOPMENT.md) | Create custom platform provider |
 | **Event testing** | [Enhanced Server](README_ENHANCED.md) | Use enhanced server for subscriptions |
 
@@ -470,7 +470,7 @@ If you find any issues with documentation or have suggestions:
 - **Total Documentation Files:** 16+ markdown files
 - **Lines of Code:** 60+ Python files
 - **Server Variants:** 3 (Modular, Enhanced, Platform)
-- **Domain Plugins:** 2+ (RAS, Telemetry, + custom)
+- **Domain Plugins:** Telemetry reference plugin plus custom packages
 - **Client Library Modules:** 10+
 - **Example Scripts:** 15+
 - **Test Files:** 5+

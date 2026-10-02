@@ -1,0 +1,288 @@
+# Policy Engine
+
+The **Policy Engine** ([`policy.py`](policy.py), class `PolicyEngine`) is the
+Server Fleet Operator's gate that decides whether a **proposed RAS action**
+(a CPAD produced by a vendor analyzer) is allowed to run on the hardware.
+
+It is **table-driven**: all policy lives in two JSON files under
+[`policy_tables/`](policy_tables), which the engine loads at construction. The
+engine itself is small, self-contained, and has **no server dependencies**. It
+decodes the binary CPAD with cperlib, reads local JSON policy tables, and
+returns a decision.
+
+## Where it sits in the pipeline
+
+```
+vendor analyzer  ──►  emits a binary CPAD (a proposed action)
+                          │
+                   PolicyEngine.evaluate_cpad()   ◄── operator policy gate (tables)
+                          │
+              approved ───┴─── denied
+                 │                 │
+          CPADSubmitter      create-platform-action-cper (POLICY_REJECTED)
+          POST to host             │
+                          store_cper → event listener → cper_storage/
+                                    │
+                          orchestrator analyzes it like any host CPER
+```
+
+A CPAD is only a *recommendation*. The analyzer never acts on its own; the
+operator's policy engine must approve it before `CPADSubmitter` sends it back to
+the reporting host. Driven from `AnalysisOrchestrator._policy_and_submit()`,
+which calls `policy_engine.evaluate_cpad(cpad_binary)` and, on denial, emits a
+rejection CPER (see [Rejections](#rejections-policy_rejected-cper)).
+
+## What it inspects (and what it does not)
+
+The engine decodes the binary CPAD in memory, then reads only its **header** and
+**section descriptors**:
+
+- `header.creatorID`, `header.platformID`, `header.partitionID`, and
+  `header.urgency`
+- `sectionDescriptors[].actionId` / `actionID.code`,
+  `sectionDescriptors[].confidence`, `sectionDescriptors[].urgency`, and
+  `fruText`
+
+It never interprets the opaque vendor **section body**. So it can tell *that* an
+action is, say, an error injection or PPR (from the action id in the section
+descriptor), but not the private details inside the section. That keeps
+proprietary vendor data private while still letting the operator gate on
+identity, action type, target platform, confidence, and urgency.
+
+Confidence and urgency are analyzer-provided policy inputs. Policy may deny an
+action based on either field and may prioritize an approved urgent action. The
+endpoint does not use either field when executing the action.
+
+Analyzers do not emit JSON CPAD sidecars. Any JSON representation used while
+assembling a CPAD is temporary; the policy engine obtains its decoded view
+directly from the binary `.cpad`.
+
+## The policy tables
+
+Two JSON files, loaded at construction (defaults shown; override via constructor
+args or the CLI `--creators` / `--actions` flags).
+
+### `policy_tables/creators.json` — who is trusted
+
+Maps a **CreatorID** to a trust record.
+
+```json
+{
+  "11111111-2222-3333-4444-555555555555": {
+    "name": "Contoso",
+    "trusted": true
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| *(key)* | CreatorID GUID (lowercase) |
+| `name` | Human-friendly owner name (display only) |
+| `trusted` | `true` ⇒ creator is trusted; anything else ⇒ denied at Rule 1 |
+
+### `policy_tables/actions.json` — what each creator may do
+
+Indexed by **CreatorID → ActionID**, so each row is the policy for one action
+type from one creator.
+
+```json
+{
+  "11111111-2222-3333-4444-555555555555": {
+    "0x0002": {
+      "name": "Power Cycle",
+      "permitted": true,
+      "urgency_policy": "any",
+      "confidence_threshold": 80,
+      "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
+    },
+    "0x0003": {
+      "name": "Reseat Part",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
+    },
+    "0x0004": {
+      "name": "Shuffle Part",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
+    },
+    "0x0005": {
+      "name": "Replace Part",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
+    },
+    "0x0006": {
+      "name": "Error Injection",
+      "permitted": true,
+      "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
+    },
+    "0x8001": {
+      "name": "PPR (Post Package Repair)",
+      "permitted": true,
+      "urgency_policy": "any",
+      "confidence_threshold": 80,
+      "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
+    },
+    "0x8002": {
+      "name": "Page Offline",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
+    },
+    "0x8003": {
+      "name": "Reboot with Memory Retraining",
+      "permitted": true,
+      "confidence_threshold": 80,
+      "supported_platforms": ["990f8820-bd4d-5064-58cc-961a053dea79"]
+    }
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| *(outer key)* | CreatorID GUID |
+| *(inner key)* | ActionID as a hex string (e.g. `0x0006`, `0x8001`) |
+| `name` | Human-friendly action name (display only) |
+| `permitted` | `true` ⇒ action is allowed; `false` ⇒ denied at Rule 3 |
+| `confidence_threshold` | *Optional.* If present, the CPAD's section-descriptor `confidence` must be `>=` this value. **Omit it to apply no confidence gate** (e.g. error injection). |
+| `urgency_policy` | *Optional.* `any` allows either value, `urgent_only` requires urgent, and `non_urgent_only` rejects urgent. Omitted behaves as `any`. |
+| `supported_platforms` | List of PlatformID GUIDs on which this action is allowed |
+
+**Why `confidence_threshold` is optional:** the policy engine only sees the
+action *type* from the section descriptor. For an error injection (`0x0006`) it
+cannot tell what error is being injected, and confidence is not meaningful — so
+that row simply omits `confidence_threshold` and the confidence rule is skipped.
+Analyzer-driven remediations such as PPR (`0x8001`), Page Offline (`0x8002`),
+and reboot with memory retraining (`0x8003`) carry the analyzer's confidence
+and are gated (here at `80`). Omitting the field is preferred over a `0`
+threshold because it is unambiguous ("no confidence policy" versus "threshold
+of zero").
+
+Note that proprietary CPAD ActionIDs (0x8000 to 0xFFFF) are specific to a particular CreatorID.  This means that proprietary ActionIDs may have different meanings for different vendors (CreatorIDs). 
+
+The Contoso definitions are documented in
+[Contoso CPAD Actions](analyzers/contoso/contoso-cpad-actions.md).
+
+## The rules
+
+`evaluate_cpad()` approves a CPAD only if **all** applicable rules pass; it
+denies on the first failure and records the reason.
+
+| # | Rule | Check |
+|---|------|-------|
+| 1 | **Creator trust** | `creators[creatorID].trusted == true` |
+| 2 | **Known action** | `actions[creatorID][actionID]` exists |
+| 3 | **Permitted** | that row's `permitted == true` |
+| 4 | **Platform supported** | `platformID ∈ row.supported_platforms` |
+| 5 | **Confidence** | if the row has `confidence_threshold`, require `confidence >= threshold`; if absent, not evaluated |
+| 6 | **Urgency** | apply `urgency_policy`; omitted or `any` accepts both values |
+
+Every section must pass every rule or the entire CPAD is denied. An urgent
+section must still pass every other rule. For each approved urgent section,
+the policy engine marks it prioritized and prints:
+
+```text
+⚡ Prioritizing approved urgent action
+   Action: Replace Part (0x0005)
+   FRU Text: DIMM A1
+   FRU ID: 75824856-bd36-2cc8-61f4-39bb3276da2a
+```
+
+This signal allows server-fleet workflows to accelerate special data-center
+handling such as DIMM replacement or coordinated reboot. The demo reports the
+priority but does not implement a physical-work queue.
+
+## Rejections (POLICY_REJECTED CPER)
+
+When a CPAD is denied, the action is **not** sent to the host. Instead the
+orchestrator records the rejection as a first-class event the analyzer can see:
+
+1. `create-platform-action-cper <cpad> --return-code 0x03 --reason-code 0x00`
+   turns the rejected CPAD into a **Platform Action CPER** whose
+   `actionReturnCode` is `EFI_PLATFORM_ACTION_RETURN_CODE_POLICY_REJECTED (0x03)`
+   with reason `EFI_PLATFORM_ACTION_REASON_CODE_NONE (0x00)`. (Both constants are
+   defined in `src/plugins/ras/libcper/include/libcper/Cper.h`.)
+2. The orchestrator sends the bytes to the event listener via a `store_cper`
+   command; the listener writes them under
+   `cper_storage/{platformID}/{partitionID}/` — the same tree as host CPERs —
+   and sends the usual `cper_downloaded` notification.
+3. The orchestrator picks it up like any other CPER and routes it to the
+   analyzer, which reports the `POLICY_REJECTED` action result.
+
+The `PolicyEngine` itself only makes the decision; the orchestrator owns the
+cperlib call and delivery. `PolicyDecision` carries the `return_code` /
+`reason_code` constants so the "what" is expressed in policy and the "how" is
+plumbing.
+
+## `PolicyDecision`
+
+`evaluate_cpad()` returns a `PolicyDecision` (truthy when allowed):
+
+| Field | Meaning |
+|-------|---------|
+| `allowed` | Approved (`True`) or denied (`False`) |
+| `reason` | Human-readable denial reason (`None` when allowed) |
+| `creator_id`, `platform_id`, `action_id`, `action_name`, `fru_id`, `fru_text` | Compatibility view of the first section's normalized action context |
+| `confidence`, `threshold` | The CPAD confidence and the applied threshold (`None` if not gated) |
+| `urgency`, `prioritized` | Analyzer urgency and whether an approved action should receive accelerated handling |
+| `section_decisions` | Per-section action, FRU, confidence, urgency, priority, and allow/deny result |
+| `return_code`, `reason_code` | Platform Action codes to stamp on a rejection CPER |
+
+## API
+
+```python
+from policy import PolicyEngine
+
+engine = PolicyEngine()                      # loads policy_tables/*.json
+decision = engine.evaluate_cpad("action.cpad") # -> PolicyDecision (truthy if allowed)
+if decision.allowed:
+    ...
+else:
+    print(decision.reason)
+
+# Custom tables:
+engine = PolicyEngine(creators_path="c.json", actions_path="a.json")
+
+# Batch:
+results = engine.evaluate_multiple_cpads([p1, p2])   # [(path, PolicyDecision), ...]
+```
+
+## Standalone CLI
+
+```bash
+python examples/ras_api_demo/policy.py path/to/action.cpad [more.cpad ...]
+python examples/ras_api_demo/policy.py --creators c.json --actions a.json action.cpad
+```
+
+Prints a rule-by-rule trace and a final `APPROVED` / `DENIED` per file; exit code
+is `0` if every CPAD is approved, `1` otherwise.
+
+## Extending policy
+
+Edit the JSON files — no code changes:
+
+- **New trusted vendor** → add a CreatorID entry to `creators.json`.
+- **New action** → add `actions[creatorID][actionID]` with `permitted`,
+  `supported_platforms`, `urgency_policy`, and (optionally)
+  `confidence_threshold`.
+- **Allow an action on more platforms** → add PlatformIDs to that row's
+  `supported_platforms`.
+
+For a real deployment these files would be backed by an operator-managed policy
+source, and additional rules (rate limits, maintenance windows, blast-radius
+limits) would slot in alongside the existing ones.
+
+## Related documents
+
+- [analyzer-orchestrator.md](analyzer-orchestrator.md) — calls this engine and
+  delivers the `POLICY_REJECTED` CPER on denial.
+- [Analyzer-Design.md](analyzers/contoso/Analyzer-Design.md) — produces the SPPR
+  CPADs this engine evaluates.
+- [CPAD_SUBMISSION.md](CPAD_SUBMISSION.md) — how an **approved** CPAD is
+  submitted back to the endpoint.
+- [README.md](README.md#end-to-end-walkthrough) — where the policy gate sits in
+  the full demo flow.

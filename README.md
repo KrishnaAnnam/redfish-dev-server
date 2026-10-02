@@ -211,11 +211,36 @@ feature-specific changes to common handlers or server entry points.
 - Deterministic plugin shutdown across all server variants
 - JSON, text, binary, and empty response bodies
 
-Telemetry is the current reference plugin. Additional feature plugins,
-including RAS, can be added independently using the same contract.
+Telemetry and RAS are the current integrated feature plugins. Both use the
+same loader, configuration, routing, EventService context, reset notification,
+and shutdown contracts.
 
 See the [Plugin SDK Guide](docs/PLUGIN_SDK.md) and
 [Documentation Index](docs/DOCUMENTATION_INDEX.md).
+
+### OCP RAS API Plugin
+
+The RAS plugin provides OCP RAS API discovery, CPAD submission, configured
+endpoint ownership, and CPER LogService behavior. The Gen1 platform
+configuration enables it through the common Plugin SDK:
+
+```bash
+python3 servers/redfishMockupServer_platform.py \
+  -D mockups/ras_gen1 \
+  -p 8000
+```
+
+The analyzer and policy demonstration has additional prerequisites documented
+in its setup guide. To launch the three-pane demo environment after installing
+them:
+
+```bash
+bash examples/ras_api_demo/run_ras_demo.sh
+```
+
+- [RAS plugin architecture](src/plugins/ras/README.md)
+- [Endpoint configuration](src/plugins/ras/RAS_ENDPOINT_CONFIGURATION.md)
+- [OCP RAS API demo](examples/ras_api_demo/README.md)
 
 ## 🌐 Web UI Interface
 

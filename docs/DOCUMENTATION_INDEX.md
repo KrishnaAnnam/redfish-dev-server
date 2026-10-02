@@ -13,9 +13,9 @@
 
 ## Plugin Development
 
-The current reference feature plugin is Telemetry. Future feature plugins,
-including RAS, should use the same common Plugin SDK contract and bring their
-own source, configuration, mockup resources, schemas, registries, tests, and
+Telemetry and RAS are the current integrated feature plugins. Future feature
+plugins should use the same common Plugin SDK contract and bring their own
+source, configuration, mockup resources, schemas, registries, tests, and
 demonstration assets.
 
 | Document | Purpose |
@@ -23,6 +23,9 @@ demonstration assets.
 | [Plugin SDK](PLUGIN_SDK.md) | Package convention, routes, responses, context, reset notification, and shutdown |
 | [Plugin Specifications](plugin-specs/README.md) | Plugin specification organization and responsibilities |
 | [Telemetry Plugin](plugin-specs/telemetry/README.md) | Current reference plugin behavior and configuration |
+| [RAS Plugin](../src/plugins/ras/README.md) | OCP RAS API architecture, CPAD routing, and reset behavior |
+| [RAS Endpoint Configuration](../src/plugins/ras/RAS_ENDPOINT_CONFIGURATION.md) | Endpoint identity, topology, memory inventory, and provider configuration |
+| [OCP RAS API Demo](../examples/ras_api_demo/README.md) | Analyzer, policy, event listener, and end-to-end demonstration setup |
 
 The Plugin SDK supports convention-based loading from
 `src.plugins.<configured_name>`. A plugin exports `get_plugin()` and declares
@@ -49,6 +52,7 @@ isolated Redfish domains and are loaded through the Plugin SDK.
 |----------|---------|
 | [Action Handlers](ACTION_HANDLERS.md) | Implementing and testing Redfish actions |
 | [LogEntry Service](LOGENTRY_SERVICE.md) | LogService and LogEntry behavior |
+| [RAS Plugin](../src/plugins/ras/README.md) | OCP RAS API discovery, CPAD submission, and CPER LogService behavior |
 | [Schema Validation](specs/SCHEMA_VALIDATION_GUIDE.md) | Resource and property validation |
 
 ## Migration and Standalone Development
@@ -65,7 +69,8 @@ Run the common Plugin SDK conformance tests:
 ```bash
 python3 -m pytest \
   tests/test_plugin_configuration.py \
-  tests/test_plugin_routing.py
+  tests/test_plugin_routing.py \
+  tests/test_ras_plugin_sdk.py
 ```
 
 The tests cover:
@@ -81,6 +86,7 @@ The tests cover:
 - successful reset notification
 - deterministic shutdown
 - modular, platform, and enhanced server integration
+- RAS route, configuration, EventService, reset, and shutdown adaptation
 
 ## Current Plugin Boundary
 

@@ -1,0 +1,272 @@
+"""Endpoint-side helpers for Contoso v1.4 through v1.6 memory section bodies."""
+
+from __future__ import annotations
+
+import base64
+import struct
+from typing import Any, Dict
+
+from .memory_config import MemoryRepairState
+
+
+CONTOSO_MEMORY_SECTION_GUID = "e01ce992-d080-43f4-8a2c-df8a9d81eb4e"
+_CURRENT_SECTION_VERSION = (1, 6)
+_SUPPORTED_SECTION_VERSIONS = frozenset({(1, 4), (1, 5), (1, 6)})
+_SECTION_HEADER_SIZE = 8
+_ERROR_BANK_SIZE = 40
+_LOCATION_AND_BEATS_SIZE = 21
+_BANK_COUNT = 2
+_DRAM_ADDITIONAL_OFFSET = _SECTION_HEADER_SIZE + _BANK_COUNT * _ERROR_BANK_SIZE
+_DRAM_FIXED_SIZE_BY_VERSION = {
+    (1, 4): 81,
+    (1, 5): 82,
+    (1, 6): 86,
+}
+_DRAM_FIXED_SIZE = _DRAM_FIXED_SIZE_BY_VERSION[_CURRENT_SECTION_VERSION]
+_OTHER_ADDITIONAL_SIZE = 8
+_SPD_TEMPERATURE_OFFSET = 69
+_SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT = -128
+
+
+def is_contoso_memory_cpad(
+        cpad_data: Dict[str, Any], section_index: int = 0) -> bool:
+    descriptors = cpad_data.get("sectionDescriptors", [])
+    if not 0 <= section_index < len(descriptors):
+        return False
+    section_type = descriptors[section_index].get("sectionType", {})
+    guid = section_type.get("data") if isinstance(section_type, dict) else None
+    return (isinstance(guid, str) and
+            guid.lower() == CONTOSO_MEMORY_SECTION_GUID)
+
+
+def _section_body(
+        cpad_data: Dict[str, Any], section_index: int = 0) -> bytes:
+    descriptors = cpad_data.get("sectionDescriptors", [])
+    sections = cpad_data.get("sections", [])
+    if (not 0 <= section_index < len(descriptors)
+            or not 0 <= section_index < len(sections)):
+        raise ValueError("CPAD has no section")
+    if not is_contoso_memory_cpad(cpad_data, section_index):
+        raise ValueError("CPAD does not contain a Contoso memory section")
+    encoded = sections[section_index].get("Unknown", {}).get("data")
+    if not encoded:
+        raise ValueError("Contoso memory section has no body")
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except Exception as exc:
+        raise ValueError("Contoso memory section body is not valid base64") from exc
+
+
+def _section_version(body: bytes):
+    if len(body) < _DRAM_ADDITIONAL_OFFSET:
+        raise ValueError("Contoso memory section body is truncated")
+    major, minor, bank_count = struct.unpack_from("<BBH", body, 0)
+    version = major, minor
+    if version not in _SUPPORTED_SECTION_VERSIONS or bank_count != _BANK_COUNT:
+        raise ValueError(
+            f"unsupported Contoso memory section {major}.{minor} with {bank_count} banks")
+    return version
+
+
+def active_memory_bank(
+        body: bytes, *, validate_organization: bool = True) -> str:
+    """Validate a supported Contoso memory section and return its active bank."""
+    version = _section_version(body)
+    fixed_size = _DRAM_FIXED_SIZE_BY_VERSION[version]
+    if len(body) < (
+            _DRAM_ADDITIONAL_OFFSET + fixed_size + _OTHER_ADDITIONAL_SIZE):
+        raise ValueError("Contoso memory section body is truncated")
+    for index in range(_BANK_COUNT):
+        reserved = struct.unpack_from(
+            "<I", body,
+            _SECTION_HEADER_SIZE + index * _ERROR_BANK_SIZE + 36)[0]
+        if reserved != 0:
+            raise ValueError("Contoso memory Error Bank reserved field must be zero")
+    dram_status = struct.unpack_from("<Q", body, _SECTION_HEADER_SIZE)[0]
+    other_status = struct.unpack_from(
+        "<Q", body, _SECTION_HEADER_SIZE + _ERROR_BANK_SIZE)[0]
+    dram_active = dram_status & 0xFFFF != 0
+    other_active = other_status & 0xFFFF != 0
+    if dram_active == other_active:
+        raise ValueError("Contoso memory section must have exactly one active error bank")
+    dram_offset = struct.unpack_from(
+        "<I", body, _SECTION_HEADER_SIZE + 32)[0]
+    other_offset = struct.unpack_from(
+        "<I", body, _SECTION_HEADER_SIZE + _ERROR_BANK_SIZE + 32)[0]
+    if dram_offset != _DRAM_ADDITIONAL_OFFSET:
+        raise ValueError("Contoso DRAM additional-register offset is invalid")
+    repair_count = body[dram_offset + fixed_size - 1]
+    if other_offset != dram_offset + fixed_size + repair_count * 6:
+        raise ValueError("Contoso sparse repair table length is invalid")
+    if len(body) != other_offset + _OTHER_ADDITIONAL_SIZE:
+        raise ValueError("Contoso memory section length is invalid")
+    capabilities_offset = {
+        (1, 4): 77,
+        (1, 5): 78,
+        (1, 6): 82,
+    }[version]
+    if version == (1, 6) and validate_organization:
+        org_version, scheme, dimm_size_gib, org_reserved = (
+            struct.unpack_from("<BBBB", body, dram_offset + 78))
+        if org_version != 1 or scheme != 1:
+            raise ValueError("Contoso memory organization is unsupported")
+        if dimm_size_gib not in {32, 64, 128}:
+            raise ValueError("Contoso DIMM size is unsupported")
+        if org_reserved != 0:
+            raise ValueError(
+                "Contoso memory organization reserved field must be zero")
+    reserved_offset = capabilities_offset + 1
+    if body[dram_offset + capabilities_offset] & ~0x07:
+        raise ValueError("Contoso memory repair capabilities have reserved bits set")
+    if any(body[
+            dram_offset + reserved_offset:dram_offset + reserved_offset + 2]):
+        raise ValueError("Contoso memory reserved field must be zero")
+    return "dram" if dram_active else "other"
+
+
+def active_cpad_memory_bank(
+        cpad_data: Dict[str, Any], section_index: int = 0) -> str:
+    return active_memory_bank(_section_body(cpad_data, section_index))
+
+
+def decode_memory_coordinates(body: bytes) -> Dict[str, int]:
+    """Decode the DIMM and bank target from a Contoso memory body."""
+    if active_memory_bank(body) != "dram":
+        raise ValueError("SPPR requires the DRAM Errors bank to be active")
+    chiplet, controller = struct.unpack_from("<HH", body, 4)
+    additional_offset = _DRAM_ADDITIONAL_OFFSET
+    channel, dimm, subchannel, rank, device, bank_group, bank = struct.unpack_from(
+        "<BBBBBBB", body, additional_offset)
+    row = struct.unpack_from("<I", body, additional_offset + 7)[0]
+    column = struct.unpack_from("<H", body, additional_offset + 11)[0]
+    return {
+        "chiplet": chiplet,
+        "controller": controller,
+        "channel": channel,
+        "dimm": dimm,
+        "subchannel": subchannel,
+        "rank": rank,
+        "device": device,
+        "bank_group": bank_group,
+        "bank": bank,
+        "row": row,
+        "column": column,
+    }
+
+
+def decode_cpad_memory_coordinates(
+        cpad_data: Dict[str, Any], section_index: int = 0) -> Dict[str, int]:
+    return decode_memory_coordinates(_section_body(cpad_data, section_index))
+
+
+def decode_memory_error_address(body: bytes) -> int:
+    """Decode the active DRAM bank's valid 64-bit physical address."""
+    if active_memory_bank(body) != "dram":
+        raise ValueError("Page Offline requires the DRAM Errors bank to be active")
+    status = struct.unpack_from("<Q", body, _SECTION_HEADER_SIZE)[0]
+    if not status >> 63 & 0x1:
+        raise ValueError("Page Offline requires a valid physical address")
+    return struct.unpack_from("<Q", body, _SECTION_HEADER_SIZE + 8)[0]
+
+
+def decode_cpad_memory_error_address(
+        cpad_data: Dict[str, Any], section_index: int = 0) -> int:
+    return decode_memory_error_address(_section_body(cpad_data, section_index))
+
+
+def _fixed_ascii(value: str, capacity: int) -> bytes:
+    encoded = value.encode("ascii")
+    return encoded + b"\x00" * (capacity - len(encoded))
+
+
+def overlay_memory_state(
+        body: bytes,
+        state: MemoryRepairState,
+        allow_spd_temperature_override: bool = False) -> bytes:
+    """Overlay authoritative DIMM SPD and repair counters into a memory body."""
+    active_bank = active_memory_bank(
+        body, validate_organization=False)
+    if active_bank == "other":
+        other_offset = struct.unpack_from(
+            "<I", body, _SECTION_HEADER_SIZE + _ERROR_BANK_SIZE + 32)[0]
+        dram = bytearray(_LOCATION_AND_BEATS_SIZE + 19 + 25 + 2 + 2)
+        dram += struct.pack("<b", 0)
+        dram += struct.pack("<Q", state.config.total_memory_bytes)
+        dram += struct.pack(
+            "<BBBB",
+            state.config.organization.version,
+            1,
+            state.config.organization.dimm_size_gib,
+            0,
+        )
+        dram += struct.pack("<B", state.capabilities.bitfield)
+        dram += b"\x00\x00\x00"
+        prefix = bytearray(body[:_DRAM_ADDITIONAL_OFFSET])
+        prefix[0:2] = bytes(_CURRENT_SECTION_VERSION)
+        struct.pack_into(
+            "<I", prefix, _SECTION_HEADER_SIZE + _ERROR_BANK_SIZE + 32,
+            _DRAM_ADDITIONAL_OFFSET + len(dram))
+        return bytes(prefix + dram + body[other_offset:])
+
+    coordinates = decode_memory_coordinates(body)
+    dimm = state.config.get_dimm(
+        coordinates["chiplet"], coordinates["controller"],
+        coordinates["channel"], coordinates["dimm"])
+    entries = state.entries_for_dimm(*dimm.key)
+    dram_offset = _DRAM_ADDITIONAL_OFFSET
+    other_bank_offset_field = _SECTION_HEADER_SIZE + _ERROR_BANK_SIZE + 32
+    old_other_offset = struct.unpack_from("<I", body, other_bank_offset_field)[0]
+    if old_other_offset < dram_offset + _LOCATION_AND_BEATS_SIZE or old_other_offset > len(body):
+        raise ValueError("Contoso memory additional-register offsets are invalid")
+
+    source_version = _section_version(body)
+    requested_temperature = None
+    if source_version == _CURRENT_SECTION_VERSION:
+        requested_temperature = struct.unpack_from(
+            "<b", body, dram_offset + _SPD_TEMPERATURE_OFFSET)[0]
+        if requested_temperature == _SPD_TEMPERATURE_USE_ENDPOINT_DEFAULT:
+            requested_temperature = None
+    spd_temperature = (
+        requested_temperature
+        if allow_spd_temperature_override and requested_temperature is not None
+        else dimm.spd_temperature
+    )
+
+    dram = bytearray(body[dram_offset:dram_offset + _LOCATION_AND_BEATS_SIZE])
+    dram += _fixed_ascii(dimm.serial_number, 19)
+    dram += _fixed_ascii(dimm.part_number, 25)
+    dram += bytes(dimm.module_manufacturer_id)
+    dram += bytes(dimm.dram_manufacturer_id)
+    dram += struct.pack("<b", spd_temperature)
+    dram += struct.pack("<Q", state.config.total_memory_bytes)
+    dram += struct.pack(
+        "<BBBB",
+        state.config.organization.version,
+        1,
+        state.config.organization.dimm_size_gib,
+        0,
+    )
+    dram += struct.pack("<B", state.capabilities.bitfield)
+    dram += b"\x00\x00"
+    dram += struct.pack("<B", len(entries))
+    for entry in entries:
+        dram += struct.pack(
+            "<BBBBBB", entry["subchannel"], entry["rank"], entry["device"],
+            entry["bank_group"], entry["bank"], entry["count"])
+
+    prefix = bytearray(body[:dram_offset])
+    prefix[0:2] = bytes(_CURRENT_SECTION_VERSION)
+    struct.pack_into("<I", prefix, other_bank_offset_field, dram_offset + len(dram))
+    return bytes(prefix + dram + body[old_other_offset:])
+
+
+def overlay_cpad_memory_state(
+        cpad_data: Dict[str, Any],
+        state: MemoryRepairState,
+        allow_spd_temperature_override: bool = False,
+        section_index: int = 0) -> bytes:
+    return overlay_memory_state(
+        _section_body(cpad_data, section_index),
+        state,
+        allow_spd_temperature_override=allow_spd_temperature_override,
+    )

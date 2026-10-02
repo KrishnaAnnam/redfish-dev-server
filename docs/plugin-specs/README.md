@@ -74,15 +74,14 @@ Plugins extend the simulator by:
 Plugins are loaded via the plugin loader:
 
 ```python
-from src.plugins import get_plugin_loader
+from src.plugins import load_plugins_from_config
 
-loader = get_plugin_loader(config)
-loader.load_plugins(['ras', 'telemetry'])
+loader = load_plugins_from_config(config)
 
-# Check if a plugin handles a path
-plugin = loader.get_plugin_for_path('/redfish/v1/RASService')
-if plugin:
-    status, headers, body = plugin.handle_get(path)
+# Route a request to a configured plugin.
+response = loader.handle_get('/redfish/v1/TelemetryService')
+if response is not None:
+    status, headers, body = response
 ```
 
 Or via platform configuration:
@@ -106,3 +105,8 @@ String entries preserve the original configuration format. Structured
 entries provide plugin-owned configuration and can be disabled explicitly.
 The loader rejects malformed, duplicate, and unknown entries; no plugin is
 loaded when `extensions` is absent or empty.
+
+The server currently routes GET and POST through the domain Plugin SDK.
+Plugins may decline a method by omitting its handler, allowing normal mockup
+handling to continue. PATCH, PUT, and DELETE are not currently part of this
+routing path.

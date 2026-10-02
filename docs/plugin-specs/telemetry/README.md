@@ -65,6 +65,11 @@ The Telemetry Plugin extends the BMC Simulator with capabilities for:
 ### Actions
 - `POST /redfish/v1/TelemetryService/Actions/TelemetryService.SubmitTestMetricReport`
 
+TelemetryService GET resources are served from the configured mockup tree.
+The SubmitTestMetricReport action is dynamic and is routed through
+`TelemetryPlugin.handle_post()`. If the Telemetry plugin is not configured
+or is disabled, the action is not activated.
+
 ## Telemetry Data Submission
 
 The plugin accepts telemetry data with the following parameters:
@@ -97,17 +102,19 @@ When telemetry data is submitted, the plugin:
 
 ## Platform Configuration
 
-```yaml
-platform:
-  name: "Telemetry-Enabled Server"
-  extensions:
-    - telemetry
-  
-  telemetry:
-    max_reports: 100
-    retention_days: 7
-    streaming_enabled: true
+```json
+{
+  "extensions": [
+    {
+      "name": "telemetry",
+      "enabled": true,
+      "config": {}
+    }
+  ]
+}
 ```
+
+Telemetry is not enabled implicitly when `extensions` is absent or empty.
 
 ## Integration with EventService
 

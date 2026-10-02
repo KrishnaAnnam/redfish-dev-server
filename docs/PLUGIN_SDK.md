@@ -69,10 +69,11 @@ The BMC Redfish Simulator uses a **plugin architecture** to extend functionality
 ```
 1. HTTP Request → Platform Server
 2. Platform Server → BaseHandler (do_GET/do_POST)
-3. BaseHandler → PluginLoader.get_plugin_for_path()
-4. PluginLoader → Plugin Handler (handle_get/handle_post)
+3. BaseHandler → PluginLoader.handle_get()/handle_post()
+4. PluginLoader → Matching Plugin Handler
 5. Plugin Handler → Returns (status, headers, body)
-6. Platform Server → Sends HTTP Response
+6. BaseHandler → Preserves status, headers, and body
+7. Unclaimed requests → Normal mockup/platform handling
 ```
 
 ---
@@ -536,7 +537,9 @@ not enabled implicitly when `extensions` is absent or empty.
 
 ### Handler Interface
 
-All plugin handlers should implement:
+Plugins implement `handles_path()` and the HTTP methods for which they
+provide dynamic behavior. GET and POST are currently integrated with the
+server request handlers:
 
 ```python
 class PluginHandler:
@@ -558,16 +561,11 @@ class PluginHandler:
         """Handle POST requests"""
         return 404, {}, {"error": "Not implemented"}
     
-    def handle_patch(self, path: str, data: Dict,
-                     cached_links: Dict = None) -> Tuple[int, Dict, Any]:
-        """Handle PATCH requests"""
-        return 404, {}, {"error": "Not implemented"}
-    
-    def handle_delete(self, path: str,
-                      cached_links: Dict = None) -> Tuple[int, Dict, Any]:
-        """Handle DELETE requests"""
-        return 404, {}, {"error": "Not implemented"}
 ```
+
+If a plugin owns a path but does not implement the current HTTP method, the
+loader declines the request and normal server handling continues. PATCH,
+PUT, and DELETE are not currently routed through the domain Plugin SDK.
 
 ### Path Matching
 
@@ -608,9 +606,9 @@ plugin_info = loader.get_plugin('my_plugin')
 print(f"Enabled: {plugin_info.enabled}")
 
 # 4. Route requests
-plugin = loader.get_plugin_for_path('/redfish/v1/MyService')
-if plugin:
-    status, headers, body = plugin.handler.handle_get(path)
+response = loader.handle_get('/redfish/v1/MyService')
+if response is not None:
+    status, headers, body = response
 
 # 5. Reload plugin (after code changes)
 loader.reload_plugin('my_plugin')
@@ -631,36 +629,32 @@ class PluginInfo:
 
 ## Handler Integration
 
-### Integration with Platform Server
+### Integration with HTTP Handlers
 
-The platform server automatically routes requests through plugins:
+The standard GET and POST handlers route through the same authoritative
+loader used by the platform server:
 
 ```python
-# In servers/redfishMockupServer_platform.py
-class RedfishHandler(BaseHandler):
+# In src/handlers/get_handler.py
+class GetHandler(BaseRedfishHandler):
     def do_GET(self):
-        # Check if plugin handles this path
-        plugin = self.plugin_loader.get_plugin_for_path(self.path)
-        
-        if plugin and plugin.enabled:
-            # Route to plugin
-            status, headers, body = plugin.handler.handle_get(
-                self.path,
-                query_params=self.query_params,
-                cached_links=self.cached_links
-            )
-            
-            # Send response
-            self.send_response(status)
-            for key, value in headers.items():
-                self.send_header(key, value)
-            self.end_headers()
-            self.wfile.write(json.dumps(body).encode())
+        response = self.plugin_loader.handle_get(
+            path,
+            query_params,
+            self.cached_links,
+        )
+        if response is not None:
+            self._send_plugin_response(response)
             return
-        
-        # Fall through to mockup handling
-        super().do_GET()
+
+        # Continue with normal mockup handling.
 ```
+
+POST follows the same pattern after parsing the request body. Plugin
+exceptions produce an explicit HTTP 500 response rather than terminating the
+request thread. A plugin response is a `(status, headers, body)` tuple; the
+shared response adapter preserves supplied headers and supports JSON,
+text, bytes, and empty bodies.
 
 ### Adding Plugin to BaseHandler
 

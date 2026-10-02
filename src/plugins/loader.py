@@ -327,7 +327,8 @@ class PluginLoader:
         return self.get_plugin_for_path(path) is not None
     
     def handle_get(self, path: str, query_params: Dict[str, Any] = None,
-                   cached_links: Dict[str, Any] = None) -> Optional[Tuple[int, Dict, Dict]]:
+                   cached_links: Dict[str, Any] = None
+                   ) -> Optional[Tuple[int, Dict, Any]]:
         """
         Route GET request to appropriate plugin.
         
@@ -345,7 +346,8 @@ class PluginLoader:
         return None
     
     def handle_post(self, path: str, data: Dict[str, Any],
-                    cached_links: Dict[str, Any] = None) -> Optional[Tuple[int, Dict, Dict]]:
+                    cached_links: Dict[str, Any] = None
+                    ) -> Optional[Tuple[int, Dict, Any]]:
         """
         Route POST request to appropriate plugin.
         

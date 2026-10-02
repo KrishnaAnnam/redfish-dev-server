@@ -1,0 +1,312 @@
+#!/usr/bin/env python3
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License. See LICENSE.md in the project root for license information.
+
+import base64
+import http.client
+import json
+import sys
+import threading
+import types
+from contextlib import contextmanager
+from http.server import HTTPServer
+
+import pytest
+
+from src.config.settings import ServerConfig
+from src.handlers.base_handler import BaseRedfishHandler
+from src.handlers.main_handler import RedfishMockupHandler
+from src.plugins import loader as loader_module
+from src.plugins.telemetry.plugin import (
+    SUBMIT_TEST_METRIC_REPORT_PATH,
+    TelemetryPlugin,
+)
+
+
+def _register_plugin(monkeypatch, name, plugin):
+    module_name = f'tests.{name}_routing_plugin'
+    module = types.ModuleType(module_name)
+    module.get_plugin = lambda: plugin
+    monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(loader_module.AVAILABLE_PLUGINS, name, module_name)
+
+
+@contextmanager
+def _running_server(config):
+    loader_module._loader_instance = None
+    BaseRedfishHandler.cached_links = {}
+    BaseRedfishHandler.active_sessions = {}
+
+    server = HTTPServer(('127.0.0.1', 0), RedfishMockupHandler)
+    server.config = config
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server.server_address
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        loader_module._loader_instance = None
+
+
+def _request(address, method, path, payload=None):
+    headers = {
+        'Authorization': 'Basic ' + base64.b64encode(b'user:password').decode(),
+    }
+    body = None
+    if payload is not None:
+        body = json.dumps(payload)
+        headers['Content-Type'] = 'application/json'
+        headers['Content-Length'] = str(len(body.encode('utf-8')))
+
+    connection = http.client.HTTPConnection(*address, timeout=5)
+    try:
+        connection.request(method, path, body=body, headers=headers)
+        response = connection.getresponse()
+        response_body = response.read()
+        return response.status, dict(response.getheaders()), response_body
+    finally:
+        connection.close()
+
+
+class _RoutingPlugin:
+    def __init__(self):
+        self.enabled = False
+        self.calls = []
+
+    def initialize(self, server_config, plugin_config):
+        self.enabled = True
+        return True
+
+    def handles_path(self, path):
+        return path.startswith('/redfish/v1/TestPlugin')
+
+    def handle_get(self, path, query_params, cached_links):
+        self.calls.append(('GET', path, query_params))
+        return 206, {'X-Plugin': 'test'}, {'path': path}
+
+    def handle_post(self, path, data, cached_links):
+        self.calls.append(('POST', path, data))
+        return 202, {'Location': f'{path}/result'}, {'accepted': data}
+
+
+def test_configured_plugin_receives_http_get_and_post(monkeypatch, tmp_path):
+    plugin = _RoutingPlugin()
+    _register_plugin(monkeypatch, 'test_plugin', plugin)
+    config = ServerConfig(
+        mock_dir_path=str(tmp_path),
+        extensions=['test_plugin'],
+    )
+
+    with _running_server(config) as address:
+        get_status, get_headers, get_body = _request(
+            address,
+            'GET',
+            '/redfish/v1/TestPlugin?detail=full',
+        )
+        post_status, post_headers, post_body = _request(
+            address,
+            'POST',
+            '/redfish/v1/TestPlugin/Actions/Run',
+            {'value': 42},
+        )
+
+    assert get_status == 206
+    assert get_headers['X-Plugin'] == 'test'
+    assert json.loads(get_body) == {'path': '/redfish/v1/TestPlugin'}
+    assert post_status == 202
+    assert post_headers['Location'].endswith('/Actions/Run/result')
+    assert json.loads(post_body) == {'accepted': {'value': 42}}
+    assert plugin.calls == [
+        ('GET', '/redfish/v1/TestPlugin', {'detail': ['full']}),
+        ('POST', '/redfish/v1/TestPlugin/Actions/Run', {'value': 42}),
+    ]
+
+
+def test_unclaimed_get_falls_through_to_mockup(monkeypatch, tmp_path):
+    plugin = _RoutingPlugin()
+    _register_plugin(monkeypatch, 'test_plugin', plugin)
+    resource_dir = tmp_path / 'redfish' / 'v1' / 'Static'
+    resource_dir.mkdir(parents=True)
+    (resource_dir / 'index.json').write_text(
+        json.dumps({'Id': 'Static'}),
+        encoding='utf-8',
+    )
+    config = ServerConfig(
+        mock_dir_path=str(tmp_path),
+        extensions=['test_plugin'],
+    )
+
+    with _running_server(config) as address:
+        status, _, body = _request(address, 'GET', '/redfish/v1/Static')
+
+    assert status == 200
+    assert json.loads(body)['Id'] == 'Static'
+    assert plugin.calls == []
+
+
+@pytest.mark.parametrize('extensions', [
+    [],
+    [{'name': 'test_plugin', 'enabled': False}],
+])
+def test_unconfigured_or_disabled_plugin_cannot_handle_requests(
+        monkeypatch, tmp_path, extensions):
+    plugin = _RoutingPlugin()
+    _register_plugin(monkeypatch, 'test_plugin', plugin)
+    config = ServerConfig(
+        mock_dir_path=str(tmp_path),
+        extensions=extensions,
+    )
+
+    with _running_server(config) as address:
+        status, _, _ = _request(
+            address,
+            'POST',
+            '/redfish/v1/TestPlugin/Actions/Run',
+            {'value': 42},
+        )
+
+    assert status == 404
+    assert plugin.calls == []
+
+
+def test_plugin_failure_returns_explicit_500(monkeypatch, tmp_path):
+    plugin = _RoutingPlugin()
+
+    def fail(*args):
+        raise RuntimeError('plugin failure')
+
+    plugin.handle_get = fail
+    _register_plugin(monkeypatch, 'test_plugin', plugin)
+    config = ServerConfig(
+        mock_dir_path=str(tmp_path),
+        extensions=['test_plugin'],
+    )
+
+    with _running_server(config) as address:
+        status, headers, body = _request(
+            address,
+            'GET',
+            '/redfish/v1/TestPlugin',
+        )
+
+    assert status == 500
+    assert headers['Content-Type'] == 'application/json'
+    assert json.loads(body)['error']['code'] == 'Base.1.5.0.InternalError'
+
+
+@pytest.mark.parametrize('extensions', [
+    [],
+    [{'name': 'telemetry', 'enabled': False}],
+])
+def test_unconfigured_or_disabled_telemetry_action_is_not_activated(
+        tmp_path, extensions):
+    config = ServerConfig(
+        mock_dir_path=str(tmp_path),
+        extensions=extensions,
+    )
+
+    with _running_server(config) as address:
+        status, _, _ = _request(
+            address,
+            'POST',
+            SUBMIT_TEST_METRIC_REPORT_PATH,
+            {'MetricReportName': 'Test', 'MetricReportValues': []},
+        )
+
+    assert status == 404
+
+
+def test_configured_telemetry_action_uses_plugin_end_to_end(tmp_path):
+    subscriptions_dir = (
+        tmp_path / 'redfish' / 'v1' / 'EventService' / 'Subscriptions'
+    )
+    subscriptions_dir.mkdir(parents=True)
+    (subscriptions_dir / 'index.json').write_text(
+        json.dumps({'Members': []}),
+        encoding='utf-8',
+    )
+    config = ServerConfig(
+        mock_dir_path=str(tmp_path),
+        extensions=['telemetry'],
+    )
+    payload = {
+        'MetricReportName': 'TestReport',
+        'MetricReportValues': [{
+            'MetricId': 'Temperature',
+            'MetricValue': '42',
+            'Timestamp': '2026-10-01T20:00:00Z',
+            'MetricProperty': '/redfish/v1/Systems/1#Temperature',
+            'MetricDefinition': {
+                '@odata.id': (
+                    '/redfish/v1/TelemetryService/MetricDefinitions/'
+                    'Temperature'
+                )
+            },
+        }],
+    }
+
+    with _running_server(config) as address:
+        status, _, body = _request(
+            address,
+            'POST',
+            SUBMIT_TEST_METRIC_REPORT_PATH,
+            payload,
+        )
+
+        report_path = str(
+            tmp_path / 'redfish' / 'v1' / 'TelemetryService' /
+            'MetricReports' / 'TestReport' / 'index.json'
+        )
+        report = BaseRedfishHandler.cached_links[report_path]
+
+    assert status == 204
+    assert body == b''
+    assert report['Id'] == 'TestReport'
+    assert report['MetricValues'] == payload['MetricReportValues']
+
+
+def test_telemetry_post_uses_plugin_contract_and_shared_cache():
+    received = {}
+
+    class Handler:
+        def handle_submit_test_metric_report(self, path, data, cached_links):
+            received['path'] = path
+            received['data'] = data
+            received['cached_links'] = cached_links
+            return 204
+
+    plugin = TelemetryPlugin()
+    plugin._enabled = True
+    plugin._handler = Handler()
+    cached_links = {}
+    payload = {'MetricReportName': 'Test', 'MetricReportValues': []}
+
+    result = plugin.handle_post(
+        SUBMIT_TEST_METRIC_REPORT_PATH,
+        payload,
+        cached_links,
+    )
+
+    assert result == (204, {}, None)
+    assert received == {
+        'path': SUBMIT_TEST_METRIC_REPORT_PATH,
+        'data': payload,
+        'cached_links': cached_links,
+    }
+    assert received['cached_links'] is cached_links
+
+
+def test_telemetry_rejects_unsupported_post_path():
+    plugin = TelemetryPlugin()
+    plugin._enabled = True
+    plugin._handler = object()
+
+    result = plugin.handle_post(
+        '/redfish/v1/TelemetryService/MetricReports',
+        {},
+        {},
+    )
+
+    assert result == (405, {}, None)

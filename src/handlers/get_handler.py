@@ -38,6 +38,21 @@ class GetHandler(BaseRedfishHandler):
 
         self.try_to_sleep('GET', self.path)
 
+        try:
+            plugin_response = self.plugin_loader.handle_get(
+                path,
+                query_pieces,
+                self.cached_links,
+            )
+        except Exception:
+            logger.exception("Plugin GET handler failed for %s", path)
+            self._send_plugin_error()
+            return
+
+        if plugin_response is not None:
+            self._send_plugin_response(plugin_response)
+            return
+
         # Handle RAS service requests
         if self.path.startswith('/redfish/v1/RASService'):
             result = self.ras_service.handle_get(self.path)

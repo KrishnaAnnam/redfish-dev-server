@@ -22,21 +22,13 @@ from ..services.update_service import UpdateServiceHandler
 # Plugin system - RAS and Telemetry are now plugins, not core services
 from ..plugins import load_plugins_from_config
 
-# Backwards compatibility: try to import old service locations
-# This allows existing code to work while transitioning to plugin model
+# Backwards compatibility for the legacy RAS service.
 try:
     from ..services.ras_service import RASServiceHandler as LegacyRASServiceHandler
     _LEGACY_RAS_AVAILABLE = True
 except ImportError:
     _LEGACY_RAS_AVAILABLE = False
     LegacyRASServiceHandler = None
-
-try:
-    from ..services.telemetry_service import TelemetryServiceHandler as LegacyTelemetryServiceHandler
-    _LEGACY_TELEMETRY_AVAILABLE = True
-except ImportError:
-    _LEGACY_TELEMETRY_AVAILABLE = False
-    LegacyTelemetryServiceHandler = None
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +127,59 @@ class BaseRedfishHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_plugin_response(self, response):
+        """Send a normalized plugin response tuple."""
+        status_code, headers, response_data = response
+        headers = headers or {}
+
+        encoded_data = None
+        if response_data is not None:
+            if isinstance(response_data, bytes):
+                encoded_data = response_data
+            elif isinstance(response_data, str):
+                encoded_data = response_data.encode('utf-8')
+            else:
+                encoded_data = json.dumps(
+                    response_data,
+                    sort_keys=True,
+                    indent=4,
+                    separators=(",", ": "),
+                ).encode('utf-8')
+
+        self.send_response(status_code)
+        header_names = {name.lower() for name in headers}
+        for header_name, header_value in headers.items():
+            self.send_header(header_name, header_value)
+
+        if encoded_data is not None:
+            if 'content-type' not in header_names:
+                if isinstance(response_data, bytes):
+                    content_type = 'application/octet-stream'
+                elif isinstance(response_data, str):
+                    content_type = 'text/plain; charset=utf-8'
+                else:
+                    content_type = 'application/json'
+                self.send_header('Content-Type', content_type)
+            if 'content-length' not in header_names:
+                self.send_header('Content-Length', len(encoded_data))
+
+        self.end_headers()
+        if encoded_data is not None:
+            self.wfile.write(encoded_data)
+
+    def _send_plugin_error(self):
+        """Send an explicit error when a configured plugin fails."""
+        self._send_plugin_response((
+            500,
+            {'Content-Type': 'application/json'},
+            {
+                'error': {
+                    'code': 'Base.1.5.0.InternalError',
+                    'message': 'The plugin failed while processing the request.',
+                }
+            },
+        ))
+
     def __init__(self, request, client_address, server):
         self.event_service = EventServiceHandler(server.config)
         self.update_service = UpdateServiceHandler(server.config)
@@ -142,10 +187,8 @@ class BaseRedfishHandler(BaseHTTPRequestHandler):
         # Initialize the loader from the authoritative extension configuration.
         self.plugin_loader = load_plugins_from_config(server.config)
         
-        # Backwards compatibility: expose service properties
-        # This allows existing code to work while we transition to plugins
+        # Backwards compatibility for the legacy RAS service.
         self._ras_service = None
-        self._telemetry_service = None
         
         # Add a fallback log_entry_service attribute to prevent property conflicts
         self._fallback_log_entry_service = None
@@ -170,25 +213,6 @@ class BaseRedfishHandler(BaseHTTPRequestHandler):
             self._ras_service = LegacyRASServiceHandler(self.server.config)
         
         return self._ras_service
-    
-    @property
-    def telemetry_service(self):
-        """
-        Telemetry Service property for backwards compatibility.
-        
-        Returns the Telemetry plugin handler if loaded, otherwise falls back
-        to legacy Telemetry service if available.
-        """
-        # Try plugin first
-        telemetry_plugin = self.plugin_loader.get_plugin('telemetry')
-        if telemetry_plugin and telemetry_plugin.enabled:
-            return telemetry_plugin.handler
-        
-        # Fallback to legacy service
-        if self._telemetry_service is None and _LEGACY_TELEMETRY_AVAILABLE:
-            self._telemetry_service = LegacyTelemetryServiceHandler(self.server.config)
-        
-        return self._telemetry_service
     
     @property
     def log_entry_service(self):

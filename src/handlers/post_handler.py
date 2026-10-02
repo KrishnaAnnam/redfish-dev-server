@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import secrets
+from urllib.parse import urlparse
 from requests_toolbelt.multipart import decoder
 from .base_handler import BaseRedfishHandler
 from ..services.log_entry_service import LogEntryService
@@ -89,6 +90,22 @@ class PostHandler(BaseRedfishHandler):
 
         self.try_to_sleep('POST', self.path)
         logger.info("POST: Data: {}".format(data_received))
+
+        request_path = urlparse(self.path).path
+        try:
+            plugin_response = self.plugin_loader.handle_post(
+                request_path,
+                data_received,
+                self.cached_links,
+            )
+        except Exception:
+            logger.exception("Plugin POST handler failed for %s", request_path)
+            self._send_plugin_error()
+            return
+
+        if plugin_response is not None:
+            self._send_plugin_response(plugin_response)
+            return
 
         # Handle RAS service requests
         if "RASService" in self.path:
@@ -323,12 +340,6 @@ class PostHandler(BaseRedfishHandler):
         # Handle specific actions
         if 'EventService/Actions/EventService.SubmitTestEvent' in self.path:
             r_code = self.event_service.handle_eventing(
-                self.path, data_received, self.cached_links
-            )
-            self.send_response(r_code)
-        
-        elif 'TelemetryService/Actions/TelemetryService.SubmitTestMetricReport' in self.path:
-            r_code = self.telemetry_service.handle_telemetry(
                 self.path, data_received, self.cached_links
             )
             self.send_response(r_code)

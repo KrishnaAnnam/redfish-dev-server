@@ -92,14 +92,7 @@ class RASHandler(BasePlatformHandler):
         self.analytics_engine = None
         self.remediation_engine = None
         self.health_monitor = None
-        
-        # Initialize handlers with event support
-        self.submit_cpad_handler = SubmitCPADActionHandler(
-            mockup_dir=mockup_dir,
-            event_handler=self.event_handler,
-            endpoint_configuration=endpoint_configuration,
-        )
-        
+
         # Initialize LogService handler if mockup directory available
         self.log_service_handler = None
         if mockup_dir:
@@ -115,6 +108,14 @@ class RASHandler(BasePlatformHandler):
                 
             except Exception as e:
                 logger.warning(f"RAS LogService handler initialization failed: {e}")
+
+        # Initialize handlers with shared event and LogService support
+        self.submit_cpad_handler = SubmitCPADActionHandler(
+            mockup_dir=mockup_dir,
+            event_handler=self.event_handler,
+            endpoint_configuration=endpoint_configuration,
+            log_service_handler=self.log_service_handler,
+        )
         
         # Compile path patterns
         self.rasservice_pattern = re.compile(

@@ -106,7 +106,12 @@ def test_real_log_queue_event_and_delete_paths(tmp_path):
 
     try:
         log_service = plugin.handler.log_service_handler
-        status, entry_id = log_service.add_cper_log_entry(_cper(41))
+        submit_log_service = (
+            plugin.submit_cpad_handler.log_service_handler)
+
+        assert submit_log_service is log_service
+
+        status, entry_id = submit_log_service.add_cper_log_entry(_cper(41))
 
         assert status == 201
         assert published_events[0]["MessageId"] == (

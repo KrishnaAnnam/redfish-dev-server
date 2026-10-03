@@ -119,6 +119,11 @@ API version 5 returns CPAD proposals containing one or more section requests.
 The Contoso analyzer still owns the binary envelope and section encoding.
 Shims declaring an older API version are rejected explicitly.
 
+Successfully loaded shims are advertised in the Contoso analyzer's discovery
+response under `memory_analyzers`. `AnalysisOrchestrator.print_discovery_report()`
+lists them only when called with `show_memory_analyzers=True` (the Samsung
+demo does this; the generic demo output is unchanged).
+
 ## Adapter Pattern
 
 A vendor shim should normally contain two translations around a vendor-owned
@@ -171,6 +176,9 @@ Every event also exposes the source section's FRU identity directly:
 
 The top-level aliases are convenient for vendor adapters; the nested `fru`
 object remains available for compatibility.
+
+Every event also carries `timestamp`, the CPER header timestamp, so vendor
+analyzers can measure error rates over time.
 
 The full decoded memory data remains available under `memory_error`, including
 the address, chiplet/controller, DIMM coordinates, DRAM manufacturer,
@@ -496,8 +504,15 @@ def analyze_memory_events(events):
 - Returning one or more valid requests transfers those recommendations to the
   Contoso CPAD builder.
 - Raising an exception, returning an invalid request, or failing binary CPAD
-  conversion marks the shim invocation as failed. Applicable newest errors
-  then fall back to default Contoso analysis.
+  conversion marks the shim invocation as failed for that manufacturer. No
+  default Contoso analysis is substituted for a vendor-owned DIMM, and no
+  CPAD is emitted for it that cycle; the routing summary reports the failure.
+- A shim that fails to import (for example, a missing vendor dependency) is
+  not registered. DIMMs from that manufacturer then receive the default
+  Contoso analysis, the same as any unregistered vendor.
+- Prior Platform Action events whose target DIMM matches the newest DRAM
+  manufacturer are kept in the history window, so a shim can see which
+  actions already completed or failed.
 - Inputs are deep-copied, so vendor code cannot mutate the Contoso analyzer's
   canonical event list.
 

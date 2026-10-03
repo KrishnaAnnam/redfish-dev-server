@@ -670,7 +670,7 @@ def test_action_only_window_never_enters_default_analysis():
     assert analyzer.default_memory_events(result) == []
 
 
-def test_missing_and_failed_shims_can_create_default_sppr():
+def test_missing_shim_creates_default_sppr_but_failed_shim_does_not():
     with tempfile.TemporaryDirectory() as directory:
         analyzer = ContosoAnalyzer(output_dir=directory)
         current_cper = _memory_cper(MICRON)
@@ -699,13 +699,9 @@ def test_missing_and_failed_shims_can_create_default_sppr():
             tuple(MICRON): FakeShim(error="vendor failed")}
         failed_result = analyzer.analyze_memory_event_window(
             _records(current_cper))
-        failed_event = analyzer.default_memory_events(failed_result)[0]
-        failed_path = analyzer.create_sppr_cpad_from_memory_event(
-            failed_event, current_cper, output_stem="failed",
-            record_location=False)
+        assert analyzer.default_memory_events(failed_result) == []
 
         assert Path(missing_path).name == "missing_sppr_cpad.cpad"
-        assert Path(failed_path).name == "failed_sppr_cpad.cpad"
 
 
 def test_invalid_later_action_request_discards_entire_shim_result():

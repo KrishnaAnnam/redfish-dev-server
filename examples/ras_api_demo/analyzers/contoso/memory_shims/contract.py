@@ -39,6 +39,11 @@ class MemoryShim:
     manufacturer_ids: Tuple[ManufacturerId, ...]
     module: ModuleType
 
+    def __deepcopy__(self, memo):
+        # Immutable and holds a module object, which cannot be deep-copied;
+        # results that embed (shim, cpad) pairs are deep-copied downstream.
+        return self
+
     def analyze(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Invoke the shim with isolated input and validate its result shape."""
         try:

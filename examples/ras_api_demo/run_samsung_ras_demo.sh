@@ -1,0 +1,170 @@
+#!/bin/bash
+# Tmux script to run the Samsung DIMM RAS API Demo with Event Listener.
+# Samsung counterpart of run_ras_demo.sh; the generic demo is unchanged.
+# This script starts all components needed for the Samsung demo:
+#   - BMC Server, with --endpoint-config ras_endpoint_config_samsung.json so
+#     the target DIMM (channel 0, dimm 1) reports Samsung DRAM (80 CE)
+#   - Event Listener
+#   - Samsung RAS Demo (ras_api_samsung_demo.py)
+# The Samsung analysis also needs the separately distributed samsung_dfa.py
+# under analyzers/contoso/memory_shims/; without it Samsung DIMMs get the
+# default Contoso analysis.
+
+SESSION_NAME="ras-demo"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+
+wait_for_port() {
+    local host="$1"
+    local port="$2"
+    local timeout="$3"
+    python3 - "$host" "$port" "$timeout" <<'PY'
+import socket
+import sys
+import time
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+deadline = time.monotonic() + float(sys.argv[3])
+while time.monotonic() < deadline:
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            raise SystemExit(0)
+    except OSError:
+        time.sleep(0.25)
+raise SystemExit(1)
+PY
+}
+
+# Check if tmux is installed
+if ! command -v tmux &> /dev/null; then
+    echo "❌ tmux is not installed. Please install it first:"
+    echo "   sudo apt-get install tmux  # Ubuntu/Debian"
+    echo "   sudo yum install tmux      # RHEL/CentOS"
+    exit 1
+fi
+
+# Kill existing session if it exists
+tmux has-session -t $SESSION_NAME 2>/dev/null
+if [ $? -eq 0 ]; then
+    echo "🔄 Killing existing session: $SESSION_NAME"
+    tmux kill-session -t $SESSION_NAME
+fi
+
+echo "🚀 Starting Samsung RAS Demo in tmux session: $SESSION_NAME"
+echo "   Project directory: $PROJECT_DIR"
+echo ""
+
+# Create new session with first window
+cd "$PROJECT_DIR"
+tmux new-session -d -s $SESSION_NAME -n "RAS-Demo"
+
+# Configure panes
+# Layout:
+# +───────────────────┬───────────────────+
+# |                   |                   |
+# |  BMC Server       |                   |
+# |  (pane 0)         |   RAS Demo       |
+# |                   |   (pane 2)       |
+# +───────────────────+                   |
+# |                   |                   |
+# |  Event Listener   |                   |
+# |  (pane 1)         |                   |
+# |                   |                   |
+# +───────────────────┴───────────────────+
+
+# Enable mouse support (scroll, pane select, resize)
+tmux set-option -g mouse on
+
+# Split into left/right, then split left into top/bottom
+tmux split-window -h -t $SESSION_NAME:0.0
+tmux split-window -v -t $SESSION_NAME:0.0
+
+# Show a title bar on each pane and label them
+tmux set-option -g pane-border-status top
+tmux set-option -g pane-border-format " #{pane_title} "
+tmux select-pane -t $SESSION_NAME:0.0 -T "🖥️  BMC Redfish Server (port 8000)"
+tmux select-pane -t $SESSION_NAME:0.1 -T "🔔 SDK Event Listener (port 8888)"
+tmux select-pane -t $SESSION_NAME:0.2 -T "🧪 RAS API Client & Analysis Demo"
+
+# Pane 0 (top-left): BMC Server
+tmux send-keys -t $SESSION_NAME:0.0 "cd $PROJECT_DIR" C-m
+tmux send-keys -t $SESSION_NAME:0.0 "clear" C-m
+tmux send-keys -t $SESSION_NAME:0.0 "echo '═══════════════════════════════════════════'" C-m
+tmux send-keys -t $SESSION_NAME:0.0 "echo '🖥️  BMC REDFISH SERVER (Port 8000, Samsung DIMM)'" C-m
+tmux send-keys -t $SESSION_NAME:0.0 "echo '═══════════════════════════════════════════'" C-m
+tmux send-keys -t $SESSION_NAME:0.0 "echo 'Starting BMC server...'" C-m
+tmux send-keys -t $SESSION_NAME:0.0 "python3 -B servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000 --endpoint-config ras_endpoint_config_samsung.json" C-m
+
+# Pane 1 (bottom-left): SDK Event Listener
+tmux send-keys -t $SESSION_NAME:0.1 "cd $PROJECT_DIR" C-m
+tmux send-keys -t $SESSION_NAME:0.1 "clear" C-m
+tmux send-keys -t $SESSION_NAME:0.1 "echo '═══════════════════════════════════════════'" C-m
+tmux send-keys -t $SESSION_NAME:0.1 "echo '🔔 SDK EVENT LISTENER (Port 8888)'" C-m
+tmux send-keys -t $SESSION_NAME:0.1 "echo '═══════════════════════════════════════════'" C-m
+tmux send-keys -t $SESSION_NAME:0.1 "echo 'Waiting for server...'" C-m
+tmux send-keys -t $SESSION_NAME:0.1 "python3 examples/ras_api_demo/event_listener_sdk.py --port 8888 --bmc localhost:8000" C-m
+
+# Pane 2 (right): RAS Demo
+tmux send-keys -t $SESSION_NAME:0.2 "cd $PROJECT_DIR" C-m
+tmux send-keys -t $SESSION_NAME:0.2 "clear" C-m
+tmux send-keys -t $SESSION_NAME:0.2 "echo '═══════════════════════════════════════════'" C-m
+tmux send-keys -t $SESSION_NAME:0.2 "echo '🧪 SAMSUNG RAS API CLIENT AND ANALYSIS DEMO'" C-m
+tmux send-keys -t $SESSION_NAME:0.2 "echo '═══════════════════════════════════════════'" C-m
+tmux send-keys -t $SESSION_NAME:0.2 "echo ''" C-m
+tmux send-keys -t $SESSION_NAME:0.2 "echo 'Run full pipeline (reset + init + demo):'" C-m
+
+tmux send-keys -t $SESSION_NAME:0.2 "echo '  python3 examples/ras_api_demo/reset_server.py --clean-temp && python3 examples/ras_api_demo/init_error_pipeline.py && python3 examples/ras_api_demo/ras_api_samsung_demo.py'" C-m
+tmux send-keys -t $SESSION_NAME:0.2 "echo ''" C-m
+tmux send-keys -t $SESSION_NAME:0.2 "echo 'Press UP arrow and ENTER when ready...'" C-m
+# Run the demo, then pre-type (without Enter) the cleanup command so the user
+# can tear down the tmux session by simply pressing Enter when finished.
+
+if wait_for_port localhost 8889 15; then
+        tmux send-keys -t $SESSION_NAME:0.2 "python3 examples/ras_api_demo/reset_server.py --clean-temp && python3 examples/ras_api_demo/init_error_pipeline.py && python3 examples/ras_api_demo/ras_api_samsung_demo.py; tmux send-keys -t $SESSION_NAME:0.2 '$SCRIPT_DIR/cleanup_ras_demo.sh'" C-m
+else
+    tmux send-keys -t $SESSION_NAME:0.2 "echo '❌ Event listener control port 8889 did not become ready within 15 seconds. Demo not started.'" C-m
+
+fi
+
+# Select the demo pane
+tmux select-pane -t $SESSION_NAME:0.2
+
+# Attach to session
+echo ""
+echo "✅ Tmux session created: $SESSION_NAME"
+echo ""
+echo "📖 Layout:"
+echo "   ┌───────────────────┬───────────────────┐"
+echo "   │  BMC Server       │                   │"
+echo "   │  (Port 8000)      │  RAS Demo         │"
+echo "   ├───────────────────┤  (Manual trigger) │"
+echo "   │  Event Listener   │                   │"
+echo "   │  (Port 8888)      │                   │"
+echo "   └───────────────────┴───────────────────┘"
+echo ""
+echo "🎮 Controls:"
+echo "   • Ctrl+B then arrow keys - Navigate between panes"
+echo "   • Ctrl+B then [ - Scroll mode (q to exit)"
+echo "   • Ctrl+B then d - Detach from session"
+echo ""
+echo "📝 To run the demo:"
+echo "   1. Wait ~3 seconds for server and listener to start"
+echo "   2. In the right pane, press UP arrow then ENTER"
+echo "   3. Watch events appear in Event Listener pane (bottom-left)"
+echo ""
+echo "🔗 Reconnect later:"
+echo "   tmux attach -t $SESSION_NAME"
+echo ""
+echo "❌ Stop everything:"
+echo "   tmux kill-session -t $SESSION_NAME"
+echo ""
+echo "🧹 Clean up the terminal when done:"
+echo "   $SCRIPT_DIR/cleanup_ras_demo.sh"
+echo "   (When the demo finishes, this command is pre-typed in the demo pane —"
+echo "    just press ENTER to run it.)"
+echo ""
+echo "Attaching to session in 2 seconds..."
+sleep 2
+
+tmux attach-session -t $SESSION_NAME

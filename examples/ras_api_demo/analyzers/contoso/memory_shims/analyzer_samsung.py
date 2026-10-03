@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import sys
+from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 import contoso_catalog
@@ -10,11 +12,23 @@ from contoso_action_parameters import (
     PAGE_OFFLINE_ACTION_ID,
     POWER_CYCLE_ACTION_ID,
     PPR_ACTION_ID,
+    PPR_TYPE_SOFT_RUNTIME,
     REBOOT_WITH_RETRAINING_ACTION_ID,
     REPLACE_PART_ACTION_ID,
     RESEAT_PART_ACTION_ID,
     SHUFFLE_PART_ACTION_ID,
 )
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+try:
+    import samsung_dfa
+except ImportError as exc:
+    raise ImportError(
+        "samsung_dfa.py not installed (distributed separately by Samsung); "
+        "Samsung DIMMs use the default Contoso analysis") from exc
 
 
 SHIM_INFO = {
@@ -62,15 +76,19 @@ def _header_id(value: Any) -> str:
 def _target_bank_repair_count(additional: Dict[str, Any]) -> int:
     target = tuple(additional.get(name) for name in (
         "subchannel", "rank", "device", "bank_group", "bank"))
-    for entry in additional.get("repairs", []):
+    for entry in additional.get("repairs") or []:
         if tuple(entry.get(name) for name in (
                 "subchannel", "rank", "device", "bank_group", "bank")) == target:
-            return int(entry.get("count", 0))
+            return int(entry.get("count") or 0)
     return 0
 
 
 def _beat_data(additional: Dict[str, Any]) -> Dict[str, Any]:
-    masks = [int(mask) for mask in additional.get("beat_mask", [])]
+    # `or []`/`or 0` guard a present-but-None value, not just a missing
+    # key — plain `.get(key, default)` only supplies the default when the
+    # key is absent, and these fields may legitimately be None per the
+    # source decoder even when present.
+    masks = [int(mask or 0) for mask in (additional.get("beat_mask") or [])]
     mask_64 = sum((mask & 0xFFFF) << (16 * dq)
                   for dq, mask in enumerate(masks))
     failing_beats = {
@@ -90,7 +108,7 @@ def _beat_data(additional: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _ppr_data(additional: Dict[str, Any]) -> Dict[str, Any]:
-    capabilities = int(additional.get("memory_repair_capabilities", 0))
+    capabilities = int(additional.get("memory_repair_capabilities") or 0)
     consumed = _target_bank_repair_count(additional)
     return {
         "capability_bits": capabilities,
@@ -98,7 +116,7 @@ def _ppr_data(additional: Dict[str, Any]) -> Dict[str, Any]:
         "soft_boot_time": bool(capabilities & 0x02),
         "hard_boot_time": bool(capabilities & 0x04),
         "target_bank_repair_count": consumed,
-        "repair_history": copy.deepcopy(additional.get("repairs", [])),
+        "repair_history": copy.deepcopy(additional.get("repairs") or []),
     }
 
 
@@ -119,7 +137,7 @@ def _common_record(event: Dict[str, Any]) -> Dict[str, Any]:
         severity = severity.get("name", severity.get("code"))
     return {
         "source": _source(event),
-        "timestamp": header.get("timestamp"),
+        "timestamp": event.get("timestamp", header.get("timestamp")),
         "record_id": header.get("recordID"),
         "cper_severity": severity,
         "platform_id": _header_id(header.get("platformID")),
@@ -218,23 +236,12 @@ def _to_samsung_record(event: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def analyze(records: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Samsung analysis seam.
+    """Samsung analysis seam — delegates to the DFA engine in samsung_dfa.py.
 
-    Proprietary Samsung diagnosis can replace this conservative default
-    without changing the Contoso shim contract.
+    Swapping in different proprietary Samsung diagnosis means changing
+    samsung_dfa.analyze(), not this adapter or the Contoso shim contract.
     """
-    spare_rows_per_bank = 16
-    for record in records:
-        if record.get("record_type") != "memory_error":
-            continue
-        ppr = record["ppr"]
-        ppr["repairs_per_bank"] = max(
-            0, spare_rows_per_bank - ppr["target_bank_repair_count"])
-    return {
-        "fault": None,
-        "cpads": [],
-        "advisories": [],
-    }
+    return samsung_dfa.analyze(records)
 
 
 def _validate_source(source: Dict[str, Any]) -> None:
@@ -336,8 +343,74 @@ def _to_contoso_cpad_requests(
     return proposals
 
 
+_ACTION_NAMES = {
+    POWER_CYCLE_ACTION_ID: "Cold Reboot",
+    RESEAT_PART_ACTION_ID: "Reseat DIMM",
+    SHUFFLE_PART_ACTION_ID: "Shuffle DIMM",
+    REPLACE_PART_ACTION_ID: "Replace DIMM",
+    PPR_ACTION_ID: "sPPR (Post Package Repair)",
+    PAGE_OFFLINE_ACTION_ID: "Dynamic Page Offline",
+    REBOOT_WITH_RETRAINING_ACTION_ID: "Reboot with Memory Retraining",
+}
+# Actions the endpoint performs while the host runs; everything else is a
+# boot-time / manual-intervention advisory.
+_RUNTIME_ACTION_IDS = {PPR_ACTION_ID, PAGE_OFFLINE_ACTION_ID}
+
+
+def _is_runtime(section: Dict[str, Any]) -> bool:
+    if section["action_id"] == PPR_ACTION_ID:
+        return section["parameters"].get("ppr_type") == PPR_TYPE_SOFT_RUNTIME
+    return section["action_id"] in _RUNTIME_ACTION_IDS
+
+
+def _format_value(key: str, value: Any) -> str:
+    if key == "pages" and isinstance(value, list):
+        return ", ".join(f"0x{page:X}" for page in value)
+    return str(value)
+
+
+def _print_action(label: str, section: Dict[str, Any]) -> None:
+    name = _ACTION_NAMES.get(section["action_id"], "Unknown action")
+    print(f"      {label} {name} (ActionID {section['action_id']}) — "
+          f"confidence {section['confidence']}, "
+          f"{'urgent' if section['urgency'] else 'not urgent'}")
+    for key, value in section["parameters"].items():
+        print(f"            {key}: {_format_value(key, value)}")
+
+
+def _print_result(fault: Any, advisories: List[Dict[str, Any]],
+                  proposals: List[Dict[str, Any]]) -> None:
+    print("\n   🔬 Samsung DRAM Fault Analyzer")
+    if fault is None:
+        print("      Fault:          none this cycle")
+    else:
+        print(f"      Fault:          {fault.get('mode', '?')}/{fault.get('detail', '?')} "
+              f"(confidence {fault.get('confidence', '?')})")
+        print(f"      Reason:         {fault.get('reason', '(none)')}")
+
+    sections = [section for proposal in proposals for section in proposal["sections"]]
+    runtime = [section for section in sections if _is_runtime(section)]
+    boot_time = [section for section in sections if not _is_runtime(section)]
+    if runtime:
+        for section in runtime:
+            _print_action("✅ Recommendation (runtime):", section)
+    else:
+        print("      ✅ Recommendation (runtime): none")
+    if boot_time:
+        for section in boot_time:
+            _print_action("🗓️  Advisory (boot-time):   ", section)
+    else:
+        print("      🗓️  Advisory (boot-time):    none")
+    for advisory in advisories:
+        print(f"      ℹ️  {advisory.get('reason', advisory)}")
+
+
 def analyze_memory_events(events):
     """Adapt canonical events to Samsung analysis and return action requests."""
     records = [_to_samsung_record(event) for event in events]
     result = analyze(records)
-    return _to_contoso_cpad_requests(result, events)
+    proposals = _to_contoso_cpad_requests(result, events)
+
+    _print_result(result.get("fault"), result.get("advisories", []), proposals)
+
+    return proposals

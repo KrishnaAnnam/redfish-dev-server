@@ -191,7 +191,8 @@ reported as a structured finding and is never sent to a DRAM-vendor shim.
 
 The memory analyzer supports optional tools supplied by memory vendors. Contoso
 ships Python shims under `memory_shims/` that adapt the common event contract to
-those vendor tools. The initial shims are stubs:
+those vendor tools. The Micron and SK hynix shims are stubs; the Samsung shim
+delegates to the separately distributed `samsung_dfa.py`:
 
 - `analyzer_micron.py`
 - `analyzer_samsung.py`
@@ -293,9 +294,11 @@ descriptors before deciding whether the same binary may be submitted.
 
 A valid empty action-request list means the vendor shim successfully analyzed
 the events and recommends no action. The default failing-row detector does not
-run in that case. If no matching shim exists, or shim discovery, invocation,
-validation, or binary conversion fails, a newest memory error falls back to the
-detector below. Platform Action Events never invoke the default detector.
+run in that case. If no matching shim is loaded (none exists, or it failed
+discovery/import), a newest memory error falls back to the detector below. If a
+loaded shim fails invocation, validation, or binary conversion, the failure is
+reported and no default recommendation is substituted. Platform Action Events
+never invoke the default detector.
 
 The grouped multi-section version 5 shim contract is documented in
 [Memory Vendor Analyzer Shim Interface](memory_shims/memory-vendor-analyzer-shim.md).

@@ -325,6 +325,9 @@ class PlatformAwareRedfishServer(HTTPServer):
                     if plugin_name and plugin_spec.get('enabled', True) if isinstance(plugin_spec, dict) else True:
                         print(f"DEBUG: Loading plugin: {plugin_name}")
                         plugin_config['mockup_dir'] = self.config.mock_dir
+                        endpoint_override = getattr(self.config, 'endpoint_config', None)
+                        if plugin_name == 'ras' and endpoint_override:
+                            plugin_config['endpoint_config'] = endpoint_override
                         plugin_handler = discovery.load_plugin_explicitly(plugin_name, plugin_config)
                         print(f"DEBUG: Plugin handler result: {plugin_handler}")
                         if plugin_handler:
@@ -394,6 +397,10 @@ def enhanced_parse_arguments():
     parser.add_argument('--platform', dest='platform_hint',
                         choices=['dell', 'hpe', 'supermicro', 'lenovo', 'generic'],
                         help='specify platform type for enhanced features')
+    parser.add_argument('--endpoint-config', dest='endpoint_config', default=None,
+                        help='override the RAS plugin endpoint_config from '
+                             'platform_config.json (relative to the mockup '
+                             'directory, or absolute)')
     parser.add_argument('--list-platforms', action='store_true',
                         help='list available platform providers and exit')
     parser.add_argument('--platform-info', action='store_true',
@@ -428,7 +435,8 @@ def enhanced_parse_arguments():
     
     # Add platform hint
     config.platform_hint = args.platform_hint
-    
+    config.endpoint_config = args.endpoint_config
+
     return config
 
 

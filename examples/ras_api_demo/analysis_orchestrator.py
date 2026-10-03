@@ -36,7 +36,7 @@ import tempfile
 import threading
 import time
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
@@ -83,6 +83,7 @@ class AnalyzerInfo:
     creator_ids: List[str]          # normalized GUIDs this analyzer supports
     prior_days: int                 # days of prior CPER context the analyzer wants
     script_path: Path               # path to the analyzer-<company>.py script
+    memory_analyzers: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -315,18 +316,29 @@ class AnalysisOrchestrator:
         if isinstance(prior_days, bool) or not isinstance(prior_days, int) or prior_days < 0:
             return reject("'prior_days' must be a non-negative integer")
 
+        memory_analyzers = data.get('memory_analyzers') or []
+        if not isinstance(memory_analyzers, list) or not all(
+                isinstance(m, dict) for m in memory_analyzers):
+            return reject("'memory_analyzers' must be a list of objects")
+
         return AnalyzerInfo(
             name=name.strip(),
             version=str(version),
             creator_ids=normalized,
             prior_days=prior_days,
             script_path=script,
+            memory_analyzers=memory_analyzers,
         )
 
     # ─── Discovery Report ───────────────────────────────────────────────
 
-    def print_discovery_report(self) -> bool:
+    def print_discovery_report(self, show_memory_analyzers: bool = False) -> bool:
         """Print the discovery outcome (table or error) at demo startup.
+
+        Args:
+            show_memory_analyzers: Also list the memory-vendor analyzer shims
+                each analyzer loaded. A shim whose dependencies are missing
+                fails to load and is therefore not listed.
 
         Returns:
             True if at least one analyzer was discovered with no fatal error;
@@ -347,6 +359,8 @@ class AnalysisOrchestrator:
 
         print(f"\n   ✅ Discovered {len(self.analyzers)} analyzer(s):\n")
         self._print_analyzer_table()
+        if show_memory_analyzers:
+            self._print_memory_analyzers()
         return True
 
     def _print_analyzer_table(self):
@@ -371,6 +385,18 @@ class AnalysisOrchestrator:
         for row in rows[1:]:
             print(fmt(row))
         print()
+
+    def _print_memory_analyzers(self):
+        """List the memory-vendor analyzer shims each analyzer loaded."""
+        for info in self.analyzers:
+            if not info.memory_analyzers:
+                continue
+            print(f"   🧩 Memory analyzer(s) discovered under {info.name}:")
+            for shim in info.memory_analyzers:
+                vendors = ", ".join(shim.get('dram_manufacturer_ids', [])) or "?"
+                print(f"      ✓ {shim.get('name', '?')} v{shim.get('version', '?')}"
+                      f"  (DRAM manufacturer ID: {vendors})")
+            print()
 
     # ─── Host Discovery & Monitoring ────────────────────────────────────
 

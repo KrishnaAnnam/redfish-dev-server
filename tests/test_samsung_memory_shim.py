@@ -18,6 +18,16 @@ RAS_DEMO_DIR = ROOT / "examples" / "ras_api_demo"
 for path in (ROOT, CONTOSO_DIR, SHIM_DIR, RAS_DEMO_DIR):
     sys.path.insert(0, str(path))
 
+try:
+    import samsung_dfa  # noqa: F401,E402
+except ImportError:
+    # samsung_dfa.py is distributed separately; stub it so the public
+    # adapter tests still run without it.
+    import types
+    sys.modules["samsung_dfa"] = types.ModuleType("samsung_dfa")
+    sys.modules["samsung_dfa"].analyze = lambda records: {
+        "fault": None, "cpads": [], "advisories": []}
+
 import analyzer_samsung as samsung  # noqa: E402
 import contoso_action_parameters as actions  # noqa: E402
 
@@ -289,15 +299,28 @@ def test_samsung_rejects_non_boolean_action_urgency():
         raise AssertionError("integer Samsung urgency was accepted")
 
 
-def test_samsung_analyzer_owns_spare_row_budget():
-    record = {
+def test_samsung_analyze_delegates_to_dfa_engine():
+    """samsung.analyze() delegates entirely to samsung_dfa.analyze()."""
+    records = [{
         "record_type": "memory_error",
         "ppr": {"target_bank_repair_count": 2},
-    }
+    }]
+    captured = {}
+    fake_result = {"fault": None, "cpads": [], "advisories": []}
+    original_analyze = samsung.samsung_dfa.analyze
 
-    samsung.analyze([record])
+    def fake_analyze(passed_records):
+        captured["records"] = passed_records
+        return fake_result
 
-    assert record["ppr"]["repairs_per_bank"] == 14
+    samsung.samsung_dfa.analyze = fake_analyze
+    try:
+        result = samsung.analyze(records)
+    finally:
+        samsung.samsung_dfa.analyze = original_analyze
+
+    assert captured["records"] is records
+    assert result is fake_result
 
 
 def test_replace_request_builds_cpad_with_source_fru_text():

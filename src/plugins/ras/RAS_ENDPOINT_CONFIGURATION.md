@@ -352,6 +352,17 @@ Validate a file with the production loader:
 python servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000
 ```
 
+To select a different endpoint file without editing `platform_config.json`,
+pass the optional `--endpoint-config` flag (relative to the mockup directory,
+or absolute). It overrides the RAS plugin's `endpoint_config` setting for that
+run only; without the flag the server behaves exactly as above. The Samsung
+demo uses it this way:
+
+```bash
+python servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000 \
+    --endpoint-config ras_endpoint_config_samsung.json
+```
+
 The plugin loads the configured endpoint file once and injects the same parsed
 `RASEndpointConfiguration` into discovery and SubmitCPAD handling. If an
 explicitly configured file is absent or invalid, RAS plugin initialization

@@ -91,12 +91,20 @@ class MemoryControllerAnalyzer:
                     and event["memory_error"]["bank"] == DRAM_ERRORS
                     and manufacturer_id(event) == newest_vendor):
                 filtered.append(event)
+            elif (event["event_type"] == "platform_action"
+                    and manufacturer_id(event) == newest_vendor):
+                # Prior action confirmations are history the vendor needs
+                # to avoid repeating already-completed repairs.
+                filtered.append(event)
         return filtered
 
     def _analysis_route(
             self, newest_vendor: Optional[Tuple[int, int]],
             shim_result: Dict[str, Any]) -> Dict[str, Any]:
         """Describe which analyzer owns the newest memory-controller errors."""
+        if newest_vendor is None and shim_result["handled_manufacturers"]:
+            # Action-only CPER correlated (by FRU) to a vendor-owned DIMM.
+            newest_vendor = next(iter(shim_result["handled_manufacturers"]))
         if newest_vendor is None:
             return {
                 "heading": "Memory analysis routing",
@@ -121,8 +129,10 @@ class MemoryControllerAnalyzer:
             return {
                 "heading": "Memory analysis routing",
                 "messages": [
-                    "Using the default Contoso memory analyzer.",
-                    "Reason: The matching memory-vendor analyzer failed.",
+                    f"Memory-vendor analyzer {self.shims[newest_vendor].name} "
+                    f"failed for DRAM manufacturer {vendor_text}.",
+                    "No default Contoso analysis is substituted for a "
+                    "vendor-owned DIMM.",
                 ],
             }
 

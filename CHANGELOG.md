@@ -1,20 +1,25 @@
 # Change Log
 
+## [Unreleased] - 2026-10-02
+### Added - RAS Plugin SDK Integration
+- RAS plugin loading through the shared Plugin SDK used by all server variants
+- Gen1 platform configuration with structured RAS plugin settings
+- Focused Plugin SDK adapter and imported RAS regression coverage
+- Documentation links for the plugin, endpoint configuration, and demo assets
+
 ## [2.2.0] - 2026-01-23
-### Major Changes - RAS Plugin Complete
-- Complete RAS (Reliability, Availability, Serviceability) plugin with full feature parity to RasAPI-main
-- 7-phase implementation: Core infrastructure, CPAD handling, CPER generation, Policy engine, LogService, EventService, Advanced features
-- 28 Python files, 7,973 lines of plugin code
+### Major Changes - RAS Plugin Initial Implementation
+- OCP RAS API plugin for discovery, CPAD handling, CPER LogService storage,
+  endpoint configuration, and reset-aware deferred actions
+- Gen1 mockup, analyzer/demo assets, and focused RAS regression tests
 
 ### Added
-- `src/plugins/ras/` - Complete RAS plugin implementation
-- `docs/PLUGIN_SDK.md` - Plugin development guide
-- `docs/RAS_PLUGIN.md` - Comprehensive RAS plugin documentation
-- `docs/DOCUMENTATION_INDEX.md` - Documentation navigation
-- `examples/event_listener.py` - Event listener for subscriptions
-- `examples/subscribe_to_events.py` - Event subscription helper
-- `scripts/run_ras_demo.sh` - Tmux-based demo launcher
+- `src/plugins/ras/` - RAS plugin implementation and documentation
 - `mockups/ras_gen1/` - RAS-enabled mockup data
+- `examples/ras_api_demo/` - Analyzer, policy, event-listener, and demo assets
+- `tests/test_ras_plugin_sdk.py` - Shared Plugin SDK adapter coverage
+- RAS-focused endpoint, CPAD, analyzer, encoder, policy, namespace, and memory
+  tests under `tests/`
 
 ### Fixed
 - Fixed POST handler body consumption bug in `redfishMockupServer_platform.py`
@@ -30,12 +35,10 @@
 ### RAS Plugin Features
 - CPAD (Corrective Platform Action Descriptor) submission and validation
 - CPER (Common Platform Error Record) generation using libcper templates
-- Policy-based trust validation (TRUSTED_CREATORS, KNOWN_ACTIONS, KNOWN_PLATFORMS)
+- Configured endpoint identity, ownership, topology, and memory inventory
 - LogService integration with Redfish-compliant log entries
-- EventService integration with subscription management
-- Analytics engine for error pattern analysis
-- Automated remediation with rate limiting
-- Health monitoring and component status tracking
+- Reset notification for deferred endpoint actions
+- External analyzer and policy demonstration workflow
 
 ## [2.1.0] - 2025-12-03
 ### Major Changes

@@ -14,7 +14,7 @@ management using standard Redfish interfaces on the BMC.
 > loads plugins declared in a platform's `platform_config.json`. The RAS plugin
 > lives at [`src/plugins/ras/`](../../src/plugins/ras) and is enabled for this
 > demo by [`mockups/ras_gen1/platform_config.json`](../../mockups/ras_gen1/platform_config.json)
-> (`"plugins": [{"name": "ras", ...}]`). Everything in this folder is the
+> (`"extensions": [{"name": "ras", ...}]`). Everything in this folder is the
 > **client/analysis side** that drives that plugin. To learn how plugins are
 > built and registered, see [`docs/PLUGIN_SDK.md`](../../docs/PLUGIN_SDK.md).
 > The RAS plugin's `config.endpoint_config` setting selects the endpoint

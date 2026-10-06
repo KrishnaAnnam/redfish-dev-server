@@ -643,7 +643,7 @@ def test_submit_rejects_creator_that_does_not_own_target_partition():
 def test_redfish_on_notifies_plugins_after_system_state_is_saved():
     notifications = []
     service = CustomActionsService.__new__(CustomActionsService)
-    service.system_reset_notifier = (
+    service.reset_notifier = (
         lambda system_id, reset_type:
         notifications.append((system_id, reset_type)))
     service._update_resource_data = (
@@ -680,10 +680,10 @@ def test_plugin_loader_notifies_only_plugins_with_reset_callbacks():
         "telemetry": object(),
     }
 
-    results = loader.notify_system_reset("system", "PowerCycle")
+    notified = loader.notify_system_reset("system", "PowerCycle")
 
     assert calls == [("system", "PowerCycle")]
-    assert results == {"ras": 2}
+    assert notified == 1
 
 
 def test_another_vendor_can_register_same_proprietary_action_id():
@@ -1058,31 +1058,38 @@ def test_submit_cpad_rejects_noncanonical_base64():
 
 
 def test_plugin_paths_load_memory_configuration():
+    server_config = ServerConfig(mock_dir_path=str(CONFIG_PATH.parent))
     plugin = RASPlugin()
 
-    assert plugin.initialize({
-        "mockup_dir": str(CONFIG_PATH.parent),
-        "endpoint_config": CONFIG_PATH.name,
-    })
-    assert plugin.submit_cpad_handler.memory_repair_state is not None
-    assert (
-        plugin.submit_cpad_handler.endpoint_configuration
-        is plugin.discovery_handler.endpoint_configuration
-    )
+    try:
+        assert plugin.initialize(
+            server_config,
+            {"endpoint_config": CONFIG_PATH.name},
+        )
+        assert plugin.submit_cpad_handler.memory_repair_state is not None
+        assert (
+            plugin.submit_cpad_handler.endpoint_configuration
+            is plugin.discovery_handler.endpoint_configuration
+        )
+    finally:
+        plugin.shutdown()
 
     server_plugin = RASPlugin()
-    server_config = ServerConfig(mock_dir_path=str(CONFIG_PATH.parent))
-    assert server_plugin.initialize(server_config)
-    assert server_plugin.submit_cpad_handler.memory_repair_state is not None
+    try:
+        assert server_plugin.initialize(server_config, {})
+        assert server_plugin.submit_cpad_handler.memory_repair_state is not None
+    finally:
+        server_plugin.shutdown()
 
 
 def test_plugin_rejects_missing_explicit_endpoint_config():
     plugin = RASPlugin()
+    server_config = ServerConfig(mock_dir_path=str(CONFIG_PATH.parent))
 
-    initialized = plugin.initialize({
-        "mockup_dir": str(CONFIG_PATH.parent),
-        "endpoint_config": "missing-endpoints.json",
-    })
+    initialized = plugin.initialize(
+        server_config,
+        {"endpoint_config": "missing-endpoints.json"},
+    )
 
     assert initialized is False
 
@@ -1094,25 +1101,31 @@ def test_plugin_loads_custom_relative_endpoint_config_filename():
         custom.write_text(CONFIG_PATH.read_text())
         plugin = RASPlugin()
         output = io.StringIO()
+        server_config = ServerConfig(mock_dir_path=str(mockup_dir))
 
-        with contextlib.redirect_stdout(output):
-            initialized = plugin.initialize({
-                "mockup_dir": str(mockup_dir),
-                "endpoint_config": custom.name,
-            })
+        try:
+            with contextlib.redirect_stdout(output):
+                initialized = plugin.initialize(
+                    server_config,
+                    {"endpoint_config": custom.name},
+                )
 
-        assert initialized is True
-        assert (
-            plugin.submit_cpad_handler.endpoint_configuration
-            is plugin.discovery_handler.endpoint_configuration
-        )
-        assert plugin.discovery_handler.endpoint_configuration.platform_id == (
-            "990f8820-bd4d-5064-58cc-961a053dea79")
-        report = output.getvalue()
-        assert str(custom.resolve()) in report
-        assert "RAS ENDPOINT CONFIGURATION" in report
-        assert "Endpoint-1: Contoso CPU Socket 0 RAS Endpoint" in report
-        assert "8 DIMMs x 64 GiB = 512 GiB" in report
+            assert initialized is True
+            assert (
+                plugin.submit_cpad_handler.endpoint_configuration
+                is plugin.discovery_handler.endpoint_configuration
+            )
+            assert (
+                plugin.discovery_handler.endpoint_configuration.platform_id
+                == "990f8820-bd4d-5064-58cc-961a053dea79"
+            )
+            report = output.getvalue()
+            assert str(custom.resolve()) in report
+            assert "RAS ENDPOINT CONFIGURATION" in report
+            assert "Endpoint-1: Contoso CPU Socket 0 RAS Endpoint" in report
+            assert "8 DIMMs x 64 GiB = 512 GiB" in report
+        finally:
+            plugin.shutdown()
 
 
 def test_alternate_provider_shares_custom_endpoint_configuration():
@@ -1126,10 +1139,14 @@ def test_alternate_provider_shares_custom_endpoint_configuration():
             "endpoint_config": custom.name,
         })
 
-        assert (
-            handler.submit_cpad_handler.endpoint_configuration
-            is handler.discovery_handler.endpoint_configuration
-        )
+        try:
+            assert (
+                handler.submit_cpad_handler.endpoint_configuration
+                is handler.discovery_handler.endpoint_configuration
+            )
+        finally:
+            if handler.queue_manager is not None:
+                handler.queue_manager.stop()
 
 
 def test_two_endpoints_keep_capabilities_and_repairs_independent():

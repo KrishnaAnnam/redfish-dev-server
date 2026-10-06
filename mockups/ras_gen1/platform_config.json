@@ -1,7 +1,8 @@
 {
-  "platform_name": "RAS Gen 1 Platform",
-  "platform_type": "enterprise_server",
-  "plugins": [
+  "platform_id": "ras_gen1",
+  "platform_type": "generic",
+  "display_name": "RAS Gen 1 Platform",
+  "extensions": [
     {
       "name": "ras",
       "enabled": true,

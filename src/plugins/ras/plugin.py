@@ -10,7 +10,28 @@ loaded based on platform configuration.
 import logging
 from typing import Dict, Any, List, Optional, Tuple
 
+from ..contracts import PluginContext, PluginRoute
+
 logger = logging.getLogger(__name__)
+
+RAS_SERVICE_PATH = "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService"
+RAS_ENDPOINTS_PATH = f"{RAS_SERVICE_PATH}/RASEndpoints"
+RAS_ACTION_INFO_PATH = f"{RAS_SERVICE_PATH}/SubmitCPADActionInfo"
+RAS_SUBMIT_CPAD_PATH = (
+    f"{RAS_SERVICE_PATH}/Actions/RASService.SubmitCPAD"
+)
+CPER_LOG_SERVICE_PATH = (
+    "/redfish/v1/Managers/{ManagerId}/LogServices/CPER"
+)
+CPER_ENTRIES_PATH = f"{CPER_LOG_SERVICE_PATH}/Entries"
+RAS_ANALYTICS_PATH = (
+    "/redfish/v1/Managers/{ManagerId}/Oem/"
+    "OpenCompute_FaultMgmt/Analytics"
+)
+RAS_HEALTH_PATH = (
+    "/redfish/v1/Managers/{ManagerId}/Oem/"
+    "OpenCompute_FaultMgmt/Health"
+)
 
 # Plugin metadata
 PLUGIN_INFO = {
@@ -46,6 +67,8 @@ class RASPlugin:
         self._enabled = False
         self._handler = None
         self._config = None
+        self._plugin_config = {}
+        self._context = None
         logger.info("RAS Plugin initialized")
     
     @property
@@ -63,56 +86,49 @@ class RASPlugin:
         """Get the RAS service handler instance"""
         return self._handler
     
-    def initialize(self, config: Any) -> bool:
+    def initialize(
+            self,
+            config: Any,
+            plugin_config: Optional[Dict[str, Any]] = None,
+            context: Optional[PluginContext] = None) -> bool:
         """
         Initialize the plugin with configuration.
         
         Args:
-            config: ServerConfig object or platform configuration dict
+            config: Shared server configuration
+            plugin_config: RAS-specific configuration
+            context: Shared Plugin SDK capabilities
             
         Returns:
             True if initialization successful
         """
         try:
             self._config = config
-            
-            # Import handlers
-            from .handlers.submit_cpad_action import SubmitCPADActionHandler
-            from .discovery import RASDiscoveryHandler
-            from .memory_config import (
-                format_endpoint_configuration_summary,
-                load_endpoint_configuration,
-                resolve_endpoint_config_path,
-            )
-            
-            # Initialize handlers
+            self._plugin_config = dict(plugin_config or {})
+            self._context = context
+
             if isinstance(config, dict):
                 mockup_dir = config.get('mockup_dir') or config.get('mock_dir')
-                endpoint_config = config.get('endpoint_config')
             else:
                 mockup_dir = (getattr(config, 'mockup_dir', None) or
                               getattr(config, 'mock_dir', None))
-                endpoint_config = getattr(config, 'endpoint_config', None)
-            endpoint_configuration = load_endpoint_configuration(
-                mockup_dir,
-                endpoint_config,
-                required=endpoint_config is not None,
-            )
-            endpoint_config_path = resolve_endpoint_config_path(
-                mockup_dir, endpoint_config)
-            print(format_endpoint_configuration_summary(
-                endpoint_config_path, endpoint_configuration))
-            self.submit_cpad_handler = SubmitCPADActionHandler(
-                mockup_dir=mockup_dir,
-                endpoint_configuration=endpoint_configuration)
-            self.discovery_handler = RASDiscoveryHandler(
-                mockup_dir=mockup_dir,
-                endpoint_configuration=endpoint_configuration)
-            
+
+            handler_config = dict(self._plugin_config)
+            handler_config['mockup_dir'] = mockup_dir
+
+            from .provider import RASHandler
+
+            self._handler = RASHandler(handler_config)
+            self.submit_cpad_handler = self._handler.submit_cpad_handler
+            self.discovery_handler = self._handler.discovery_handler
+
+            if context is not None:
+                self._handler.event_handler.register_callback(
+                    self._publish_event)
+
             self._enabled = True
             
             logger.info(f"RAS Plugin v{PLUGIN_INFO['version']} initialized successfully")
-            logger.info("  - SubmitCPAD Action Handler: Ready")
             return True
             
         except Exception as e:
@@ -129,50 +145,55 @@ class RASPlugin:
             True if shutdown successful
         """
         try:
+            queue_manager = getattr(self._handler, 'queue_manager', None)
+            if queue_manager is not None:
+                queue_manager.stop()
             self._enabled = False
             self._handler = None
+            self._context = None
             logger.info("RAS Plugin shutdown complete")
             return True
         except Exception as e:
             logger.error(f"Error during RAS Plugin shutdown: {e}")
             return False
     
-    def get_routes(self) -> List[str]:
-        """
-        Return list of URL paths this plugin handles.
-        
-        Returns:
-            List of path patterns
-        """
+    def get_routes(self) -> List[PluginRoute]:
+        """Return the Redfish routes owned by the RAS plugin."""
         return [
-            # Service-root OEM RAS discovery tree
-            "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService",
-            "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints",
-            "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/{EndpointId}",
-            "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/SubmitCPADActionInfo",
-            # Service-root OEM RAS action
-            "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService.SubmitCPAD",
+            PluginRoute(RAS_SERVICE_PATH, {'GET'}),
+            PluginRoute(RAS_ENDPOINTS_PATH, {'GET'}),
+            PluginRoute(f"{RAS_ENDPOINTS_PATH}/{{EndpointId}}", {'GET'}),
+            PluginRoute(RAS_ACTION_INFO_PATH, {'GET'}),
+            PluginRoute(RAS_SUBMIT_CPAD_PATH, {'POST'}),
+            PluginRoute(CPER_LOG_SERVICE_PATH, {'GET'}),
+            PluginRoute(CPER_ENTRIES_PATH, {'GET'}),
+            PluginRoute(
+                f"{CPER_ENTRIES_PATH}/{{EntryId}}",
+                {'GET', 'DELETE'},
+            ),
+            PluginRoute(
+                f"{CPER_ENTRIES_PATH}/{{EntryId}}/Attachment",
+                {'GET'},
+            ),
+            PluginRoute(
+                f"{CPER_LOG_SERVICE_PATH}/Actions/LogService.ClearLog",
+                {'POST'},
+            ),
+            PluginRoute(RAS_ANALYTICS_PATH, {'GET'}),
+            PluginRoute(RAS_HEALTH_PATH, {'GET'}),
         ]
-    
-    def handles_path(self, path: str) -> bool:
-        """
-        Check if this plugin handles the given path.
-        
-        Args:
-            path: URL path to check
-            
-        Returns:
-            True if plugin handles this path
-        """
-        import re
-        patterns = [
-            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/?$',
-            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/?$',
-            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/[^/]+/?$',
-            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/SubmitCPADActionInfo/?$',
-            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/RASService\.SubmitCPAD/?$',
-        ]
-        return any(re.match(pattern, path) for pattern in patterns)
+
+    def _publish_event(self, event: Dict[str, Any]) -> None:
+        """Publish each RAS event record through the core EventService."""
+        if self._context is None:
+            return
+
+        for event_record in event.get('Events', []):
+            payload = dict(event_record)
+            origin = payload.get('OriginOfCondition')
+            if isinstance(origin, dict) and '@odata.id' in origin:
+                payload['OriginOfCondition'] = origin['@odata.id']
+            self._context.publish_event(payload)
     
     def handle_get(self, path: str, query_params: Dict[str, Any] = None,
                    cached_links: Dict[str, Any] = None) -> Tuple[int, Dict, Dict]:
@@ -187,31 +208,15 @@ class RASPlugin:
         Returns:
             Tuple of (status_code, headers, body)
         """
-        if not self._enabled:
+        if not self._enabled or self._handler is None:
             return 503, {}, {"error": "RAS Plugin not available"}
-        
-        import re
-        
-        if re.match(r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/?$', path):
-            status, body = self.discovery_handler.ras_service()
-            return status, {}, body
-        
-        if re.match(r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/?$', path):
-            status, body = self.discovery_handler.endpoint_collection()
-            return status, {}, body
-        
-        endpoint_match = re.match(
-            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/RASEndpoints/([^/]+)/?$', path
+
+        status, body = self._handler.handle_get(
+            path,
+            query_params or {},
+            cached_links or {},
         )
-        if endpoint_match:
-            status, body = self.discovery_handler.endpoint(endpoint_match.group(1))
-            return status, {}, body
-        
-        if re.match(r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/SubmitCPADActionInfo/?$', path):
-            status, body = self.discovery_handler.submit_cpad_action_info()
-            return status, {}, body
-        
-        return 404, {}, {"error": "Not found"}
+        return status, {}, body
     
     def handle_post(self, path: str, data: Dict[str, Any],
                     cached_links: Dict[str, Any] = None) -> Tuple[int, Dict, Dict]:
@@ -226,26 +231,35 @@ class RASPlugin:
         Returns:
             Tuple of (status_code, headers, body)
         """
-        if not self._enabled:
+        if not self._enabled or self._handler is None:
             return 503, {}, {"error": "RAS Plugin not available"}
-        
-        import re
-        
-        # SubmitCPAD action (service-root scoped, no Manager id in URL)
-        submit_cpad_match = re.match(
-            r'^/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService/Actions/'
-            r'RASService\.SubmitCPAD/?$', path)
-        if submit_cpad_match:
-            status, body = self.submit_cpad_handler.handle_submit_cpad("System", data)
-            return status, {}, body
-        
-        return 404, {}, {"error": "Not found"}
+
+        status, body = self._handler.handle_post(
+            path,
+            data,
+            cached_links or {},
+        )
+        return status, {}, body
+
+    def handle_delete(
+            self,
+            path: str,
+            cached_links: Dict[str, Any] = None) -> Tuple[int, Dict, Any]:
+        """Handle individual CPER LogEntry deletion."""
+        if not self._enabled or self._handler is None:
+            return 503, {}, {"error": "RAS Plugin not available"}
+
+        status, body = self._handler.handle_delete(
+            path,
+            cached_links or {},
+        )
+        return status, {}, body
 
     def on_system_reset(self, system_id: str, reset_type: str) -> int:
         """Complete RAS actions deferred until the system resets."""
-        if not self._enabled:
+        if not self._enabled or self._handler is None:
             return 0
-        return self.submit_cpad_handler.on_system_reset(
+        return self._handler.submit_cpad_handler.on_system_reset(
             system_id, reset_type)
 
 

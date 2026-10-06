@@ -216,34 +216,3 @@ class PlatformDiscovery:
         except Exception as e:
             logger.error(f"Error reloading platform: {e}")
             return False
-    
-    def load_plugin_explicitly(self, plugin_name: str, plugin_config: Dict[str, Any] = None) -> Optional[Any]:
-        """
-        Explicitly load a plugin by name without auto-discovery
-        
-        Args:
-            plugin_name: Name of the plugin to load (e.g., 'ras')
-            plugin_config: Plugin-specific configuration
-            
-        Returns:
-            Plugin handler instance or None if failed
-        """
-        try:
-            logger.info(f"Explicitly loading plugin: {plugin_name}")
-            
-            # Import the plugin directly
-            if plugin_name == 'ras':
-                from src.plugins.ras.provider import RASHandler
-                config = plugin_config or {'mockup_dir': self.mockup_dir}
-                handler = RASHandler(config)
-                logger.info(f"RAS plugin loaded successfully")
-                return handler
-            else:
-                logger.error(f"Unknown plugin: {plugin_name}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Failed to load plugin {plugin_name}: {e}")
-            import traceback
-            traceback.print_exc()
-            return None

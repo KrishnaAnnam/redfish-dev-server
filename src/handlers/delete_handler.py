@@ -9,6 +9,7 @@ DELETE request handler for Redfish Mockup Server
 import json
 import logging
 import os
+from urllib.parse import urlparse
 from .base_handler import BaseRedfishHandler
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,24 @@ class DeleteHandler(BaseRedfishHandler):
 
         logger.info("DELETE: Headers: {}".format(self.headers))
         self.try_to_sleep('DELETE', self.path)
+
+        request_path = urlparse(self.path).path
+        try:
+            plugin_response = self.plugin_loader.handle_delete(
+                request_path,
+                self.cached_links,
+            )
+        except Exception:
+            logger.exception(
+                "Plugin DELETE handler failed for %s",
+                request_path,
+            )
+            self._send_plugin_error()
+            return
+
+        if plugin_response is not None:
+            self._send_plugin_response(plugin_response)
+            return
 
         # Get paths for resource and its parent collection
         fpath = self.construct_path(self.path, 'index.json')

@@ -60,17 +60,39 @@ def test_configured_endpoint_does_not_publish_memory_repair_capabilities():
 def test_plugin_routes_accept_new_and_reject_retired_namespace():
     plugin = RASPlugin()
     routes = plugin.get_routes()
+    route_paths = [route.path for route in routes]
+    oem_route_paths = [
+        path for path in route_paths
+        if "/Oem/" in path
+    ]
 
     assert routes
-    assert all(NAMESPACE in route for route in routes)
-    assert all(RETIRED_NAMESPACE not in route for route in routes)
-    assert plugin.handles_path(SERVICE_URI)
-    assert plugin.handles_path(f"{SERVICE_URI}/RASEndpoints/Endpoint-1")
-    assert plugin.handles_path(f"{SERVICE_URI}/SubmitCPADActionInfo")
-    assert plugin.handles_path(f"{SERVICE_URI}/Actions/RASService.SubmitCPAD")
-    assert plugin.handles_path(f"{SERVICE_URI}/Actions/RASService.SubmitCPAD/")
-    assert not plugin.handles_path(
-        f"/redfish/v1/Oem/{RETIRED_NAMESPACE}/RASService")
+    assert oem_route_paths
+    assert all(NAMESPACE in path for path in oem_route_paths)
+    assert all(RETIRED_NAMESPACE not in path for path in route_paths)
+    assert any(route.matches(SERVICE_URI) for route in routes)
+    assert any(
+        route.matches(f"{SERVICE_URI}/RASEndpoints/Endpoint-1")
+        for route in routes
+    )
+    assert any(
+        route.matches(f"{SERVICE_URI}/SubmitCPADActionInfo")
+        for route in routes
+    )
+    assert any(
+        route.matches(f"{SERVICE_URI}/Actions/RASService.SubmitCPAD")
+        for route in routes
+    )
+    assert any(
+        route.matches(f"{SERVICE_URI}/Actions/RASService.SubmitCPAD/")
+        for route in routes
+    )
+    assert not any(
+        route.matches(
+            f"/redfish/v1/Oem/{RETIRED_NAMESPACE}/RASService"
+        )
+        for route in routes
+    )
 
 
 def test_provider_routes_accept_new_and_reject_retired_namespace():

@@ -131,7 +131,6 @@ The `mockups/` directory contains several pre-configured Redfish mockup datasets
 ### mockup Archives (.tgz)
 
 - **`FullBMCMockup.tgz`** - Comprehensive BMC simulation mockup dataset
-- **`RASMockup.tgz`** - Reliability, Availability, Serviceability focused mockup
 - **`sample_mockup.tgz`** - Minimal example mockup for development
 
 ### Using Redfish mockups
@@ -152,7 +151,7 @@ python servers/redfishMockupServer_modular.py -D mockups/my-custom-bmc
 
 > **Note**: Directory is named `mockups/` for backward compatibility with DMTF tools. These are Redfish mockup data directories.
 
-See [Redfish-Mockup-Creator](https://github.com/DMTF/Redfish-Mockup-Creator) for detailed guidance on creating and customizing Redfish mockup data.
+See the [mockup Data Management](training/slides/04-mockup-data.md) training module for detailed guidance on creating and customizing Redfish mockup data.
 
 ## 📚 Server Variants
 
@@ -200,39 +199,48 @@ Features:
 - Advanced sensor and metric emulation
 - Multi-chassis and multi-node support
 
-## 🔌 OCP RAS API Plugin (Reliability, Availability, Serviceability)
+## 🔌 Feature Plugin SDK
 
-**New!** A complete implementation of the **OCP RAS API** as a Redfish plugin, for hardware error detection, analysis, and remediation workflows.
+The Plugin SDK supports isolated Redfish feature development without
+feature-specific changes to common handlers or server entry points.
 
-### Quick Start
+- Convention-based loading from `src.plugins.<name>`
+- Explicit GET, POST, PATCH, and DELETE route ownership
+- Existing EventService publication through a narrow plugin context
+- Successful system-reset notifications for deferred plugin work
+- Deterministic plugin shutdown across all server variants
+- JSON, text, binary, and empty response bodies
+
+Telemetry and RAS are the current integrated feature plugins. Both use the
+same loader, configuration, routing, EventService context, reset notification,
+and shutdown contracts.
+
+See the [Plugin SDK Guide](docs/PLUGIN_SDK.md) and
+[Documentation Index](docs/DOCUMENTATION_INDEX.md).
+
+### OCP RAS API Plugin
+
+The RAS plugin provides OCP RAS API discovery, CPAD submission, configured
+endpoint ownership, and CPER LogService behavior. The Gen1 platform
+configuration enables it through the common Plugin SDK:
 
 ```bash
-# Start the server with the OCP RAS API-enabled mockup
-python servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000
-
-# Run the guided OCP RAS API demo (from the project root)
-python examples/ras_api_demo/ras_api_plugin_demo.py
-
-# Or use the tmux launcher for the full 3-pane demo
-./examples/ras_api_demo/run_ras_demo.sh
+python3 servers/redfishMockupServer_platform.py \
+  -D mockups/ras_gen1 \
+  -p 8000
 ```
 
-### Features
+The analyzer and policy demonstration has additional prerequisites documented
+in its setup guide. To launch the three-pane demo environment after installing
+them:
 
-The guided OCP RAS API demo walks through the full round-trip error-handling flow:
+```bash
+bash examples/ras_api_demo/run_ras_demo.sh
+```
 
-- Discovers RAS API endpoints via Redfish
-- Injects an error via CPADs (Common Platform Action Descriptors)
-- Collects the resulting CPERs via the Redfish RAS API interfaces
-- Analyzes the CPERs
-- Had the analyzer suggest a RAS action, which is evaluated against a data center operator policy
-- Routes an approved RAS action back to the BMC that reported the errors
-- Demonstrates the full round-trip flow: RAS API endpoint → analyzer → back to the endpoint
-
-### Documentation
-- [OCP RAS API Demo](examples/ras_api_demo/README.md) - End-to-end demo, setup, and documentation index
-- [Plugin SDK Guide](docs/PLUGIN_SDK.md) - How to develop plugins
-- [Documentation Index](docs/DOCUMENTATION_INDEX.md) - Navigation guide
+- [RAS plugin architecture](src/plugins/ras/README.md)
+- [Endpoint configuration](src/plugins/ras/RAS_ENDPOINT_CONFIGURATION.md)
+- [OCP RAS API demo](examples/ras_api_demo/README.md)
 
 ## 🌐 Web UI Interface
 
@@ -419,7 +427,7 @@ redfish-dev-server/
 
 **Quick feature demo**:
 ```bash
-python examples/demo_working_features.py
+python examples/quick_enhanced_demo.py
 ```
 
 **Comprehensive system demo**:
@@ -450,6 +458,9 @@ python -m redfish_client.examples.resource_management
 ```bash
 # Run unit tests
 python -m pytest tests/
+
+# Run integration tests
+python -m pytest tests/integration/
 
 # Run with coverage
 python -m pytest --cov=src tests/
@@ -511,7 +522,7 @@ Copyright 2016-2020 DMTF. All rights reserved.
 
 - **Issues**: [GitHub Issues](https://github.com/microsoft/redfish-dev-server/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/microsoft/redfish-dev-server/discussions)
-- **Wiki**: [Project Wiki](docs/wiki/WIKI.md)
+- **Wiki**: [Project Wiki](WIKI.md)
 
 ## 🔄 Release Process
 

@@ -70,7 +70,8 @@ class SubmitCPADActionHandler:
             event_handler: Optional[RASEventServiceHandler] = None,
             endpoint_configuration: Optional[
                 RASEndpointConfiguration] = None,
-            endpoint_config: Optional[str] = None):
+            endpoint_config: Optional[str] = None,
+            log_service_handler: Optional[RASLogServiceHandler] = None):
         """
         Initialize SubmitCPAD action handler.
         
@@ -80,6 +81,7 @@ class SubmitCPADActionHandler:
             endpoint_configuration: Parsed shared endpoint configuration.
             endpoint_config: Compatibility filename/path when a parsed
                              configuration is not injected.
+            log_service_handler: Shared RAS LogService handler.
         """
         self.logger = logger  # Use module-level logger
         self.event_handler = event_handler
@@ -117,15 +119,7 @@ class SubmitCPADActionHandler:
 
         self.register_action_provider(ContosoActionProvider(
             self.endpoint_configuration, self.memory_repair_states))
-        
-        # Initialize LogService handler if mockup directory provided
-        self.log_service_handler = None
-        if mockup_dir:
-            try:
-                self.log_service_handler = RASLogServiceHandler(mockup_dir)
-                logger.info("RAS LogService integration enabled")
-            except Exception as e:
-                logger.warning(f"RAS LogService integration disabled: {e}")
+        self.log_service_handler = log_service_handler
     
     def handle_post(self, manager_id: str, request_body: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
         """

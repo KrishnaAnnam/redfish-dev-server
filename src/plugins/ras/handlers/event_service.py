@@ -247,10 +247,17 @@ class RASEventServiceHandler:
         manager_id: str,
         log_entry_id: str,
         severity: str,
-        cper_data: Dict[str, Any]
+        cper_data: Dict[str, Any],
+        log_entry: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Emit CPER record created event"""
-        event = RASEvent.create_cper_created_event(manager_id, log_entry_id, severity, cper_data)
+        event = RASEvent.create_cper_created_event(
+            manager_id,
+            log_entry_id,
+            severity,
+            cper_data,
+            log_entry,
+        )
         return self.emit_event(event)
     
     def emit_log_cleared(

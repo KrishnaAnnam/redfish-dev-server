@@ -9,8 +9,8 @@ Configuration settings for Redfish Mockup Server
 import argparse
 import os
 import sys
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Union
 
 
 @dataclass
@@ -30,6 +30,7 @@ class ServerConfig:
     ssdp_start: bool = False
     mock_dir: Optional[str] = None
     tool_version: str = "2.0.0"
+    extensions: List[Union[str, Dict[str, Any]]] = field(default_factory=list)
 
     def __post_init__(self):
         """Post-initialization processing"""

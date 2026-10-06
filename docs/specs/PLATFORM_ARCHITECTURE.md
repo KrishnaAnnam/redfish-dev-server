@@ -224,7 +224,7 @@ Platform configurations define:
     "platform_id": "custom_server",
     "platform_type": "generic", 
     "display_name": "Custom Rackmount Server",
-    "extensions": ["ras", "telemetry"],
+    "extensions": ["telemetry", "my_plugin"],
     "enabled_services": ["EventService", "UpdateService"],
     "system_info": {
         "Manufacturer": "Example Corp.",

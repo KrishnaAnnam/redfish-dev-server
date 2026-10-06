@@ -92,14 +92,7 @@ class RASHandler(BasePlatformHandler):
         self.analytics_engine = None
         self.remediation_engine = None
         self.health_monitor = None
-        
-        # Initialize handlers with event support
-        self.submit_cpad_handler = SubmitCPADActionHandler(
-            mockup_dir=mockup_dir,
-            event_handler=self.event_handler,
-            endpoint_configuration=endpoint_configuration,
-        )
-        
+
         # Initialize LogService handler if mockup directory available
         self.log_service_handler = None
         if mockup_dir:
@@ -115,6 +108,14 @@ class RASHandler(BasePlatformHandler):
                 
             except Exception as e:
                 logger.warning(f"RAS LogService handler initialization failed: {e}")
+
+        # Initialize handlers with shared event and LogService support
+        self.submit_cpad_handler = SubmitCPADActionHandler(
+            mockup_dir=mockup_dir,
+            event_handler=self.event_handler,
+            endpoint_configuration=endpoint_configuration,
+            log_service_handler=self.log_service_handler,
+        )
         
         # Compile path patterns
         self.rasservice_pattern = re.compile(
@@ -170,11 +171,8 @@ class RASHandler(BasePlatformHandler):
                 try:
                     # Create log entry if not already created
                     if not queue_item.entry_id:
-                        severity = queue_item.metadata.get("severity", "OK")
                         self.log_service_handler.add_cper_log_entry(
-                            manager_id=queue_item.manager_id,
-                            cper_data=queue_item.cper_data,
-                            severity=severity
+                            queue_item.cper_data
                         )
                 except Exception as e:
                     logger.error(f"Failed to process CPER from queue: {e}")
@@ -401,72 +399,52 @@ class RASHandler(BasePlatformHandler):
             }
         })
 
-
-class ManagerOEMInjector:
-    """
-    Deprecated: retained for backward-compatible imports only.
-
-    RAS discovery is advertised via a static ServiceRoot OEM link
-    (Oem.OpenCompute_FaultMgmt.RASService -> /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService),
-    so no dynamic Manager OEM injection is performed.
-    """
-    
-    def __init__(self):
-        """Initialize OEM injector"""
-        logger.info("Manager OEM Injector initialized (no-op)")
-    
-    def inject_oem(self, manager_resource: Dict[str, Any], manager_id: str) -> Dict[str, Any]:
-        """
-        No-op: RAS discovery lives at the ServiceRoot, not on the Manager.
-
-        Args:
-            manager_resource: The Manager resource dict
-            manager_id: The Manager ID
-
-        Returns:
-            The Manager resource unchanged.
-        """
-        return manager_resource
-    
-    def _handle_analytics_get(self, manager_id: str) -> Tuple[int, Dict[str, Any]]:
+    def _handle_analytics_get(
+            self, manager_id: str) -> Tuple[int, Dict[str, Any]]:
         """Handle GET request for Analytics endpoint"""
         if not self.analytics_engine:
             return (503, {"error": "Analytics engine not available"})
-        
+
         try:
             report = self.analytics_engine.get_summary_report()
-            
-            # Wrap in Redfish OEM format
+
             response = {
                 "@odata.type": "#OCPRASAnalytics.v1_0_0.Analytics",
-                "@odata.id": f"/redfish/v1/Managers/{manager_id}/Oem/OpenCompute_FaultMgmt/Analytics",
+                "@odata.id": (
+                    f"/redfish/v1/Managers/{manager_id}/Oem/"
+                    "OpenCompute_FaultMgmt/Analytics"
+                ),
                 "Id": "Analytics",
                 "Name": "RAS Analytics",
                 "Description": "RAS analytics and trend analysis",
                 "ErrorTrends": report.get("error_trends", {}),
                 "ComponentHealth": report.get("component_health", {}),
-                "SeverityDistribution": report.get("severity_distribution", {}),
+                "SeverityDistribution": report.get(
+                    "severity_distribution", {}),
                 "GeneratedAt": report.get("generated_at")
             }
-            
+
             return (200, response)
-            
+
         except Exception as e:
             logger.error(f"Analytics GET failed: {e}")
             return (500, {"error": str(e)})
-    
-    def _handle_health_get(self, manager_id: str) -> Tuple[int, Dict[str, Any]]:
+
+    def _handle_health_get(
+            self, manager_id: str) -> Tuple[int, Dict[str, Any]]:
         """Handle GET request for Health endpoint"""
         if not self.health_monitor:
             return (503, {"error": "Health monitor not available"})
-        
+
         try:
             health_data = self.health_monitor.get_health_summary()
-            
-            # Wrap in Redfish OEM format
+
             response = {
                 "@odata.type": "#OCPRASHealth.v1_0_0.Health",
-                "@odata.id": f"/redfish/v1/Managers/{manager_id}/Oem/OpenCompute_FaultMgmt/Health",
+                "@odata.id": (
+                    f"/redfish/v1/Managers/{manager_id}/Oem/"
+                    "OpenCompute_FaultMgmt/Health"
+                ),
                 "Id": "Health",
                 "Name": "RAS System Health",
                 "Description": "RAS system health monitoring",
@@ -480,18 +458,50 @@ class ManagerOEMInjector:
                 "RecentAlerts": health_data.get("recent_alerts", []),
                 "CheckedAt": health_data["summary"]["checked_at"]
             }
-            
-            # Add queue statistics if available
+
             if self.queue_manager:
-                response["QueueStatus"] = self.queue_manager.get_queue_status()
-            
-            # Add remediation statistics if available
+                response["QueueStatus"] = (
+                    self.queue_manager.get_queue_status())
+
             if self.remediation_engine:
-                response["RemediationStats"] = self.remediation_engine.get_stats()
-                response["RemediationRules"] = self.remediation_engine.get_rule_summary()
-            
+                response["RemediationStats"] = (
+                    self.remediation_engine.get_stats())
+                response["RemediationRules"] = (
+                    self.remediation_engine.get_rule_summary())
+
             return (200, response)
-            
+
         except Exception as e:
             logger.error(f"Health GET failed: {e}")
             return (500, {"error": str(e)})
+
+
+class ManagerOEMInjector:
+    """
+    Deprecated: retained for backward-compatible imports only.
+
+    RAS discovery is advertised via a static ServiceRoot OEM link
+    (Oem.OpenCompute_FaultMgmt.RASService -> /redfish/v1/Oem/OpenCompute_FaultMgmt/RASService),
+    so no dynamic Manager OEM injection is performed.
+    """
+
+    def __init__(self):
+        """Initialize OEM injector"""
+        logger.info("Manager OEM Injector initialized (no-op)")
+
+    def inject_oem(
+        self,
+        manager_resource: Dict[str, Any],
+        manager_id: str,
+    ) -> Dict[str, Any]:
+        """
+        No-op: RAS discovery lives at the ServiceRoot, not on the Manager.
+
+        Args:
+            manager_resource: The Manager resource dict
+            manager_id: The Manager ID
+
+        Returns:
+            The Manager resource unchanged.
+        """
+        return manager_resource

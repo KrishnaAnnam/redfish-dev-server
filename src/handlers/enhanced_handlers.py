@@ -26,19 +26,20 @@ class EnhancedResponseMixin:
     """Mixin for enhanced response handling with message service integration"""
     
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
         self.message_service = None
         self.log_service = None
         self.event_service = None
+        super().__init__(*args, **kwargs)
     
     def _init_services(self):
         """Initialize services if not already done"""
-        if not self.message_service:
+        if not getattr(self, 'message_service', None):
             self.message_service = get_message_service(getattr(self, 'server_config', None))
-        if not self.log_service:
+        if not getattr(self, 'log_service', None):
             self.log_service = get_log_service(getattr(self, 'server_config', None))
-        if not self.event_service:
+        if not getattr(self, '_enhanced_event_service_initialized', False):
             self.event_service = get_enhanced_event_service(getattr(self, 'server_config', None))
+            self._enhanced_event_service_initialized = True
     
     def _log_request(self, method: str, path: str, success: bool, 
                     status_code: int, details: str = None):
@@ -142,6 +143,16 @@ class EnhancedPostHandler(BaseRedfishHandler, EnhancedResponseMixin):
                 )
                 self.send_message_response(response)
                 return
+
+            request_path = urlparse(self.path).path
+            plugin_response = self.plugin_loader.handle_post(
+                request_path,
+                data_received,
+                self.cached_links,
+            )
+            if plugin_response is not None:
+                self._send_plugin_response(plugin_response)
+                return
             
             # Route to appropriate service handlers
             response = self._route_post_request(self.path, data_received)
@@ -167,13 +178,6 @@ class EnhancedPostHandler(BaseRedfishHandler, EnhancedResponseMixin):
         # LogService endpoints
         elif '/logservices' in path_lower:
             return self.log_service.handle_log_service_post(path, data)
-        
-        # RAS Service endpoints
-        elif '/rasservice' in path_lower:
-            from ..services.ras_service import get_ras_service
-            ras_service = get_ras_service()
-            if hasattr(ras_service, 'handle_post_ras_service'):
-                return ras_service.handle_post_ras_service(path, data)
         
         # UpdateService endpoints
         elif '/updateservice' in path_lower:
@@ -311,6 +315,16 @@ class EnhancedPatchHandler(BaseRedfishHandler, EnhancedResponseMixin):
                 )
                 self.send_message_response(response)
                 return
+
+            request_path = urlparse(self.path).path
+            plugin_response = self.plugin_loader.handle_patch(
+                request_path,
+                data_received,
+                self.cached_links,
+            )
+            if plugin_response is not None:
+                self._send_plugin_response(plugin_response)
+                return
             
             # Handle PATCH request
             response = self._handle_patch_request(self.path, data_received)
@@ -364,6 +378,16 @@ class EnhancedGetHandler(BaseRedfishHandler, EnhancedResponseMixin):
         """Handle GET request with enhanced response handling"""
         try:
             self._init_services()
+
+            parsed = urlparse(self.path)
+            plugin_response = self.plugin_loader.handle_get(
+                parsed.path,
+                parse_qs(parsed.query, keep_blank_values=True),
+                self.cached_links,
+            )
+            if plugin_response is not None:
+                self._send_plugin_response(plugin_response)
+                return
             
             # Route to appropriate service handlers
             response = self._route_get_request(self.path)
@@ -386,13 +410,6 @@ class EnhancedGetHandler(BaseRedfishHandler, EnhancedResponseMixin):
         elif '/logservices' in path_lower:
             return self.log_service.handle_log_service_get(path)
         
-        # RAS Service endpoints
-        elif '/rasservice' in path_lower:
-            from ..services.ras_service import get_ras_service
-            ras_service = get_ras_service()
-            if hasattr(ras_service, 'handle_get_ras_service'):
-                return ras_service.handle_get_ras_service(path)
-        
         # Default: Not found
         else:
             return self.message_service.create_not_found_response("Resource", path)
@@ -404,6 +421,15 @@ class EnhancedDeleteHandler(BaseRedfishHandler, EnhancedResponseMixin):
         """Handle DELETE request with enhanced response handling"""
         try:
             self._init_services()
+
+            request_path = urlparse(self.path).path
+            plugin_response = self.plugin_loader.handle_delete(
+                request_path,
+                self.cached_links,
+            )
+            if plugin_response is not None:
+                self._send_plugin_response(plugin_response)
+                return
             
             # Handle DELETE request
             response = self._route_delete_request(self.path)

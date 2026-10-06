@@ -13,9 +13,6 @@ import time
 import sys
 
 BASE_URL = "http://localhost:8000/redfish/v1"
-
-# Redfish resources require authentication.  The mockup runs in permissive
-# simulator mode (no AccountService), so any Basic credentials are accepted.
 AUTH = ("demo", "demo")
 
 def test_request(method, path, data=None, expected_status=200):
@@ -26,7 +23,12 @@ def test_request(method, path, data=None, expected_status=200):
         if method == "GET":
             response = requests.get(url, auth=AUTH)
         elif method == "POST":
-            response = requests.post(url, json=data, auth=AUTH, headers={"Content-Type": "application/json"})
+            response = requests.post(
+                url,
+                json=data,
+                auth=AUTH,
+                headers={"Content-Type": "application/json"},
+            )
         
         print(f"\n{method} {path}")
         print(f"Status: {response.status_code} (expected: {expected_status})")
@@ -57,7 +59,11 @@ def main():
     # Test basic server functionality
     print("\n📋 BASIC SERVER TESTS")
     test_request("GET", "", expected_status=200)
-    test_request("GET", "/Oem/OpenCompute_FaultMgmt/RASService", expected_status=200)
+    test_request(
+        "GET",
+        "/Oem/OpenCompute_FaultMgmt/RASService",
+        expected_status=200,
+    )
     
     # Test UpdateService Handlers
     print("\n📦 UPDATESERVICE TESTS")

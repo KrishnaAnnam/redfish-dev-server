@@ -397,6 +397,10 @@ archive/
 # RAS Plugin demo output
 ras_demo_output/
 
+# RAS Plugin demo local dependencies
+RasApiEnv/
+redfish_client_sdk/
+
 # Runtime EventService subscriptions
 mockups/*/redfish/v1/EventService/Subscriptions/EventSubscription*/
 

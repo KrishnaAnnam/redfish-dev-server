@@ -108,6 +108,11 @@ python3 examples/ras_api_demo/reset_server.py --clean-temp && python3 examples/r
 
 ## Architecture
 
+The following diagram shows the end-to-end CPER analysis and CPAD remediation
+flow. Select the diagram to open the full-size presentation graphic.
+
+[![OCP RAS API demo CPER analysis and CPAD remediation flow](ocp-ras-api-demo-flow.svg)](ocp-ras-api-demo-flow.svg)
+
 - **Pane 1 — BMC Server** (`redfishMockupServer_platform.py`): Simulates a BMC with a RAS LogService
 - **Pane 2 — SDK Listener** (`event_listener_sdk.py`): Subscribes to a host's events on command, auto-downloads CPERs, and notifies the orchestrator over a control socket
 - **Pane 3 — Demo Client** (`ras_api_plugin_demo.py`): Guided demo flow — tells the orchestrator which host to monitor, then injects DRAM row errors; the orchestrator handles discovery, analysis, policy, and submit

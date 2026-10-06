@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-labelledby="title desc">
+  <title id="title">OCP RAS API demo CPER analysis and CPAD remediation flow</title>
+  <desc id="desc">A presentation diagram showing CPERs flowing from the Redfish dev server RAS API plugin through an SDK event subscriber and analysis orchestrator to the Contoso analyzer. Proposed CPADs flow through the operator policy engine and, when approved, back to the server.</desc>
+
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F8FAFD"/>
+      <stop offset="1" stop-color="#EEF3F9"/>
+    </linearGradient>
+    <linearGradient id="serverHeader" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#123A63"/>
+      <stop offset="1" stop-color="#185A8D"/>
+    </linearGradient>
+    <linearGradient id="pluginPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E7F4FC"/>
+      <stop offset="1" stop-color="#D7ECF9"/>
+    </linearGradient>
+    <linearGradient id="subscriberPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E6F7FA"/>
+      <stop offset="1" stop-color="#D4F0F5"/>
+    </linearGradient>
+    <linearGradient id="orchestratorPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F1EDFC"/>
+      <stop offset="1" stop-color="#E4DDF8"/>
+    </linearGradient>
+    <linearGradient id="analyzerPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF5DF"/>
+      <stop offset="1" stop-color="#FDEAC2"/>
+    </linearGradient>
+    <linearGradient id="policyPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#EAF7ED"/>
+      <stop offset="1" stop-color="#D8EFDE"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#17324D" flood-opacity="0.14"/>
+    </filter>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#17324D" flood-opacity="0.11"/>
+    </filter>
+
+    <marker id="arrowCper" markerWidth="14" markerHeight="14" refX="12" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#1386B5"/>
+    </marker>
+    <marker id="arrowCpad" markerWidth="14" markerHeight="14" refX="12" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#E07A13"/>
+    </marker>
+    <marker id="arrowApproved" markerWidth="14" markerHeight="14" refX="12" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#23844B"/>
+    </marker>
+    <marker id="arrowApprovedSmall" markerWidth="11" markerHeight="11" refX="10" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#23844B"/>
+    </marker>
+    <marker id="arrowDenied" markerWidth="14" markerHeight="14" refX="12" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#B65353"/>
+    </marker>
+    <marker id="arrowInternal" markerWidth="12" markerHeight="12" refX="10" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#52718C"/>
+    </marker>
+
+    <style>
+      .title { font: 700 44px "Segoe UI", Arial, sans-serif; fill: #17324D; letter-spacing: -0.6px; }
+      .subtitle { font: 400 22px "Segoe UI", Arial, sans-serif; fill: #5C7084; }
+      .sectionTitle { font: 700 27px "Segoe UI", Arial, sans-serif; fill: #17324D; }
+      .sectionSubtitle { font: 500 16px "Segoe UI", Arial, sans-serif; fill: #667B8F; letter-spacing: 0.3px; }
+      .serverTitle { font: 700 29px "Segoe UI", Arial, sans-serif; fill: white; }
+      .serverSubtitle { font: 400 16px "Segoe UI", Arial, sans-serif; fill: #D8EAF6; }
+      .pluginTitle { font: 700 25px "Segoe UI", Arial, sans-serif; fill: #12466C; }
+      .boxTitle { font: 700 18px "Segoe UI", Arial, sans-serif; fill: #17324D; }
+      .body { font: 400 16px "Segoe UI", Arial, sans-serif; fill: #334E68; }
+      .small { font: 400 14px "Segoe UI", Arial, sans-serif; fill: #4F667B; }
+      .mono { font: 500 14px Consolas, "Courier New", monospace; fill: #274A68; }
+      .step { font: 700 17px "Segoe UI", Arial, sans-serif; fill: white; }
+      .arrowLabel { font: 650 16px "Segoe UI", Arial, sans-serif; fill: #17324D; }
+      .arrowSub { font: 400 14px "Segoe UI", Arial, sans-serif; fill: #566E83; }
+      .legend { font: 600 15px "Segoe UI", Arial, sans-serif; fill: #334E68; }
+      .pill { font: 700 13px "Segoe UI", Arial, sans-serif; letter-spacing: 0.5px; }
+    </style>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#background)"/>
+  <path d="M0 0 H1920 V9 H0 Z" fill="#123A63"/>
+
+  <text x="78" y="76" class="title">OCP RAS API Demo — CPER Analysis &amp; CPAD Remediation Loop</text>
+  <text x="80" y="111" class="subtitle">Errors flow out as CPERs; approved remediation actions return as CPADs over standard Redfish interfaces.</text>
+
+  <!-- Simulated BMC / server -->
+  <g filter="url(#shadow)">
+    <rect x="70" y="170" width="430" height="790" rx="24" fill="#FFFFFF" stroke="#B7C9D8" stroke-width="2"/>
+    <path d="M94 170 H476 Q500 170 500 194 V280 H70 V194 Q70 170 94 170 Z" fill="url(#serverHeader)"/>
+  </g>
+  <text x="105" y="220" class="serverTitle">redfish-dev-server</text>
+  <text x="105" y="251" class="serverSubtitle">Simulated BMC • ras_gen1 platform</text>
+
+  <g filter="url(#softShadow)">
+    <rect x="103" y="309" width="364" height="601" rx="20" fill="url(#pluginPanel)" stroke="#77AFD1" stroke-width="2"/>
+  </g>
+  <rect x="126" y="331" width="132" height="28" rx="14" fill="#146C9A"/>
+  <text x="192" y="351" text-anchor="middle" class="pill" fill="#FFFFFF">SERVER PLUGIN</text>
+  <text x="126" y="395" class="pluginTitle">RAS API Plugin</text>
+  <text x="126" y="421" class="small">Owns RAS resources, records and actions</text>
+
+  <g>
+    <rect x="126" y="451" width="318" height="91" rx="13" fill="#FFFFFF" stroke="#A9C9DC"/>
+    <circle cx="151" cy="477" r="10" fill="#458FBA"/>
+    <path d="M146 477 h10 M151 472 v10" stroke="#FFFFFF" stroke-width="2"/>
+    <text x="171" y="483" class="boxTitle">RAS Discovery</text>
+    <text x="149" y="511" class="mono">RASService • RASEndpoints</text>
+    <text x="149" y="530" class="small">PlatformID + endpoint CreatorIDs</text>
+  </g>
+
+  <g>
+    <rect x="126" y="558" width="318" height="102" rx="13" fill="#FFFFFF" stroke="#A9C9DC"/>
+    <circle cx="151" cy="586" r="10" fill="#1386B5"/>
+    <path d="M146 582 h10 v9 h-10 z M148 579 h6" fill="none" stroke="#FFFFFF" stroke-width="2"/>
+    <text x="171" y="592" class="boxTitle">CPER LogService</text>
+    <text x="149" y="619" class="mono">.../LogServices/CPER</text>
+    <text x="149" y="642" class="small">Stores binary CPER + publishes event</text>
+  </g>
+
+  <g>
+    <rect x="126" y="677" width="318" height="103" rx="13" fill="#FFFFFF" stroke="#E3B36A" stroke-width="1.5"/>
+    <circle cx="151" cy="706" r="10" fill="#E07A13"/>
+    <path d="M146 706 h10 M151 701 l5 5 -5 5" fill="none" stroke="#FFFFFF" stroke-width="2"/>
+    <text x="171" y="712" class="boxTitle">SubmitCPAD Action</text>
+    <text x="149" y="739" class="mono">.../RASService.SubmitCPAD</text>
+    <text x="149" y="762" class="small">Accepts, validates and dispatches actions</text>
+  </g>
+
+  <g>
+    <rect x="126" y="798" width="318" height="83" rx="13" fill="#F8FCFF" stroke="#A9C9DC"/>
+    <circle cx="151" cy="823" r="14" fill="#1386B5"/>
+    <text x="151" y="829" text-anchor="middle" class="step">7</text>
+    <text x="175" y="829" class="boxTitle">Action execution</text>
+    <text x="149" y="854" class="small">Repair generates a Platform Action Event</text>
+    <text x="149" y="873" class="small">CPER → re-enters the CPER flow</text>
+    <path d="M285 776 V806" stroke="#23844B" stroke-width="3.5" marker-end="url(#arrowApprovedSmall)"/>
+    <path d="M126 839 C68 839 54 774 54 720 C54 653 73 611 125 611" fill="none" stroke="#52718C" stroke-width="2.5" stroke-dasharray="7 6" marker-end="url(#arrowInternal)"/>
+  </g>
+
+  <!-- Event subscriber -->
+  <g filter="url(#shadow)">
+    <rect x="620" y="225" width="310" height="278" rx="22" fill="url(#subscriberPanel)" stroke="#67B8C6" stroke-width="2"/>
+  </g>
+  <rect x="647" y="249" width="156" height="28" rx="14" fill="#258697"/>
+  <text x="725" y="269" text-anchor="middle" class="pill" fill="#FFFFFF">EVENT PIPELINE</text>
+  <text x="647" y="315" class="sectionTitle">SDK Event Subscriber</text>
+  <text x="647" y="341" class="sectionSubtitle">event_listener_sdk.py</text>
+  <circle cx="651" cy="379" r="4" fill="#258697"/>
+  <text x="667" y="385" class="body">Redfish EventService subscription</text>
+  <circle cx="651" cy="413" r="4" fill="#258697"/>
+  <text x="667" y="419" class="body">Receives OCPRAS CperCreated</text>
+  <circle cx="651" cy="447" r="4" fill="#258697"/>
+  <text x="667" y="453" class="body">GETs and stores binary .cper</text>
+  <rect x="647" y="458" width="248" height="37" rx="7" fill="#FFFFFF" opacity="0.86"/>
+  <text x="771" y="474" text-anchor="middle" class="mono">cper_storage/{platform}/</text>
+  <text x="771" y="490" text-anchor="middle" class="mono">{partition}</text>
+
+  <!-- Analysis orchestrator -->
+  <g filter="url(#shadow)">
+    <rect x="1030" y="225" width="340" height="314" rx="22" fill="url(#orchestratorPanel)" stroke="#9C86CF" stroke-width="2"/>
+  </g>
+  <rect x="1058" y="249" width="220" height="28" rx="14" fill="#7460AD"/>
+  <text x="1168" y="269" text-anchor="middle" class="pill" fill="#FFFFFF">CONTROL PLANE SERVICE</text>
+  <text x="1058" y="315" class="sectionTitle">Analysis Orchestrator</text>
+  <text x="1058" y="341" class="sectionSubtitle">Vendor-agnostic routing and workflow</text>
+  <circle cx="1062" cy="379" r="4" fill="#7460AD"/>
+  <text x="1078" y="385" class="body">Receives cper_downloaded(path)</text>
+  <circle cx="1062" cy="413" r="4" fill="#7460AD"/>
+  <text x="1078" y="419" class="body">Reads CPER header only</text>
+  <circle cx="1062" cy="447" r="4" fill="#7460AD"/>
+  <text x="1078" y="453" class="body">Routes by CreatorID</text>
+  <circle cx="1062" cy="481" r="4" fill="#7460AD"/>
+  <text x="1078" y="487" class="body">Builds time-bounded lookback</text>
+  <rect x="1058" y="504" width="284" height="23" rx="7" fill="#FFFFFF" opacity="0.86"/>
+  <text x="1200" y="521" text-anchor="middle" class="mono">analysis_orchestrator.py</text>
+
+  <!-- Contoso analyzer -->
+  <g filter="url(#shadow)">
+    <rect x="1470" y="225" width="380" height="354" rx="22" fill="url(#analyzerPanel)" stroke="#E0A13F" stroke-width="2"/>
+  </g>
+  <rect x="1498" y="249" width="142" height="28" rx="14" fill="#C87816"/>
+  <text x="1569" y="269" text-anchor="middle" class="pill" fill="#FFFFFF">VENDOR LOGIC</text>
+  <text x="1498" y="315" class="sectionTitle">Contoso Analyzer</text>
+  <text x="1498" y="341" class="sectionSubtitle">analyzer-contoso.py</text>
+  <circle cx="1502" cy="379" r="4" fill="#C87816"/>
+  <text x="1518" y="385" class="body">Decodes Contoso CPER sections</text>
+  <circle cx="1502" cy="413" r="4" fill="#C87816"/>
+  <text x="1518" y="419" class="body">Correlates current + prior records</text>
+  <circle cx="1502" cy="447" r="4" fill="#C87816"/>
+  <text x="1518" y="453" class="body">Detects repeat fault patterns</text>
+  <circle cx="1502" cy="481" r="4" fill="#C87816"/>
+  <text x="1518" y="487" class="body">Proposes remediation action(s)</text>
+  <g>
+    <rect x="1498" y="513" width="147" height="40" rx="10" fill="#FFFFFF" stroke="#E6B96F"/>
+    <text x="1572" y="538" text-anchor="middle" class="boxTitle">Analysis JSON</text>
+    <rect x="1660" y="513" width="162" height="40" rx="10" fill="#FFF9ED" stroke="#E29A32" stroke-width="1.5"/>
+    <text x="1741" y="538" text-anchor="middle" class="boxTitle">Binary CPAD(s)</text>
+  </g>
+
+  <!-- Policy engine -->
+  <g filter="url(#shadow)">
+    <rect x="1080" y="690" width="410" height="256" rx="22" fill="url(#policyPanel)" stroke="#72AE81" stroke-width="2"/>
+  </g>
+  <rect x="1108" y="714" width="152" height="28" rx="14" fill="#3A8B57"/>
+  <text x="1184" y="734" text-anchor="middle" class="pill" fill="#FFFFFF">OPERATOR GATE</text>
+  <text x="1108" y="780" class="sectionTitle">Policy Engine</text>
+  <text x="1108" y="806" class="sectionSubtitle">Table-driven approval before submission</text>
+  <circle cx="1112" cy="842" r="4" fill="#3A8B57"/>
+  <text x="1128" y="848" class="body">Trusted CreatorID and allowed ActionID</text>
+  <circle cx="1112" cy="876" r="4" fill="#3A8B57"/>
+  <text x="1128" y="882" class="body">Platform / partition scope + urgency</text>
+  <rect x="1108" y="901" width="354" height="28" rx="9" fill="#FFFFFF" opacity="0.9"/>
+  <text x="1285" y="921" text-anchor="middle" class="small">Denied → POLICY_REJECTED CPER → analysis loop</text>
+
+  <!-- CPER flow arrows -->
+  <path d="M500 344 C545 344 570 344 620 344" fill="none" stroke="#1386B5" stroke-width="5" marker-end="url(#arrowCper)"/>
+  <g filter="url(#softShadow)">
+    <rect x="340" y="278" width="272" height="58" rx="10" fill="#FFFFFF" stroke="#B9DCE9"/>
+  </g>
+  <circle cx="366" cy="307" r="14" fill="#1386B5"/>
+  <text x="366" y="313" text-anchor="middle" class="step">2</text>
+  <text x="390" y="303" class="arrowLabel">CPER event + binary</text>
+  <text x="390" y="324" class="arrowSub">CPER download (GET)</text>
+
+  <path d="M930 382 C970 382 989 382 1030 382" fill="none" stroke="#1386B5" stroke-width="5" marker-end="url(#arrowCper)"/>
+  <g filter="url(#softShadow)">
+    <rect x="919" y="315" width="137" height="50" rx="10" fill="#FFFFFF" stroke="#B9DCE9"/>
+  </g>
+  <circle cx="941" cy="340" r="14" fill="#1386B5"/>
+  <text x="941" y="346" text-anchor="middle" class="step">3</text>
+  <text x="963" y="338" class="arrowLabel">Local path</text>
+  <text x="963" y="357" class="arrowSub">control socket</text>
+
+  <path d="M1370 402 C1410 402 1430 402 1470 402" fill="none" stroke="#1386B5" stroke-width="5" marker-end="url(#arrowCper)"/>
+  <g filter="url(#softShadow)">
+    <rect x="1305" y="145" width="250" height="58" rx="10" fill="#FFFFFF" stroke="#B9DCE9"/>
+  </g>
+  <circle cx="1331" cy="174" r="14" fill="#1386B5"/>
+  <text x="1331" y="180" text-anchor="middle" class="step">4</text>
+  <text x="1355" y="170" class="arrowLabel">CPER + lookback window</text>
+  <text x="1355" y="191" class="arrowSub">routed by CreatorID</text>
+
+  <!-- Hardware/error source and internal CPER creation -->
+  <g filter="url(#softShadow)">
+    <rect x="88" y="125" width="318" height="54" rx="27" fill="#FFFFFF" stroke="#90AABD"/>
+  </g>
+  <circle cx="118" cy="152" r="16" fill="#D65252"/>
+  <path d="M118 140 V153 M118 160 v2" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+  <text x="145" y="149" class="arrowLabel">1  Hardware error / injection</text>
+  <text x="145" y="168" class="arrowSub">RAS plugin creates a CPER</text>
+  <path d="M112 179 C74 270 73 520 160 558" fill="none" stroke="#52718C" stroke-width="2.5" stroke-dasharray="7 6" marker-end="url(#arrowInternal)"/>
+
+  <!-- CPAD path -->
+  <path d="M1660 579 C1660 646 1507 637 1438 690" fill="none" stroke="#E07A13" stroke-width="5" marker-end="url(#arrowCpad)"/>
+  <g filter="url(#softShadow)">
+    <rect x="1490" y="604" width="270" height="58" rx="11" fill="#FFFFFF" stroke="#F0C68F"/>
+  </g>
+  <circle cx="1516" cy="633" r="14" fill="#E07A13"/>
+  <text x="1516" y="639" text-anchor="middle" class="step">5</text>
+  <text x="1540" y="630" class="arrowLabel">Proposed CPAD</text>
+  <text x="1540" y="651" class="arrowSub">binary action descriptor</text>
+
+  <path d="M1080 807 C905 807 712 807 500 740" fill="none" stroke="#23844B" stroke-width="6" marker-end="url(#arrowApproved)"/>
+  <g filter="url(#softShadow)">
+    <rect x="618" y="748" width="365" height="58" rx="12" fill="#FFFFFF" stroke="#9BC8A8" stroke-width="1.5"/>
+  </g>
+  <circle cx="646" cy="777" r="15" fill="#23844B"/>
+  <text x="646" y="783" text-anchor="middle" class="step">6</text>
+  <text x="672" y="773" class="arrowLabel">APPROVED • CPADSubmitter</text>
+  <text x="672" y="794" class="arrowSub">POST base64 CPAD to SubmitCPAD action</text>
+
+  <!-- Denial feedback -->
+  <path d="M1108 915 C1010 866 1008 629 1080 539" fill="none" stroke="#B65353" stroke-width="3" stroke-dasharray="10 8" marker-end="url(#arrowDenied)" opacity="0.9"/>
+
+  <!-- Footer legend -->
+  <line x1="70" y1="1001" x2="1850" y2="1001" stroke="#CBD7E2" stroke-width="1.5"/>
+  <text x="75" y="1040" class="sectionSubtitle">FLOW LEGEND</text>
+  <line x1="218" y1="1034" x2="282" y2="1034" stroke="#1386B5" stroke-width="5" marker-end="url(#arrowCper)"/>
+  <text x="298" y="1040" class="legend">CPER / event flow</text>
+  <line x1="484" y1="1034" x2="548" y2="1034" stroke="#E07A13" stroke-width="5" marker-end="url(#arrowCpad)"/>
+  <text x="564" y="1040" class="legend">Proposed CPAD</text>
+  <line x1="724" y1="1034" x2="788" y2="1034" stroke="#23844B" stroke-width="5" marker-end="url(#arrowApproved)"/>
+  <text x="804" y="1040" class="legend">Approved CPAD submission</text>
+  <line x1="1052" y1="1034" x2="1116" y2="1034" stroke="#B65353" stroke-width="3" stroke-dasharray="9 7" marker-end="url(#arrowDenied)"/>
+  <text x="1132" y="1040" class="legend">Policy-denial feedback</text>
+  <text x="1845" y="1040" text-anchor="end" class="small">OCP RAS API demo • high-level logical flow</text>
+</svg>

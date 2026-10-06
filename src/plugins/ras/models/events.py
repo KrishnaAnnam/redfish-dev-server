@@ -17,8 +17,6 @@ from enum import Enum
 class RASEventType(Enum):
     """RAS Event Types"""
     CPAD_RECEIVED = "CPADReceived"
-    CPAD_APPROVED = "CPADApproved"
-    CPAD_DENIED = "CPADDenied"
     CPER_RECORD_CREATED = "CPERRecordCreated"
     POLICY_VIOLATION = "PolicyViolation"
     ERROR_DETECTED = "ErrorDetected"
@@ -44,22 +42,6 @@ class RASEventMessage:
             "NumberOfArgs": 2,
             "ParamTypes": ["string", "string"],
             "Resolution": "None - informational event."
-        },
-        "CPADApproved": {
-            "Description": "CPAD approved by policy",
-            "Message": "CPAD %1 approved by policy. Action: %2. CPER record created.",
-            "Severity": "OK",
-            "NumberOfArgs": 2,
-            "ParamTypes": ["string", "string"],
-            "Resolution": "None - action will be executed."
-        },
-        "CPADDenied": {
-            "Description": "CPAD denied by policy",
-            "Message": "CPAD %1 denied by policy. Reason: %2.",
-            "Severity": "Warning",
-            "NumberOfArgs": 2,
-            "ParamTypes": ["string", "string"],
-            "Resolution": "Review policy configuration or CPAD parameters."
         },
         "CPERRecordCreated": {
             "Description": "CPER record created in LogService",
@@ -198,57 +180,6 @@ class RASEvent:
             origin,
             [cpad_id, manager_id],
             RASEventSeverity.OK,
-            context
-        )
-    
-    @staticmethod
-    def create_cpad_approved_event(
-        manager_id: str,
-        cpad_id: str,
-        action_id: str,
-        log_entry_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Create event for CPAD approved"""
-        origin = "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService"
-        
-        context = {
-            "CPADId": cpad_id,
-            "ActionId": action_id,
-            "PolicyDecision": "Approved"
-        }
-        
-        if log_entry_id:
-            context["LogEntryId"] = log_entry_id
-            context["LogEntryURI"] = f"/redfish/v1/Managers/{manager_id}/LogServices/CPER/Entries/{log_entry_id}"
-        
-        return RASEvent.create_event(
-            RASEventType.CPAD_APPROVED,
-            origin,
-            [cpad_id, action_id],
-            RASEventSeverity.OK,
-            context
-        )
-    
-    @staticmethod
-    def create_cpad_denied_event(
-        manager_id: str,
-        cpad_id: str,
-        reason: str
-    ) -> Dict[str, Any]:
-        """Create event for CPAD denied"""
-        origin = "/redfish/v1/Oem/OpenCompute_FaultMgmt/RASService"
-        
-        context = {
-            "CPADId": cpad_id,
-            "PolicyDecision": "Denied",
-            "DenialReason": reason
-        }
-        
-        return RASEvent.create_event(
-            RASEventType.CPAD_DENIED,
-            origin,
-            [cpad_id, reason],
-            RASEventSeverity.WARNING,
             context
         )
     

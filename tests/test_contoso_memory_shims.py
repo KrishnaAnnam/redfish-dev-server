@@ -2,6 +2,7 @@
 """Focused tests for Contoso memory-vendor shim integration."""
 
 import base64
+import builtins
 import copy
 import contextlib
 import importlib.util
@@ -670,6 +671,28 @@ def test_action_only_window_never_enters_default_analysis():
     assert analyzer.default_memory_events(result) == []
 
 
+def test_action_only_analysis_notifies_vendor_without_memory_error_rules():
+    analyzer = ContosoAnalyzer()
+    shim = FakeShim()
+    memory = MemoryControllerAnalyzer.__new__(MemoryControllerAnalyzer)
+    memory.host = analyzer
+    memory.shims = {tuple(MICRON): shim}
+    memory.shim_errors = []
+    records = _records(_action_cper(), _memory_cper())
+
+    result = memory.analyze([], records, "action", prior_cper_count=1)
+
+    assert result["action_only"] is True
+    assert result["history_summary"] is None
+    assert result["analysis_route"] is None
+    assert result["findings"] == []
+    assert result["default_events"] == []
+    assert result["default_cpads"] == []
+    assert [event["event_type"] for event in shim.received] == [
+        "platform_action", "memory_error"]
+    assert result["shim_result"]["handled_manufacturers"] == {tuple(MICRON)}
+
+
 def test_missing_and_failed_shims_can_create_default_sppr():
     with tempfile.TemporaryDirectory() as directory:
         analyzer = ContosoAnalyzer(output_dir=directory)
@@ -1271,6 +1294,58 @@ def test_orchestrator_sends_binary_cpad_to_policy_and_honors_denial():
         assert len(rejections) == 1
         assert rejections[0][0] == binary
         assert isinstance(rejections[0][1], DeniedDecision)
+
+
+def test_orchestrator_pauses_after_policy_before_endpoint_submission():
+    with tempfile.TemporaryDirectory() as directory:
+        binary = Path(directory) / "action.cpad"
+        binary.write_bytes(b"CPAD")
+        order = []
+
+        class AllowedDecision:
+            reason = None
+            action_id = action_parameters.PPR_ACTION_ID
+            fru_text = "DIMM A1"
+
+            def __bool__(self):
+                return True
+
+        class Policy:
+            @staticmethod
+            def evaluate_cpad(path):
+                assert path == str(binary)
+                order.append("policy")
+                return AllowedDecision()
+
+        class Submitter:
+            @staticmethod
+            def submit(path, **_kwargs):
+                assert path == str(binary)
+                order.append("submit")
+
+        orchestrator = AnalysisOrchestrator.__new__(AnalysisOrchestrator)
+        orchestrator.policy_engine = Policy()
+        orchestrator.submitter = Submitter()
+        original_input = builtins.input
+        prompts = []
+
+        def confirm(prompt):
+            prompts.append(prompt)
+            order.append("confirm")
+            return ""
+
+        builtins.input = confirm
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                orchestrator._policy_and_submit(cpad_binary=binary)
+        finally:
+            builtins.input = original_input
+
+        assert order == ["policy", "confirm", "submit"]
+        assert prompts == [
+            "\n🔑 Policy check complete. Press Enter to submit the approved "
+            "CPAD..."
+        ]
 
 
 def test_orchestrator_retries_listener_connection():

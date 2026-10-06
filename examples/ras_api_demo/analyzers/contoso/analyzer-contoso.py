@@ -136,6 +136,23 @@ def _indented_print(indent: str):
     return _p
 
 
+def _boxed_lines(text: str, indent: str = "", width: int = 69):
+    """Return a consistently sized three-line text box."""
+    content = f"  {text}"
+    if len(content) > width:
+        raise ValueError(f"box content exceeds width {width}: {text}")
+    return (
+        f"{indent}┌{'─' * width}┐",
+        f"{indent}│{content:<{width}}│",
+        f"{indent}└{'─' * width}┘",
+    )
+
+
+def _aligned_field(prefix: str, label: str, value: Any, width: int) -> str:
+    """Format one report field with a fixed value column."""
+    return f"{prefix}{label + ':':<{width}}{value}"
+
+
 def decode_newest_sections(analyzer: "ContosoAnalyzer",
                            cper_data: Dict[str, Any],
                            cper_file: str) -> Dict[str, List[Dict[str, Any]]]:
@@ -1089,7 +1106,7 @@ class ContosoAnalyzer:
                 platform_id = platform_id_data.get('guid', 'N/A')
             else:
                 platform_id = platform_id_data
-            print(f"   Platform ID:        {platform_id}")
+            print(_aligned_field("   ", "Platform ID", platform_id, 20))
 
             # Partition ID
             partition_id_data = header.get('partitionID', 'N/A')
@@ -1097,7 +1114,7 @@ class ContosoAnalyzer:
                 partition_id = partition_id_data.get('guid', 'N/A')
             else:
                 partition_id = partition_id_data
-            print(f"   Partition ID:       {partition_id}")
+            print(_aligned_field("   ", "Partition ID", partition_id, 20))
 
             # Creator ID
             creator_id_data = header.get('creatorID', 'N/A')
@@ -1105,15 +1122,15 @@ class ContosoAnalyzer:
                 creator_id = creator_id_data.get('guid', 'N/A')
             else:
                 creator_id = creator_id_data
-            print(f"   Creator ID:         {creator_id}")
+            print(_aligned_field("   ", "Creator ID", creator_id, 20))
 
             # Timestamp
             timestamp = header.get('timestamp', 'N/A')
-            print(f"   Timestamp:          {timestamp}")
+            print(_aligned_field("   ", "Timestamp", timestamp, 20))
 
             # Record ID
             record_id = header.get('recordID', 'N/A')
-            print(f"   Record ID:          {record_id}")
+            print(_aligned_field("   ", "Record ID", record_id, 20))
 
             # Severity
             severity_data = header.get('severity', {})
@@ -1126,7 +1143,8 @@ class ContosoAnalyzer:
             else:
                 severity_code = 'N/A'
                 severity_name = severity_data
-            print(f"   Severity:           {severity_name} ({severity_code})")
+            print(_aligned_field(
+                "   ", "Severity", f"{severity_name} ({severity_code})", 20))
 
             # Notification Type
             notif_data = header.get('notificationType', {})
@@ -1136,12 +1154,14 @@ class ContosoAnalyzer:
             else:
                 notif_type = notif_data
                 notif_guid = 'N/A'
-            print(f"   Notification Type:  {notif_type}")
+            print(_aligned_field(
+                "   ", "Notification Type", notif_type, 20))
 
             # Errors logged across the CPER's sections (by name).
             error_names = self._collect_section_error_names(cper_data)
             if error_names:
-                print(f"   Errors:             {', '.join(error_names)}")
+                print(_aligned_field(
+                    "   ", "Errors", ", ".join(error_names), 20))
 
             # Section information
             sections = cper_data.get('sectionDescriptors', [])
@@ -1167,10 +1187,13 @@ class ContosoAnalyzer:
                     display_type = contoso_section or section_name
 
                     print(f"      Section {idx}:")
-                    print(f"         Type:            {display_type}")
-                    print(f"         FRU ID:          {fru_id}")
+                    print(_aligned_field(
+                        "         ", "Type", display_type, 17))
+                    print(_aligned_field(
+                        "         ", "FRU ID", fru_id, 17))
                     if fru_text != 'N/A':
-                        print(f"         FRU Text:        {fru_text}")
+                        print(_aligned_field(
+                            "         ", "FRU Text", fru_text, 17))
 
                     # For PlatformActionEvent sections, show full action event details
                     is_action_event = isinstance(section_name, str) and 'action event' in section_name.lower()
@@ -1188,7 +1211,9 @@ class ContosoAnalyzer:
                                 '0x03': 'Not Supported',
                             }
                             return_desc = ACTION_RETURN_CODES.get(return_code, return_code)
-                            print(f"         Action Result:   {return_desc} ({return_code})")
+                            print(_aligned_field(
+                                "         ", "Action Result",
+                                f"{return_desc} ({return_code})", 17))
 
                             # Source Action ID
                             action_id = ae_data.get('cpadActionId', 'N/A')
@@ -1203,7 +1228,9 @@ class ContosoAnalyzer:
                                 '0x8003': 'Reboot with Memory Retraining',
                             }
                             action_desc = ACTION_ID_MAP.get(action_id, action_id)
-                            print(f"         Source Action:    {action_desc} ({action_id})")
+                            print(_aligned_field(
+                                "         ", "Source Action",
+                                f"{action_desc} ({action_id})", 17))
 
                     # Section severity
                     sec_severity = section.get('severity', {})
@@ -1211,7 +1238,8 @@ class ContosoAnalyzer:
                         sec_sev_name = sec_severity.get('name', 'N/A')
                         if sec_sev_name == 'Unknown' and sec_severity.get('code') == 4:
                             sec_sev_name = 'Action Event'
-                        print(f"         Severity:        {sec_sev_name}")
+                        print(_aligned_field(
+                            "         ", "Severity", sec_sev_name, 17))
 
                     # Contoso proprietary section: decode and print its body in
                     # the same structure as the Contoso CPER section format.
@@ -1958,9 +1986,13 @@ def run_analysis(input_file: str) -> int:
 
     IND = "      "  # 6-space margin: nest this plugin's output inside its box
 
-    print(f"\n{IND}┌─────────────────────────────────────────────────────────────────────┐")
-    print(f"{IND}│  Contoso CPER Analyzer (vendor plugin — runs as its own process)     │")
-    print(f"{IND}└─────────────────────────────────────────────────────────────────────┘")
+    banner = _boxed_lines(
+        "Contoso CPER Analyzer (vendor plugin — runs as its own process)",
+        IND,
+    )
+    print(f"\n{banner[0]}")
+    print(banner[1])
+    print(banner[2])
 
     # The engine writes its outputs (analysis JSON and binary CPADs)
     # into our own directory so the AO can collect them afterward.
@@ -2048,7 +2080,19 @@ def run_analysis(input_file: str) -> int:
     dram_row_failure_detected = (
         memory_result["dram_row_failure_detected"] if memory_result else False)
 
-    if memory_result is not None:
+    if memory_result is not None and memory_result.get("action_only"):
+        for invocation in shim_result["invocations"]:
+            if invocation["status"] == "ok":
+                print(
+                    f"\n{IND}   📣 Platform Action Event delivered to "
+                    f"{invocation['shim']}")
+            else:
+                print(
+                    f"\n{IND}   ⚠️  Platform Action Event delivery to "
+                    f"{invocation['shim']} failed: {invocation['error']}")
+        for _vendor_id, error in memory_result["emission_errors"]:
+            print(f"{IND}   ⚠️  Vendor action-result CPAD emission failed: {error}")
+    elif memory_result is not None:
         analysis_route = memory_result["analysis_route"]
         print(f"\n{IND}   🧭 {analysis_route['heading']}")
         for message in analysis_route["messages"]:

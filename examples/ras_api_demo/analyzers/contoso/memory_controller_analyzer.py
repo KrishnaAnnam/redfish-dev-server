@@ -144,6 +144,7 @@ class MemoryControllerAnalyzer:
     def analyze(self, newest_sections: List[Dict[str, Any]],
                 records: List[Dict[str, Any]], source_stem: str,
                 prior_cper_count: int = 0) -> Dict[str, Any]:
+        action_only = not newest_sections
         newest_vendor = self._newest_dram_vendor(newest_sections)
         events = self._filtered_events(records, newest_vendor)
         selected_history = {
@@ -163,6 +164,40 @@ class MemoryControllerAnalyzer:
             events, self.shims, newest_vendor)
         shim_cpad_paths, emission_errors = self.host.emit_shim_cpad_groups(
             shim_result, source_stem)
+        if action_only:
+            action_vendors = {
+                manufacturer_id(event)
+                for event in events
+                if event["source"]["is_newest"]
+                and event["event_type"] == "platform_action"
+                and manufacturer_id(event) is not None
+            }
+            action_vendor = (
+                next(iter(action_vendors))
+                if len(action_vendors) == 1 else None)
+            return {
+                "subcomponent": "memory_controller",
+                "section_indexes": [],
+                "action_only": True,
+                "newest_vendor": (
+                    list(action_vendor) if action_vendor else None),
+                "events": events,
+                "newest_dram_events": [],
+                "default_events": [],
+                "findings": [],
+                "cpads": shim_cpad_paths,
+                "shim_cpads": shim_cpad_paths,
+                "default_cpads": [],
+                "failure_locations": [],
+                "recommendation_location": None,
+                "dram_row_failure_detected": False,
+                "cpad_generation_failed": False,
+                "all_newest_dram_errors_handled": False,
+                "shim_result": shim_result,
+                "emission_errors": emission_errors,
+                "analysis_route": None,
+                "history_summary": None,
+            }
 
         newest_dram_events = [
             event for event in events
@@ -231,6 +266,7 @@ class MemoryControllerAnalyzer:
 
         return {
             "subcomponent": "memory_controller",
+            "action_only": False,
             "section_indexes": [
                 section["source"]["section_index"] for section in newest_sections
             ],

@@ -1129,16 +1129,20 @@ class AnalysisOrchestrator:
 
         print("\n   ✅ Policy allowed — the CPAD may be submitted.")
 
+        if self.submitter is None:
+            print("\n   ⓘ No submitter configured — skipping submission.")
+            return
+
+        input(
+            "\n🔑 Policy check complete. Press Enter to submit the approved "
+            "CPAD...")
+
         print("\n" + "=" * 80)
         print("\t\t\t\tSUBMIT CPAD")
         print("=" * 80)
 
         print("\n   Submitting sends the CPAD back to the endpoint, which triggers the")
         print("   requested RAS action — closing the detect → analyze → act loop.")
-
-        if self.submitter is None:
-            print("\n   ⓘ No submitter configured — skipping submission.")
-            return
 
         self.submitter.submit(
             str(cpad_binary), verbose_steps=True,

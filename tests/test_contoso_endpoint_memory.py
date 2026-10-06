@@ -265,6 +265,27 @@ def _submission_request():
     }
 
 
+def test_endpoint_emits_no_client_policy_decision_event():
+    handler, _cpad = _submission_handler("0x0006")
+
+    class EventHandler:
+        def __init__(self):
+            self.received = []
+
+        def emit_cpad_received(
+                self, manager_id, cpad_id, submission_data):
+            self.received.append((manager_id, cpad_id, submission_data))
+
+    events = EventHandler()
+    handler.event_handler = events
+
+    status, _response = handler.handle_submit_cpad(
+        "System", _submission_request())
+
+    assert status == 202
+    assert len(events.received) == 1
+
+
 def test_analyzer_and_endpoint_share_contoso_action_contract():
     assert CONTOSO_CREATOR_ID == catalog.CONTOSO_CREATOR_ID
     assert SPPR_ACTION_ID == catalog.SPPR_ACTION["code"]

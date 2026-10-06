@@ -39,6 +39,7 @@ from redfish_sdk import (
     ConnectionConfig,
     CperEvent,
 )
+from event_listener_utils import cper_download_uri
 
 
 # ---------------------------------------------------------------------------
@@ -234,10 +235,13 @@ def main() -> None:
         nonlocal download_count, last_notify_time
         print_event(event)
 
-        # Auto-download CPER if this is a CPER event
+        # Auto-download CPER only when the event carries data or identifies a
+        # CPER LogEntry. Lifecycle events such as CPADReceived use the OCPRAS
+        # registry too, but do not represent downloadable CPERs.
         ce = CperEvent.from_event_record(event.raw)
-        mid_lower = ce.message_id.lower()
-        if ce.severity is None and "ocpras" not in mid_lower and "cper" not in mid_lower and "ras" not in mid_lower:
+        uri = cper_download_uri(
+            ce.additional_data_uri, ce.origin_of_condition)
+        if not ce.cper_data and not uri:
             return
 
         # Inline data needs no host; otherwise try each subscribed host until
@@ -248,18 +252,14 @@ def main() -> None:
         if ce.cper_data:
             cper_bytes = ce.cper_data
         else:
-            uri = ce.additional_data_uri or (
-                ce.origin_of_condition + "/Attachment"
-                if ce.origin_of_condition else None)
-            if uri:
-                for ctx in contexts:
-                    try:
-                        cper_bytes = await ctx.ras_service.fetch_cper_data_async(uri)
-                    except Exception:
-                        cper_bytes = None
-                    if cper_bytes:
-                        source_ctx = ctx
-                        break
+            for ctx in contexts:
+                try:
+                    cper_bytes = await ctx.ras_service.fetch_cper_data_async(uri)
+                except Exception:
+                    cper_bytes = None
+                if cper_bytes:
+                    source_ctx = ctx
+                    break
         if not cper_bytes:
             print("      ❌ Could not download CPER from any subscribed host")
 

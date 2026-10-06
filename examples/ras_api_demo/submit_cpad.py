@@ -232,23 +232,23 @@ class CPADSubmitter:
                     # (202) is a commitment to process the CPAD, but the endpoint
                     # may act on it much later (preconditions, maintenance
                     # windows).  We therefore record it now rather than waiting
-                    # for the Platform Action CPER, so the accepted action is
-                    # never lost between acceptance and execution.
+                    # for the resulting CPERs, so the accepted action is never
+                    # lost between acceptance and execution.
                     print(f"\n   Step 6: Storing the accepted CPAD in the infrastructure cloud database")
                     print(f"           Tracking key: PlatformID={platform_id}")
                     print(f"                         PartitionID={partition_id}")
                     print(f"           ✓ CPAD stored in {cpad_file_path.parent}")
 
-                    # Step 7 — Listen for the Platform Action CPER(s) that report
-                    # the *outcome* of the accepted CPAD.  This is decoupled from
-                    # acceptance and may arrive after an arbitrary delay.
-                    print(f"\n   Step 7: Listening for the Platform Action CPER(s) for this CPAD")
+                    # Step 7 — Listen for CPERs produced while processing the
+                    # accepted CPAD. Error Injection can emit both the injected
+                    # error and its Platform Action Event, in either order.
+                    print(f"\n   Step 7: Listening for CPERs associated with this CPAD")
                     print(f"   ┌─────────────────────────────────────────────────────────────┐")
                     print(f"   │  Look at the SERVER pane for processing details             │")
                     print(f"   │  (CPAD decode, validation, CPER creation)                   │")
                     print(f"   │                                                             │")
-                    print(f"   │  Look at the LISTENER pane to receive the Platform Action   │")
-                    print(f"   │  CPER notifications, download and store the CPERs           │")
+                    print(f"   │  Look at the LISTENER pane to receive CPER notifications,   │")
+                    print(f"   │  then download and store each CPER as it arrives            │")
                     print(f"   └─────────────────────────────────────────────────────────────┘")
                 else:
                     print(f"      ✓ Accepted by BMC")

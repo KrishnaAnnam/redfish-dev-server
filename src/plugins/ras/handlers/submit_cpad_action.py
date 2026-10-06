@@ -589,18 +589,6 @@ class SubmitCPADActionHandler:
         else:
             print(f"\n   Step 5: LogService not available, skipping CPER creation")
         
-        # Emit CPAD approved event
-        if self.event_handler:
-            try:
-                self.event_handler.emit_cpad_approved(
-                    manager_id,
-                    f"CPAD-{metadata['record_id']}",
-                    metadata['action_id'],
-                    log_entry_id
-                )
-            except Exception as e:
-                logger.error(f"Failed to emit CPAD approved event: {e}")
-        
         # Record submission
         if action_result.status == ACTION_PENDING:
             submission_status = 'PENDING'
@@ -707,17 +695,6 @@ class SubmitCPADActionHandler:
                     for entry_id in log_entry_ids
                 ],
             }
-        if self.event_handler:
-            try:
-                self.event_handler.emit_cpad_approved(
-                    manager_id,
-                    f"CPAD-{metadata['record_id']}",
-                    metadata["sections"][0]["action_id"],
-                    log_entry_ids[0] if log_entry_ids else None,
-                )
-            except Exception as exc:
-                logger.error(
-                    f"Failed to emit multi-section CPAD approved event: {exc}")
         return 202, response
 
     def _store_generated_cpers(

@@ -26,6 +26,7 @@ ContosoAnalyzer = ANALYZER_MODULE.ContosoAnalyzer
 contoso_encoder = ANALYZER_MODULE.contoso_encoder
 contoso_catalog = ANALYZER_MODULE.contoso_catalog
 dispatch_subcomponent_analysis = ANALYZER_MODULE.dispatch_subcomponent_analysis
+boxed_lines = ANALYZER_MODULE._boxed_lines
 
 
 def _location(column: int, device: int):
@@ -251,6 +252,63 @@ def test_cpu_only_dispatch_reports_all_cpu_sections_without_memory_initializatio
             for finding in cpu_result["findings"]] == [2, 7]
     assert all(finding["error"]["name"] == "Transaction Timeout"
                for finding in cpu_result["findings"])
+
+
+def test_platform_action_dispatch_uses_vendor_notification_mode():
+    cper = {
+        "header": {
+            "severity": {"name": "Platform Action Event", "code": 4},
+        },
+        "sectionDescriptors": [{
+            "sectionType": {"type": "Platform Action Event"},
+            "fruID": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+            "fruText": "DIMM A1",
+            "severity": {"name": "Platform Action Event", "code": 4},
+        }],
+        "sections": [{
+            "PlatformActionEvent": {
+                "actionReturnCode": "0x00",
+                "cpadActionId": "0x8001",
+            },
+        }],
+    }
+    analyzer = ContosoAnalyzer.__new__(ContosoAnalyzer)
+    captured = {}
+
+    class ActionNotificationAnalyzer:
+        def __init__(self, _host, _shim_dir):
+            pass
+
+        def analyze(self, sections, records, source_stem,
+                    prior_cper_count=0):
+            captured.update({
+                "sections": sections,
+                "records": records,
+                "source_stem": source_stem,
+                "prior_cper_count": prior_cper_count,
+            })
+            return {
+                "subcomponent": "memory_controller",
+                "action_only": True,
+                "section_indexes": [],
+                "findings": [],
+                "cpads": [],
+            }
+
+    result = dispatch_subcomponent_analysis(
+        analyzer,
+        [{"cper_data": cper, "cper_file": "action.cper",
+          "is_newest": True}],
+        "action",
+        memory_analyzer_factory=ActionNotificationAnalyzer,
+    )
+
+    assert captured["sections"] == []
+    assert captured["source_stem"] == "action"
+    assert captured["prior_cper_count"] == 0
+    assert result["subcomponents"][0]["action_only"] is True
+    assert result["findings"] == []
+    assert result["cpads"] == []
 
 
 def test_mixed_cpu_and_memory_dispatch_invokes_both_with_original_indexes():
@@ -589,5 +647,60 @@ def test_error_injection_action_event_uses_generic_action_name():
         analyzer.generate_cper_report(cper_data)
 
     report = output.getvalue()
-    assert "Source Action:    Error Injection (0x0006)" in report
+    assert "Source Action:   Error Injection (0x0006)" in report
     assert "Memory Error Injection" not in report
+
+
+def test_analyzer_banner_has_consistent_width():
+    lines = boxed_lines(
+        "Contoso CPER Analyzer (vendor plugin — runs as its own process)",
+        "      ",
+    )
+
+    assert len({len(line) for line in lines}) == 1
+    assert all(line.startswith("      ") for line in lines)
+
+
+def test_action_event_report_fields_share_value_column():
+    analyzer = ContosoAnalyzer.__new__(ContosoAnalyzer)
+    analyzer.verbose = False
+    cper_data = {
+        "header": {
+            "severity": {"name": "Platform Action Event", "code": 4},
+        },
+        "sectionDescriptors": [{
+            "sectionType": {"type": "Platform Action Event"},
+            "fruID": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+            "fruText": "DIMM A1",
+            "severity": {"name": "Platform Action Event", "code": 4},
+        }],
+        "sections": [{
+            "PlatformActionEvent": {
+                "actionReturnCode": "0x00",
+                "cpadActionId": "0x8001",
+            },
+        }],
+    }
+    output = io.StringIO()
+
+    with contextlib.redirect_stdout(output):
+        analyzer.generate_cper_report(cper_data)
+
+    report_lines = output.getvalue().splitlines()
+    expected_values = {
+        "Type:": "Platform Action Event",
+        "FRU ID:": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "FRU Text:": "DIMM A1",
+        "Action Result:": "Success (0x00)",
+        "Source Action:": "Post Package Repair (PPR) (0x8001)",
+        "Severity:": "Platform Action Event",
+    }
+    value_columns = set()
+    for label, value in expected_values.items():
+        section_prefix = f"         {label}"
+        line = next(
+            line for line in report_lines
+            if line.startswith(section_prefix) and value in line)
+        value_columns.add(line.index(value))
+
+    assert value_columns == {26}

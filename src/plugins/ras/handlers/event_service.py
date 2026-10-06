@@ -221,27 +221,6 @@ class RASEventServiceHandler:
         event = RASEvent.create_cpad_received_event(manager_id, cpad_id, submission_data)
         return self.emit_event(event)
     
-    def emit_cpad_approved(
-        self,
-        manager_id: str,
-        cpad_id: str,
-        action_id: str,
-        log_entry_id: Optional[str] = None
-    ) -> bool:
-        """Emit CPAD approved event"""
-        event = RASEvent.create_cpad_approved_event(manager_id, cpad_id, action_id, log_entry_id)
-        return self.emit_event(event)
-    
-    def emit_cpad_denied(
-        self,
-        manager_id: str,
-        cpad_id: str,
-        reason: str
-    ) -> bool:
-        """Emit CPAD denied event"""
-        event = RASEvent.create_cpad_denied_event(manager_id, cpad_id, reason)
-        return self.emit_event(event)
-    
     def emit_cper_created(
         self,
         manager_id: str,

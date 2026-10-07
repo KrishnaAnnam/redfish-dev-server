@@ -1,0 +1,90 @@
+{
+  "third_party_packages": {
+    "google": {
+      "name": "google-cloud-bigquery",
+      "version": "3.41.0",
+      "license": "Apache 2.0",
+      "homepage": "Unknown",
+      "summary": "Google BigQuery API client library",
+      "import_name": "google",
+      "actual_package": "google-cloud-bigquery"
+    },
+    "igraph": {
+      "name": "igraph",
+      "version": "1.0.0",
+      "license": "GNU General Public License (GPL)",
+      "homepage": "https://igraph.org/python",
+      "summary": "High performance graph data structures and algorithms",
+      "import_name": "igraph",
+      "actual_package": "igraph"
+    },
+    "matplotlib": {
+      "name": "matplotlib",
+      "version": "3.10.8",
+      "license": "License agreement for matplotlib versions 1.3.0 and later",
+      "homepage": "Unknown",
+      "summary": "Python plotting package",
+      "import_name": "matplotlib",
+      "actual_package": "matplotlib"
+    },
+    "networkx": {
+      "name": "networkx",
+      "version": "3.6.1",
+      "license": "BSD-3-Clause",
+      "homepage": "Unknown",
+      "summary": "Python package for creating and manipulating graphs and networks",
+      "import_name": "networkx",
+      "actual_package": "networkx"
+    },
+    "numpy": {
+      "name": "numpy",
+      "version": "2.4.3",
+      "license": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
+      "homepage": "Unknown",
+      "summary": "Fundamental package for array computing in Python",
+      "import_name": "numpy",
+      "actual_package": "numpy"
+    },
+    "pandas": {
+      "name": "pandas",
+      "version": "3.0.1",
+      "license": "BSD 3-Clause License",
+      "homepage": "Unknown",
+      "summary": "Powerful data structures for data analysis, time series, and statistics",
+      "import_name": "pandas",
+      "actual_package": "pandas"
+    },
+    "seaborn": {
+      "name": "seaborn",
+      "version": "0.13.2",
+      "license": "BSD",
+      "homepage": "Unknown",
+      "summary": "Statistical data visualization",
+      "import_name": "seaborn",
+      "actual_package": "seaborn"
+    },
+    "sklearn": {
+      "name": "scikit-learn",
+      "version": "1.8.0",
+      "license": "BSD-3-Clause",
+      "homepage": "Unknown",
+      "summary": "A set of python modules for machine learning and data mining",
+      "import_name": "sklearn",
+      "actual_package": "scikit-learn"
+    },
+    "tqdm": {
+      "name": "tqdm",
+      "version": "4.67.3",
+      "license": "MPL-2.0 AND MIT",
+      "homepage": "Unknown",
+      "summary": "Fast, Extensible Progress Meter",
+      "import_name": "tqdm",
+      "actual_package": "tqdm"
+    }
+  },
+  "summary": {
+    "total_third_party": 9,
+    "total_stdlib": 15,
+    "total_local": 14
+  }
+}

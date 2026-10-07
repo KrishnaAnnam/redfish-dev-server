@@ -326,8 +326,20 @@ See [Contoso Demo Memory Address Translation](contoso-memory-address-translation
 
 #### Micron Analyzer Interface
 
-The stub registers DDR5 SPD manufacturer ID `80 2C` and returns no action
-requests.
+The Micron adapter registers DDR5 SPD manufacturer ID `80 2C`. When
+`MICRON_MERC_INPUT_FILE` selects a retry-read CSV, the adapter filters its rows
+to the newest CPER's SPD serial and part number, invokes the bundled MERC 3.1.1
+tool, and converts its classifications into grouped Contoso action requests.
+Without that environment variable, it remains inactive so the normal demo is
+unchanged.
+
+`block_of_rows` maps MERC's DIMM-relative offline range bounds to 4 KiB Page
+Offline ranges, and otherwise falls back to Replace Part with an explicit
+diagnostic;
+`high_severity` maps to Replace Part;
+`dram_transient` to Power Cycle; `ppr_eligible` to PPR; `system_general` to
+Reboot with Memory Retraining; and `system_socketing` to Reseat Part.
+`correctable`, `low_severity`, and `system_transient` produce no action.
 
 #### Samsung Analyzer Interface
 

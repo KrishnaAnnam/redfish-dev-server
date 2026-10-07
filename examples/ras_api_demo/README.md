@@ -68,6 +68,35 @@ source RasApiEnv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Micron MERC demo
+
+The Micron launcher accepts a MERC retry-read CSV and stages a temporary copy
+of the RAS Gen 1 mockup. Each unique `msn`/`mpn` pair is assigned to one of the
+DIMM slots in
+[`ras_endpoint_config_micron.json`](../../mockups/ras_gen1/ras_endpoint_config_micron.json).
+The committed endpoint template uses Micron DDR5 manufacturer ID `80 2C`; the
+original mockup remains unchanged. Inputs with more than eight unique modules
+automatically stage a second socket endpoint.
+
+```bash
+./examples/ras_api_demo/run_ras_demo_micron.sh /path/to/retry-read-errors.csv
+```
+
+The CSV must contain `msn`, `mpn`, `rr_log`, `rr_addr1`, `rr_addr2`,
+`rr_parity`, and `intel_hw_gen`. The demo supports at most sixteen unique DIMMs.
+For each represented DIMM, it injects a Micron memory CPER, runs MERC against
+that DIMM's input rows, and maps the result through policy:
+
+| MERC class | RAS result |
+|---|---|
+| `block_of_rows` | Page Offline; Replace Part if MERC supplies no ranges |
+| `high_severity` | Replace Part |
+| `dram_transient` | Power Cycle |
+| `ppr_eligible` | Post Package Repair |
+| `system_general` | Reboot with Memory Retraining |
+| `system_socketing` | Reseat Part |
+| `correctable`, `low_severity`, `system_transient` | No action |
+
 ### 3. Fetch external dependencies
 
 ```bash

@@ -415,3 +415,9 @@ src/plugins/ras/libcper/
 
 # Samsung DFA analysis module is distributed separately by Samsung
 examples/ras_api_demo/analyzers/contoso/memory_shims/samsung_dfa.py
+
+# Micron MERC is distributed separately and exceeds GitHub's file-size limit
+examples/ras_api_demo/analyzers/contoso/memory_shims/vendor_tools/micron/merc3_1_1/merc3
+
+# Micron product inputs are local/vendor-provided test data
+examples/ras_api_demo/analyzers/contoso/memory_shims/vendor_tools/micron/micron_inputs/

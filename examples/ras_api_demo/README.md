@@ -78,6 +78,16 @@ The committed endpoint template uses Micron DDR5 manufacturer ID `80 2C`; the
 original mockup remains unchanged. Inputs with more than eight unique modules
 automatically stage a second socket endpoint.
 
+MERC is distributed separately and is not stored in Git. Install the executable
+at:
+
+```text
+examples/ras_api_demo/analyzers/contoso/memory_shims/vendor_tools/micron/merc3_1_1/merc3
+```
+
+Product CSVs are also local-only and may be stored under the ignored
+`vendor_tools/micron/micron_inputs/` directory.
+
 ```bash
 ./examples/ras_api_demo/run_ras_demo_micron.sh /path/to/retry-read-errors.csv
 ```
@@ -96,6 +106,9 @@ that DIMM's input rows, and maps the result through policy:
 | `system_general` | Reboot with Memory Retraining |
 | `system_socketing` | Reseat Part |
 | `correctable`, `low_severity`, `system_transient` | No action |
+
+MERC 3.1.1 rejects the supplied Y4CA product MPNs; the demo reports that vendor
+tool failure explicitly and does not substitute a default Contoso repair.
 
 ### 3. Fetch external dependencies
 

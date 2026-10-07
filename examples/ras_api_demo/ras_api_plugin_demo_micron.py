@@ -58,8 +58,6 @@ class MicronRASAPIPluginDemo(RASAPIPluginDemo):
                         "controller": controller["controller"],
                         "channel": dimm["channel"],
                         "dimm": dimm["dimm"],
-                        "fru_id": dimm["fru_id"],
-                        "fru_text": dimm["fru_text"],
                         "organization": organization,
                     }
                     targets[(spd["serial_number"], spd["part_number"])] = target
@@ -98,11 +96,8 @@ class MicronRASAPIPluginDemo(RASAPIPluginDemo):
             configuration,
         )
         output = self.generated_cpad_dir / f"micron_trigger_{sequence}.cpad"
-        # The BMC overlays authoritative SPD identity from the staged inventory.
         overrides = {
             "cpad.partitionID": target["partition_id"],
-            "cpad.fruID": target["fru_id"],
-            "cpad.fruText": target["fru_text"],
             "section.socket": target["socket"],
             "section.subcomponent.chiplet": target["chiplet"],
             "section.subcomponent.controller": target["controller"],
@@ -122,6 +117,7 @@ class MicronRASAPIPluginDemo(RASAPIPluginDemo):
             str(self.injector),
             "inject",
             "--spec", str(self.injection_spec),
+            "--endpoint-config", str(self.endpoint_config),
             "--beat", "dram=3;dq=0;beats=2",
             "--out", str(output),
         ]
@@ -150,7 +146,7 @@ class MicronRASAPIPluginDemo(RASAPIPluginDemo):
         self.print_banner()
         print(f"Micron MERC input: {self.micron_input_file}")
         print(f"Micron DIMMs represented: {len(self.modules)}")
-        if not self.analysis.print_discovery_report():
+        if not self.analysis.print_discovery_report(show_memory_analyzers=True):
             raise RuntimeError("no usable analyzers were discovered")
 
         input("\nPress Enter to discover and start monitoring the host...")

@@ -33,6 +33,28 @@ def test_micron_is_inactive_without_a_selected_input(monkeypatch):
     assert micron.analyze_memory_events([_micron_event()]) == []
 
 
+def test_micron_action_only_event_does_not_rerun_merc(
+        monkeypatch, tmp_path):
+    input_path = tmp_path / "retry.csv"
+    input_path.write_text(
+        "msn,mpn,rr_log,rr_addr1,rr_addr2,rr_parity,intel_hw_gen\n"
+        "SERIAL,PART,1,2,3,4,2\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(micron.MERC_INPUT_ENV, str(input_path))
+    monkeypatch.setattr(
+        micron, "_run_merc",
+        lambda _rows: (_ for _ in ()).throw(
+            AssertionError("MERC must not run for an action-only event")))
+    action_event = helpers.decode_memory_events(helpers._records(
+        helpers._action_cper(),
+        helpers._memory_cper(helpers.MICRON),
+    ))[0]
+
+    assert action_event["event_type"] == "platform_action"
+    assert micron.analyze_memory_events([action_event]) == []
+
+
 def test_micron_maps_merc_classes_to_supported_actions(
         monkeypatch, tmp_path):
     input_path = tmp_path / "retry.csv"
@@ -86,3 +108,25 @@ def test_micron_block_of_rows_becomes_page_offline(monkeypatch, tmp_path):
     assert request["action_id"] == actions.PAGE_OFFLINE_ACTION_ID
     assert request["parameters"]["page_ranges"][0]["page_count"] == 2
     assert request["parameters"]["page_ranges"][0]["start_address"] % 4096 == 0
+
+
+def test_micron_block_without_ranges_replaces_dimm(monkeypatch, tmp_path):
+    input_path = tmp_path / "retry.csv"
+    input_path.write_text(
+        "msn,mpn,rr_log,rr_addr1,rr_addr2,rr_parity,intel_hw_gen\n"
+        "SERIAL,PART,1,2,3,4,2\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(micron.MERC_INPUT_ENV, str(input_path))
+    monkeypatch.setattr(micron, "_run_merc", lambda _rows: [{
+        "predicted_class": "block_of_rows",
+    }])
+
+    request = micron.analyze_memory_events(
+        [_micron_event()])[0]["sections"][0]
+
+    assert request["action_id"] == actions.REPLACE_PART_ACTION_ID
+    assert request["parameters"] == {
+        "fru_id": helpers.FRU_ID,
+        "fru_text": helpers.FRU_TEXT,
+    }

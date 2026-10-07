@@ -103,7 +103,7 @@ tmux select-pane -t "$SESSION_NAME:0.2" -T "Micron MERC RAS Demo"
 
 tmux send-keys -t "$SESSION_NAME:0.0" "cd $PROJECT_Q" C-m
 tmux send-keys -t "$SESSION_NAME:0.0" \
-    "trap 'rm -rf -- $MOCKUP_Q' EXIT; python3 -B servers/redfishMockupServer_platform.py -D $MOCKUP_Q -p 8000" C-m
+    "trap 'rm -rf -- $MOCKUP_Q' EXIT; python3 -B servers/redfishMockupServer_platform.py -D $MOCKUP_Q -p 8000 --endpoint-config $CONFIG_Q" C-m
 
 tmux send-keys -t "$SESSION_NAME:0.1" "cd $PROJECT_Q" C-m
 tmux send-keys -t "$SESSION_NAME:0.1" \

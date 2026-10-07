@@ -193,8 +193,9 @@ reported as a structured finding and is never sent to a DRAM-vendor shim.
 
 The memory analyzer supports optional tools supplied by memory vendors. Contoso
 ships Python shims under `memory_shims/` that adapt the common event contract to
-those vendor tools. The Micron and SK hynix shims are stubs; the Samsung shim
-delegates to the separately distributed `samsung_dfa.py`:
+those vendor tools. The Micron shim delegates to a separately distributed MERC
+executable, the SK hynix shim is a stub, and the Samsung shim delegates to the
+separately distributed `samsung_dfa.py`:
 
 - `analyzer_micron.py`
 - `analyzer_samsung.py`
@@ -328,8 +329,9 @@ See [Contoso Demo Memory Address Translation](contoso-memory-address-translation
 
 The Micron adapter registers DDR5 SPD manufacturer ID `80 2C`. When
 `MICRON_MERC_INPUT_FILE` selects a retry-read CSV, the adapter filters its rows
-to the newest CPER's SPD serial and part number, invokes the bundled MERC 3.1.1
-tool, and converts its classifications into grouped Contoso action requests.
+to the newest CPER's SPD serial and part number, invokes the locally installed
+MERC 3.1.1 tool, and converts its classifications into grouped Contoso action
+requests.
 Without that environment variable, it remains inactive so the normal demo is
 unchanged.
 
@@ -340,6 +342,8 @@ diagnostic;
 `dram_transient` to Power Cycle; `ppr_eligible` to PPR; `system_general` to
 Reboot with Memory Retraining; and `system_socketing` to Reseat Part.
 `correctable`, `low_severity`, and `system_transient` produce no action.
+Platform Action Event-only invocations are acknowledged without rerunning MERC
+or generating a follow-up CPAD.
 
 #### Samsung Analyzer Interface
 

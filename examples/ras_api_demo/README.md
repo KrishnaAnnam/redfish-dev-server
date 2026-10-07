@@ -93,6 +93,21 @@ bash examples/ras_api_demo/setup_dependencies.sh --update
 bash examples/ras_api_demo/run_ras_demo.sh
 ```
 
+### Samsung DIMM demo
+
+The optional Samsung-specific demo uses the same RAS Plugin SDK server and
+analysis pipeline with `ras_endpoint_config_samsung.json`. It requires the
+separately distributed `samsung_dfa.py` beside the Samsung shim and fails
+before startup if that dependency is unavailable.
+
+```bash
+bash examples/ras_api_demo/run_samsung_ras_demo.sh
+```
+
+The launcher passes `--endpoint-config ras_endpoint_config_samsung.json`; the
+server applies that override to the configured RAS extension before the common
+Plugin SDK initializes its single handler instance.
+
 Or run each component manually:
 
 ```bash

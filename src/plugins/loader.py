@@ -119,6 +119,41 @@ def normalize_plugin_specs(extensions: Any) -> List[PluginSpec]:
     return normalized
 
 
+def override_plugin_config(
+        extensions: Any,
+        plugin_name: str,
+        overrides: Dict[str, Any]) -> List[Any]:
+    """Return validated extensions with one enabled plugin config updated."""
+    normalize_plugin_specs(extensions)
+    updated = []
+    found = False
+    for entry in extensions:
+        if entry == plugin_name:
+            updated.append({
+                'name': plugin_name,
+                'enabled': True,
+                'config': dict(overrides),
+            })
+            found = True
+            continue
+        if isinstance(entry, dict) and entry.get('name') == plugin_name:
+            if not entry.get('enabled', True):
+                raise PluginConfigurationError(
+                    f"Plugin '{plugin_name}' is disabled")
+            replacement = dict(entry)
+            plugin_config = dict(replacement.get('config', {}))
+            plugin_config.update(overrides)
+            replacement['config'] = plugin_config
+            updated.append(replacement)
+            found = True
+            continue
+        updated.append(entry)
+    if not found:
+        raise PluginConfigurationError(
+            f"Plugin '{plugin_name}' is not configured")
+    return updated
+
+
 class PluginLoader:
     """
     Plugin loader and manager for BMC Simulator.

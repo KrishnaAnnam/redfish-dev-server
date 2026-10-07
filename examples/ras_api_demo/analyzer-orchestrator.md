@@ -78,9 +78,12 @@ script — no orchestrator changes required.
 - The event listener downloads each new `.cper` and notifies the AO over the
   control socket; `_handle_notification` buffers the path.
 - `wait_for_cpers(count, timeout)` blocks until at least `count` are pending;
-  `process_new_cpers()` drains the buffer and routes everything received since
-  the last call via `notify_new_cpers(paths)`.
-- CPERs are always processed **in the order received**.
+  `process_new_cpers()` waits two seconds for the notification burst, drains
+  the buffer, and routes everything received since the last call via
+  `notify_new_cpers(paths)`.
+- CPERs are processed by descending header timestamp. Equal timestamps place
+  Platform Action Events first, then use descending record ID and filename for
+  deterministic ordering.
 
 ## Routing a single CPER
 

@@ -157,6 +157,7 @@ def _apply_overrides(spec, args):
 
 def cmd_inject(args):
     """Build a binary .cpad from a spec file or CLI flags."""
+    endpoint_configuration = None
     try:
         if args.spec:
             spec = spec_model.load_spec(args.spec)
@@ -167,11 +168,16 @@ def cmd_inject(args):
                   file=sys.stderr)
             return 1
         _apply_overrides(spec, args)
-    except (KeyError, ValueError) as exc:
+        if args.endpoint_config:
+            endpoint_configuration = (
+                spec_model.load_endpoint_configuration(
+                    args.endpoint_config))
+    except (KeyError, OSError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
-    problems = spec_model.validate_spec(spec)
+    problems = spec_model.validate_spec(
+        spec, endpoint_configuration)
     if problems:
         print("Invalid injection spec:", file=sys.stderr)
         for p in problems:
@@ -182,9 +188,12 @@ def cmd_inject(args):
     bank_name = spec["error"]["errorBank"]
     section_guid = catalog.resolve_section(section_name)["guid"]
 
-    fields = spec_model.to_encoder_fields(spec)
+    materialized = spec_model.materialize_endpoint_memory_fields(
+        spec, endpoint_configuration)
+    fields = spec_model.to_encoder_fields(materialized)
     body = encoder.pack_section_body(section_name, bank_name, fields)
-    cpad_json = builder.build_cpad_json(spec, section_guid, body)
+    cpad_json = builder.build_cpad_json(
+        materialized, section_guid, body)
 
     try:
         out = builder.write_cpad(cpad_json, args.out)
@@ -292,7 +301,7 @@ def cmd_decode(args):
         "section": section_block,
     }
 
-    print(json.dumps(spec, indent=2))
+    print(json.dumps(spec_model.to_authoring_spec(spec), indent=2))
     print("\n# Equivalent command:", file=sys.stderr)
     print(
         f"injector-contoso.py inject --section \"{section_name}\" "
@@ -409,6 +418,10 @@ def build_parser():
     p_inj.add_argument("--error", help="Error name (CLI fast-path).")
     p_inj.add_argument("--platform-id", help="Target platform ID (CLI fast-path).")
     p_inj.add_argument("--partition-id", help="Target partition ID (CLI fast-path).")
+    p_inj.add_argument(
+        "--endpoint-config",
+        help="RAS endpoint configuration used for memory inventory, FRU, "
+             "topology, and address translation.")
     p_inj.add_argument("--set", action="append", metavar="KEY=VALUE",
                        help="Override a spec field, e.g. section.additional.dimm=1.")
     p_inj.add_argument("--beat", action="append", metavar="dram=..;dq=..;beats=..",

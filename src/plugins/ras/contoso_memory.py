@@ -7,6 +7,7 @@ import struct
 from typing import Any, Dict
 
 from .memory_config import MemoryRepairState
+from .memory_address_translation import physical_address_to_memory_address
 
 
 CONTOSO_MEMORY_SECTION_GUID = "e01ce992-d080-43f4-8a2c-df8a9d81eb4e"
@@ -212,6 +213,33 @@ def overlay_memory_state(
     dimm = state.config.get_dimm(
         coordinates["chiplet"], coordinates["controller"],
         coordinates["channel"], coordinates["dimm"])
+    status = struct.unpack_from("<Q", body, _SECTION_HEADER_SIZE)[0]
+    if status >> 63 & 0x1:
+        physical_address = struct.unpack_from(
+            "<Q", body, _SECTION_HEADER_SIZE + 8)[0]
+        translated = physical_address_to_memory_address(
+            physical_address, state.config.address_configuration)
+        expected = {
+            "socket": state.config.socket,
+            "chiplet": coordinates["chiplet"],
+            "memory_controller": coordinates["controller"],
+            "channel": coordinates["channel"],
+            "dimm": coordinates["dimm"],
+            "subchannel": coordinates["subchannel"],
+            "rank": coordinates["rank"],
+            "bank_group": coordinates["bank_group"],
+            "bank": coordinates["bank"],
+            "row": coordinates["row"],
+            "column": coordinates["column"],
+        }
+        mismatches = [
+            name for name, value in expected.items()
+            if getattr(translated, name) != value
+        ]
+        if mismatches:
+            raise ValueError(
+                "Contoso memory physical address does not match endpoint "
+                f"coordinates: {', '.join(mismatches)}")
     entries = state.entries_for_dimm(*dimm.key)
     dram_offset = _DRAM_ADDITIONAL_OFFSET
     other_bank_offset_field = _SECTION_HEADER_SIZE + _ERROR_BANK_SIZE + 32

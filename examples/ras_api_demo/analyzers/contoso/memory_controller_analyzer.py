@@ -72,24 +72,31 @@ class MemoryControllerAnalyzer:
             for record in records
         ]
         events = decode_memory_events(matching_records)
-        if newest_vendor is None:
-            action_vendors = {
-                manufacturer_id(event)
-                for event in events
-                if event["source"]["is_newest"]
-                and event["event_type"] == "platform_action"
-                and manufacturer_id(event) is not None
-            }
-            if len(action_vendors) == 1:
-                newest_vendor = next(iter(action_vendors))
+        target_vendors = {
+            vendor for vendor in [newest_vendor] if vendor is not None
+        }
+        target_vendors.update({
+            manufacturer_id(event)
+            for event in events
+            if event["source"]["is_newest"]
+            and event["event_type"] == "platform_action"
+            and manufacturer_id(event) is not None
+        })
         filtered = []
         for event in events:
-            if event["source"]["is_newest"]:
+            vendor = manufacturer_id(event)
+            if (event["source"]["is_newest"]
+                    and event["event_type"] == "memory_error"
+                    and (event["memory_error"]["bank"] != DRAM_ERRORS
+                         or vendor in target_vendors)):
                 filtered.append(event)
                 continue
             if (event["event_type"] == "memory_error"
                     and event["memory_error"]["bank"] == DRAM_ERRORS
-                    and manufacturer_id(event) == newest_vendor):
+                    and vendor in target_vendors):
+                filtered.append(event)
+            elif (event["event_type"] == "platform_action"
+                    and vendor in target_vendors):
                 filtered.append(event)
         return filtered
 
@@ -97,6 +104,9 @@ class MemoryControllerAnalyzer:
             self, newest_vendor: Optional[Tuple[int, int]],
             shim_result: Dict[str, Any]) -> Dict[str, Any]:
         """Describe which analyzer owns the newest memory-controller errors."""
+        if newest_vendor is None and shim_result["handled_manufacturers"]:
+            # Action-only CPER correlated (by FRU) to a vendor-owned DIMM.
+            newest_vendor = next(iter(shim_result["handled_manufacturers"]))
         if newest_vendor is None:
             return {
                 "heading": "Memory analysis routing",
@@ -121,8 +131,10 @@ class MemoryControllerAnalyzer:
             return {
                 "heading": "Memory analysis routing",
                 "messages": [
-                    "Using the default Contoso memory analyzer.",
-                    "Reason: The matching memory-vendor analyzer failed.",
+                    f"Memory-vendor analyzer {self.shims[newest_vendor].name} "
+                    f"failed for DRAM manufacturer {vendor_text}.",
+                    "No default Contoso analysis is substituted for a "
+                    "vendor-owned DIMM.",
                 ],
             }
 
@@ -151,8 +163,6 @@ class MemoryControllerAnalyzer:
             event["source"]["cper_file"]
             for event in events
             if not event["source"]["is_newest"]
-            and event["event_type"] == "memory_error"
-            and event["memory_error"]["bank"] == DRAM_ERRORS
         }
         for event in events:
             if (event["event_type"] == "memory_error"
@@ -161,26 +171,26 @@ class MemoryControllerAnalyzer:
                 self.host._add_to_seen_locations(
                     self.host._memory_location_from_event(event))
         shim_result = self.host.analyze_memory_events(
-            events, self.shims, newest_vendor)
+            events, self.shims)
         shim_cpad_paths, emission_errors = self.host.emit_shim_cpad_groups(
             shim_result, source_stem)
         if action_only:
-            action_vendors = {
+            action_vendors = sorted({
                 manufacturer_id(event)
                 for event in events
                 if event["source"]["is_newest"]
                 and event["event_type"] == "platform_action"
                 and manufacturer_id(event) is not None
-            }
-            action_vendor = (
-                next(iter(action_vendors))
-                if len(action_vendors) == 1 else None)
+            })
             return {
                 "subcomponent": "memory_controller",
                 "section_indexes": [],
                 "action_only": True,
                 "newest_vendor": (
-                    list(action_vendor) if action_vendor else None),
+                    list(action_vendors[0])
+                    if len(action_vendors) == 1 else None),
+                "newest_vendors": [
+                    list(vendor) for vendor in action_vendors],
                 "events": events,
                 "newest_dram_events": [],
                 "default_events": [],
@@ -293,7 +303,7 @@ class MemoryControllerAnalyzer:
                 "messages": [
                     f"Evaluated {prior_cper_count} prior CPER candidate(s) "
                     "for matching memory-controller errors.",
-                    f"Selected {len(selected_history)} same-vendor memory "
+                    f"Selected {len(selected_history)} same-vendor CPER "
                     "record(s).",
                 ],
             },

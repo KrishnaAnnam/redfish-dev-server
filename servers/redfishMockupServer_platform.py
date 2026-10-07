@@ -33,7 +33,10 @@ from src.core.platform_config import (
 from src.core.extensible_services import ServiceManager
 from src.handlers.main_handler import RedfishMockupHandler
 from src.plugins import shutdown_plugins
-from src.plugins.loader import normalize_plugin_specs
+from src.plugins.loader import (
+    normalize_plugin_specs,
+    override_plugin_config,
+)
 
 # Add scripts directory to path for rfSsdpServer
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scripts'))
@@ -190,6 +193,14 @@ class PlatformAwareRedfishServer(HTTPServer):
             if os.path.exists(platform_config_path):
                 platform_config = load_platform_config(platform_config_path)
                 self.config.extensions = platform_config.extensions
+                endpoint_override = getattr(
+                    self.config, 'endpoint_config', None)
+                if endpoint_override:
+                    self.config.extensions = override_plugin_config(
+                        self.config.extensions,
+                        'ras',
+                        {'endpoint_config': endpoint_override},
+                    )
                 normalize_plugin_specs(self.config.extensions)
                 logger.info(
                     "Configured extensions: %s",
@@ -264,6 +275,10 @@ def enhanced_parse_arguments():
     parser.add_argument('--platform', dest='platform_hint',
                         choices=['dell', 'hpe', 'supermicro', 'lenovo', 'generic'],
                         help='specify platform type for enhanced features')
+    parser.add_argument('--endpoint-config', dest='endpoint_config', default=None,
+                        help='override the RAS plugin endpoint_config from '
+                             'platform_config.json (relative to the mockup '
+                             'directory, or absolute)')
     parser.add_argument('--list-platforms', action='store_true',
                         help='list available platform providers and exit')
     parser.add_argument('--platform-info', action='store_true',
@@ -298,7 +313,8 @@ def enhanced_parse_arguments():
     
     # Add platform hint
     config.platform_hint = args.platform_hint
-    
+    config.endpoint_config = args.endpoint_config
+
     return config
 
 

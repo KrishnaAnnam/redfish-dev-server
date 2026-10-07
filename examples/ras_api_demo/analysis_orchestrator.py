@@ -36,7 +36,7 @@ import tempfile
 import threading
 import time
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
@@ -83,6 +83,7 @@ class AnalyzerInfo:
     creator_ids: List[str]          # normalized GUIDs this analyzer supports
     prior_days: int                 # days of prior CPER context the analyzer wants
     script_path: Path               # path to the analyzer-<company>.py script
+    memory_analyzers: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -315,18 +316,29 @@ class AnalysisOrchestrator:
         if isinstance(prior_days, bool) or not isinstance(prior_days, int) or prior_days < 0:
             return reject("'prior_days' must be a non-negative integer")
 
+        memory_analyzers = data.get('memory_analyzers') or []
+        if not isinstance(memory_analyzers, list) or not all(
+                isinstance(m, dict) for m in memory_analyzers):
+            return reject("'memory_analyzers' must be a list of objects")
+
         return AnalyzerInfo(
             name=name.strip(),
             version=str(version),
             creator_ids=normalized,
             prior_days=prior_days,
             script_path=script,
+            memory_analyzers=memory_analyzers,
         )
 
     # ─── Discovery Report ───────────────────────────────────────────────
 
-    def print_discovery_report(self) -> bool:
+    def print_discovery_report(self, show_memory_analyzers: bool = False) -> bool:
         """Print the discovery outcome (table or error) at demo startup.
+
+        Args:
+            show_memory_analyzers: Also list the memory-vendor analyzer shims
+                each analyzer loaded. A shim whose dependencies are missing
+                fails to load and is therefore not listed.
 
         Returns:
             True if at least one analyzer was discovered with no fatal error;
@@ -347,6 +359,8 @@ class AnalysisOrchestrator:
 
         print(f"\n   ✅ Discovered {len(self.analyzers)} analyzer(s):\n")
         self._print_analyzer_table()
+        if show_memory_analyzers:
+            self._print_memory_analyzers()
         return True
 
     def _print_analyzer_table(self):
@@ -371,6 +385,18 @@ class AnalysisOrchestrator:
         for row in rows[1:]:
             print(fmt(row))
         print()
+
+    def _print_memory_analyzers(self):
+        """List the memory-vendor analyzer shims each analyzer loaded."""
+        for info in self.analyzers:
+            if not info.memory_analyzers:
+                continue
+            print(f"   🧩 Memory analyzer(s) discovered under {info.name}:")
+            for shim in info.memory_analyzers:
+                vendors = ", ".join(shim.get('dram_manufacturer_ids', [])) or "?"
+                print(f"      ✓ {shim.get('name', '?')} v{shim.get('version', '?')}"
+                      f"  (DRAM manufacturer ID: {vendors})")
+            print()
 
     # ─── Host Discovery & Monitoring ────────────────────────────────────
 
@@ -726,7 +752,8 @@ class AnalysisOrchestrator:
         return False
 
     def process_new_cpers(self):
-        """Route every CPER the listener has delivered since the last call."""
+        """Coalesce a CPER notification burst, then route it deterministically."""
+        time.sleep(2.0)
         with self._pending_lock:
             paths = self._pending_cpers
             self._pending_cpers = []
@@ -774,13 +801,13 @@ class AnalysisOrchestrator:
     # ─── CPER Orchestration (explicit push) ─────────────────────────────
 
     def notify_new_cpers(self, cper_paths: List[str]):
-        """Process newly collected CPERs, in the order received.
+        """Process newly collected CPERs in deterministic CPER-header order.
 
         This is the explicit-push entry point: the collection step calls it
         with the paths of the CPERs it just wrote.
 
         Args:
-            cper_paths: CPER file paths in arrival order.
+            cper_paths: CPER file paths from one notification burst.
         """
         print("\n" + "=" * 80)
         print("\t\t\t\tANALYZE CPERs")
@@ -799,12 +826,42 @@ class AnalysisOrchestrator:
             print("\n   ⚠️  No new CPERs to analyze.")
             return
 
-        for cper_path in cper_paths:
+        for cper_path in self._ordered_cper_paths(cper_paths):
             try:
                 self._process_cper(Path(cper_path))
             except Exception as e:
                 logger.error(f"Error processing CPER {cper_path}: {e}")
                 print(f"\n   ❌ Error processing {cper_path}: {e}")
+
+    def _ordered_cper_paths(self, cper_paths: List[str]) -> List[str]:
+        """Order one batch by timestamp, event kind, record ID, and filename."""
+        decoder = self._make_decoder()
+        entries = []
+        for raw_path in dict.fromkeys(cper_paths):
+            path = Path(raw_path).resolve()
+            data = decoder.extract_cper_data(str(path)) if path.exists() else None
+            header = data.get("header", {}) if data else {}
+            timestamp = self._cper_timestamp(path, header)
+            is_action = any(
+                isinstance(section, dict)
+                and "PlatformActionEvent" in section
+                for section in (data or {}).get("sections", [])
+            )
+            record_id = header.get("recordID", -1)
+            try:
+                record_id = int(record_id, 0) if isinstance(
+                    record_id, str) else int(record_id)
+            except (TypeError, ValueError):
+                record_id = -1
+            entries.append((
+                timestamp,
+                int(is_action),
+                record_id,
+                path.name,
+                str(path),
+            ))
+        entries.sort(reverse=True)
+        return [entry[-1] for entry in entries]
 
     def _process_cper(self, cper_path: Path):
         """Route a single CPER to its analyzer and handle the outputs."""

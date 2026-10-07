@@ -78,6 +78,7 @@ injector-contoso.py inject \
     --error "Corrected Memory ECC Error" \
     --platform-id 990f8820-bd4d-5064-58cc-961a053dea79 \
     --partition-id 22222222-3333-4444-5555-666666666666 \
+    --endpoint-config ../../../../mockups/ras_gen1/ras_endpoint_config.json \
     --set section.errorAddress=0x6942759454E18F7B \
     --set section.additional.dimm=1 \
     --out mem.cpad
@@ -85,11 +86,12 @@ injector-contoso.py inject \
 
 ### The Injection Spec
 
-The injection spec is a single JSON object with three blocks: `cpad` (targeting and
-CPAD/CPER header), `error` (the human-friendly selector), and `section` (every register
-logged in the CPER section body). `template` emits all three fully expanded with
-schema-valid defaults; `inject` validates the edited spec against the same section-type
-schema before emitting the CPAD.
+The injection spec is a single JSON object with three blocks: `cpad` (targeting
+and CPAD/CPER header), `error` (the human-friendly selector), and `section`
+(error location and evidence). For DRAM errors, installed-DIMM inventory is not
+author input. The `inject` command requires `--endpoint-config`, derives the
+FRU and binary inventory fields from that file, and rejects legacy specs that
+try to supply endpoint-owned values.
 
 #### Block 1 — `cpad`: targeting and CPAD/CPER header
 
@@ -100,11 +102,13 @@ This block carries the CPAD header fields, including the endpoint-targeting iden
     "platformID":  "990f8820-bd4d-5064-58cc-961a053dea79",  // target SoC
     "partitionID": "22222222-3333-4444-5555-666666666666",  // target partition/socket
     "revision":    { "major": 1, "minor": 0 },              // CPAD/CPER format revision
-    "urgency":     false,                                    // action urgency hint
-    "fruID":       "75824856-bd36-2cc8-61f4-39bb3276da2a",  // FRU identifier (GUID)
-    "fruText":     "DIMM A1"                                 // human-readable FRU
+    "urgency":     false                                     // action urgency hint
 }
 ```
+
+`platformID` and `partitionID` are explicit routing coordinates and remain
+author inputs. They must match the selected endpoint configuration. The target
+DIMM's `fruID` and `fruText` are derived from its memory coordinates.
 
 The action is always `0x0006` ("Inject Error") and is stamped by the tool, not the spec.
 
@@ -150,10 +154,11 @@ For this demo, all injected errors are Spoofed, occur immediately with no trigge
 conditions, and are injected once (`injected: true`, `occurrence: "immediate"`, single
 emit). These defaults are applied automatically.
 
-#### Block 3 — `section`: every register logged in the CPER section body
+#### Block 3 — `section`: injected error location and evidence
 
-`template` renders this block fully expanded and schema-driven per section type, so the
-user only overrides the fields they care about.
+`template` renders editable error fields and omits endpoint-owned DRAM
+inventory. The injector materializes those binary fields from
+`--endpoint-config`.
 
 **CPU Core example** (section type `f63f509b-8995-4efd-9144-4b7fed6c4fd3`):
 
@@ -178,9 +183,8 @@ user only overrides the fields they care about.
 }
 ```
 
-**Memory Controller example** (section type `e01ce992-d080-43f4-8a2c-df8a9d81eb4e`,
-Bank 0 "DRAM Errors") — the tool renders the full additional-register set including the
-beat mask:
+**Memory Controller example** (section type
+`e01ce992-d080-43f4-8a2c-df8a9d81eb4e`, Bank 0 "DRAM Errors"):
 
 ```jsonc
 "section": {
@@ -194,15 +198,7 @@ beat mask:
         "device": 3, "bank_group": 2, "bank": 3,
         "row": 1234, "column": 567,
         "beat_mask": [0, 0, 0, 0],
-        "serial_number": "SN123456789",
-        "part_number": "PN-1234",
-        "module_manufacturer_id": ["0x04", "0xD5"],
-        "dram_manufacturer_id": ["0x80", "0x2C"],
-        "spd_temperature": null,
-        "total_memory_bytes": "0x0",
-        "memory_repair_capabilities": 0,
-        "reserved": 0,
-        "repairs": []
+        "spd_temperature": null
     },
     "beatErrors": [
         { "dram": 3, "dq": 2, "beats": "0,5,15" }   // failing beats (see below)
@@ -210,18 +206,9 @@ beat mask:
 }
 ```
 
-`serial_number` and `part_number` are Contoso NUL-terminated ASCII fields with
-maximum content lengths of 18 and 24 characters. The manufacturer IDs instead
-use the exact two-byte JEP106 representation used by DDR5 SPD. In each ID, the
-first byte contains the continuation count and odd parity; the second contains
-the final manufacturer code including odd parity. Values are listed in SPD byte
-order, not as a host-endian integer.
-
-Templates default both manufacturer IDs to Microsoft (`["0x04", "0xD5"]`). The
-analyzer decodes `80 2C` as Micron, `80 AD` as SK Hynix, `80 CE` as Samsung,
-and `04 D5` as Microsoft. Other valid IDs are displayed as `Unknown`; malformed
-IDs are displayed as `Invalid`. The module ID identifies the DIMM assembler,
-while the DRAM ID identifies the vendor that fabricated the DRAM devices.
+The endpoint configuration supplies serial and part numbers, module and DRAM
+manufacturer IDs, total memory, memory organization, repair capabilities, and
+repair history. Supplying any of those fields in an authoring spec is an error.
 
 `spd_temperature` is an optional signed integer in degrees Celsius. Its default
 value is `null`, which tells the simulated endpoint to use the target DIMM's
@@ -263,6 +250,9 @@ The same thing on the command line, with a repeatable `--beat` flag (fields sepa
 injector-contoso.py inject \
     --section "Memory Controller - First Generation" \
     --error "Corrected Memory ECC Error" \
+    --platform-id 990f8820-bd4d-5064-58cc-961a053dea79 \
+    --partition-id 22222222-3333-4444-5555-666666666666 \
+    --endpoint-config ../../../../mockups/ras_gen1/ras_endpoint_config.json \
     --beat "dram=3;dq=2;beats=0,5,15" \
     --beat "dram=3;dq=all;beats=4-6" \
     --out beats.cpad
@@ -301,6 +291,12 @@ organizations directly or read `memory_organization` from an endpoint
 configuration. A DRAM injection spec uses `section.addressSource` to select
 hierarchy, physical, or consistency-checking (`both`) authoring.
 
+- `memory`: hierarchy coordinates are authoritative and generate the physical
+  address with endpoint configuration.
+- `physical`: the physical address is authoritative and is decoded into
+  hierarchy coordinates.
+- `both`: the command rejects the spec unless both representations agree.
+
 See [Contoso Demo Memory Address Translation](contoso-memory-address-translation.md).
 
 - Use the `contoso-cper-sections.md` file for the list of errors that are supported.
@@ -325,6 +321,9 @@ All examples run from `Demos/RasApi/analyzers/contoso/` (prefix with `python` as
 injector-contoso.py inject \
     --section "Memory Controller - First Generation" \
     --error "Corrected Memory ECC Error" \
+    --platform-id 990f8820-bd4d-5064-58cc-961a053dea79 \
+    --partition-id 22222222-3333-4444-5555-666666666666 \
+    --endpoint-config ../../../../mockups/ras_gen1/ras_endpoint_config.json \
     --set section.additional.dimm=1 \
     --set section.additional.row=1234 \
     --set section.additional.column=567 \
@@ -348,6 +347,9 @@ injector-contoso.py inject \
 injector-contoso.py inject \
     --section "Memory Controller - First Generation" \
     --error "Corrected Memory ECC Error" \
+    --platform-id 990f8820-bd4d-5064-58cc-961a053dea79 \
+    --partition-id 22222222-3333-4444-5555-666666666666 \
+    --endpoint-config ../../../../mockups/ras_gen1/ras_endpoint_config.json \
     --beat "dram=3;dq=2;beats=0,5,15" \
     --beat "dram=7;dq=all;beats=4" \
     --out beats.cpad
@@ -360,8 +362,10 @@ injector-contoso.py template \
     --section "Memory Controller - First Generation" \
     --error "Corrected Memory ECC Error" \
     --out mem.inject.json
-# edit mem.inject.json (DRAM coordinates, beatErrors, FRU text, revision, ...)
-injector-contoso.py inject --spec mem.inject.json --out mem.cpad
+# edit mem.inject.json (target IDs, DRAM coordinates, beatErrors, revision, ...)
+injector-contoso.py inject --spec mem.inject.json \
+    --endpoint-config ../../../../mockups/ras_gen1/ras_endpoint_config.json \
+    --out mem.cpad
 ```
 
 **5. List injectable errors, and decode a CPAD back to a spec:**

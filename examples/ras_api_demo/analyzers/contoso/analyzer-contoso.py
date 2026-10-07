@@ -86,7 +86,7 @@ from memory_events import (       # noqa: E402
     events_for_manufacturer,
     newest_manufacturer_ids,
 )
-from memory_shims import ShimContractError  # noqa: E402
+from memory_shims import ShimContractError, discover_memory_shims  # noqa: E402
 from memory_address_translation import (  # noqa: E402
     MemoryAddressConfiguration,
     MemoryOrganization,
@@ -693,14 +693,20 @@ class ContosoAnalyzer:
         return outputs, errors
 
     def default_memory_events(self, shim_result):
-        """Return newest DRAM errors not successfully owned by a shim."""
+        """Return newest DRAM errors whose manufacturer has no loaded vendor shim.
+
+        A manufacturer with a registered shim owns its errors even when that
+        shim fails: the failure is reported, but the default Contoso analysis
+        never substitutes its own recommendation for the vendor's.
+        """
+        owned = (shim_result['handled_manufacturers']
+                 | shim_result.get('failed_manufacturers', set()))
         return [
             event for event in shim_result['events']
             if event['event_type'] == 'memory_error'
             and event['source']['is_newest']
             and self._memory_location_from_event(event) is not None
-            and tuple(event['dram_manufacturer_id']) not in
-            shim_result['handled_manufacturers']
+            and tuple(event['dram_manufacturer_id']) not in owned
         ]
 
     # ─── CPER Data Extraction ───────────────────────────────────────────
@@ -1941,6 +1947,23 @@ class ContosoAnalyzer:
 # Plugin protocol — discovery and orchestrator-driven run modes
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _memory_analyzer_descriptors() -> List[Dict[str, Any]]:
+    """Describe the memory-vendor shims this analyzer routes DRAM errors to."""
+    shims, _errors = discover_memory_shims(SCRIPT_DIR / "memory_shims")
+    unique = {id(shim): shim for shim in shims.values()}.values()
+    return [
+        {
+            "name": shim.name,
+            "version": shim.version,
+            "dram_manufacturer_ids": [
+                f"{vendor[0]:02X} {vendor[1]:02X}"
+                for vendor in shim.manufacturer_ids
+            ],
+        }
+        for shim in sorted(unique, key=lambda shim: shim.name)
+    ]
+
+
 def emit_discovery() -> int:
     """Print this analyzer's discovery descriptor as JSON and exit."""
     descriptor = {
@@ -1948,6 +1971,7 @@ def emit_discovery() -> int:
         "analyzer_version": ANALYZER_VERSION,
         "creator_ids": CREATOR_IDS,
         "prior_days": PRIOR_DAYS,
+        "memory_analyzers": _memory_analyzer_descriptors(),
     }
     print(json.dumps(descriptor))
     return 0
@@ -2069,6 +2093,7 @@ def run_analysis(input_file: str) -> int:
     )
     shim_result = memory_result["shim_result"] if memory_result else {
         "events": [], "invocations": [], "handled_manufacturers": set(),
+        "failed_manufacturers": set(),
     }
     shim_cpad_paths = memory_result["shim_cpads"] if memory_result else []
     shim_cpad_filenames = [Path(path).name for path in shim_cpad_paths]
@@ -2106,10 +2131,21 @@ def run_analysis(input_file: str) -> int:
                       f"{invocation['cpad_count']} CPAD(s)")
             else:
                 print(f"{IND}   ⚠️  {invocation['shim']} failed: "
-                      f"{invocation['error']} — using default analysis when applicable")
+                      f"{invocation['error']}")
         for _vendor_id, error in memory_result["emission_errors"]:
             print(f"{IND}   ⚠️  Memory shim CPAD emission failed: {error}")
 
+    # A DIMM whose manufacturer has a vendor shim is owned by that shim: the
+    # default Contoso row check and recommendation are not shown for it.
+    vendor_owned = bool(
+        memory_result is not None
+        and not memory_result["default_events"]
+        and (shim_result["handled_manufacturers"]
+             or shim_result["failed_manufacturers"]))
+
+    action_only = bool(
+        memory_result is not None and memory_result.get("action_only"))
+    if memory_result is not None and not action_only and not vendor_owned:
         print(f"\n{IND}   🔁 DRAM device-row failure check")
         if dram_row_failure_detected:
             print(f"{IND}      A prior CPER recorded a different column on this DRAM device row.")
@@ -2125,20 +2161,46 @@ def run_analysis(input_file: str) -> int:
     sppr_path = default_cpad_paths[0] if default_cpad_paths else None
     sppr_filename = Path(sppr_path).name if sppr_path else None
     # Recommendation block — explains the decision, error location, and next step.
-    analyzer.print_batch_recommendation(
-        [{
-            'cper_data': newest_data,
-            'sppr_created': sppr_path is not None,
-            'sppr_filename': sppr_filename,
-            'dram_row_failure_detected': dram_row_failure_detected,
-            'memory_location': memory_location,
-        }],
-        successful=1,
-        created_sppr_files=default_cpad_filenames,
-        vendor_cpad_files=shim_cpad_filenames,
-        cpad_generation_failed=generation_failed,
-        indent=IND,
-    )
+    if action_only:
+        analyzer.print_batch_recommendation(
+            [{
+                'cper_data': newest_data,
+                'sppr_created': False,
+                'sppr_filename': None,
+                'dram_row_failure_detected': False,
+                'memory_location': None,
+            }],
+            successful=1,
+            vendor_cpad_files=shim_cpad_filenames,
+            cpad_generation_failed=generation_failed,
+            indent=IND,
+        )
+    elif vendor_owned:
+        if shim_result["failed_manufacturers"]:
+            print(
+                f"\n{IND}   ❌ Memory-vendor analysis failed; "
+                "no automatic remediation was proposed.")
+        else:
+            print(
+                f"\n{IND}   💡 Recommendation owned by the "
+                "memory-vendor analyzer (see above).")
+            for filename in shim_cpad_filenames:
+                print(f"{IND}      - {filename}")
+    else:
+        analyzer.print_batch_recommendation(
+            [{
+                'cper_data': newest_data,
+                'sppr_created': sppr_path is not None,
+                'sppr_filename': sppr_filename,
+                'dram_row_failure_detected': dram_row_failure_detected,
+                'memory_location': memory_location,
+            }],
+            successful=1,
+            created_sppr_files=default_cpad_filenames,
+            vendor_cpad_files=shim_cpad_filenames,
+            cpad_generation_failed=generation_failed,
+            indent=IND,
+        )
 
     result = {
         "analyzer_name": ANALYZER_NAME,

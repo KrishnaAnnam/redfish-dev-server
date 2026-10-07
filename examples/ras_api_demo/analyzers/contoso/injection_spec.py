@@ -8,10 +8,12 @@ three blocks (see ``error-injector-contoso.md``):
     cpad     — CPAD targeting / header fields (platformID, partitionID, ...).
                CreatorID is NOT here — it is always the Contoso CreatorID.
     error    — the human-friendly selector (section type, bank, error name).
-    section  — every register logged in the CPER section body.
+    section  — injected error location and evidence. For DRAM errors, the
+               endpoint configuration supplies installed-DIMM inventory.
 
-This module builds a fully-defaulted template for a chosen error, loads/validates
-an edited spec, and resolves a spec into the low-level values the encoder needs.
+This module builds an editable template for a chosen error, loads and validates
+an edited spec, materializes endpoint-owned binary fields, and resolves the
+result into the low-level values the encoder needs.
 """
 
 import json
@@ -30,6 +32,9 @@ from src.plugins.ras.memory_address_translation import (  # noqa: E402
     memory_address_to_physical_address,
     physical_address_to_memory_address,
 )
+from src.plugins.ras.memory_config import (  # noqa: E402
+    RASEndpointConfiguration,
+)
 
 from contoso_catalog import (
     SECTION_TYPES,
@@ -45,6 +50,19 @@ from contoso_catalog import (
 DEFAULT_PLATFORM_ID = "990f8820-bd4d-5064-58cc-961a053dea79"
 DEFAULT_PARTITION_ID = "22222222-3333-4444-5555-666666666666"
 DEFAULT_FRU_ID = "75824856-bd36-2cc8-61f4-39bb3276da2a"
+MEMORY_SECTION = "Memory Controller - First Generation"
+DRAM_BANK = "DRAM Errors"
+ENDPOINT_OWNED_MEMORY_FIELDS = frozenset({
+    "serial_number",
+    "part_number",
+    "module_manufacturer_id",
+    "dram_manufacturer_id",
+    "total_memory_bytes",
+    "memory_organization",
+    "memory_repair_capabilities",
+    "reserved",
+    "repairs",
+})
 
 
 # ── Value parsing ───────────────────────────────────────────────────────────
@@ -153,10 +171,12 @@ def _find_bank_for_error(section, error_name):
     raise KeyError(f"Unknown error '{error_name}'. Known: {known}")
 
 
-def _default_additional(fields):
+def _default_additional(fields, *, omit_endpoint_owned=False):
     """Build a defaulted additional-register dict that shows each field's shape."""
     out = {}
     for name, code in fields:
+        if omit_endpoint_owned and name in ENDPOINT_OWNED_MEMORY_FIELDS:
+            continue
         if name == "spd_temperature":
             out[name] = None
         elif isinstance(code, tuple) and code[0] == "array":
@@ -186,9 +206,11 @@ def _default_additional(fields):
 
 
 def build_template(section_name, error_name):
-    """Return a fully-populated injection spec for the chosen error."""
+    """Return an editable injection spec for the chosen error."""
     section = resolve_section(section_name)
     bank = _find_bank_for_error(section, error_name)
+    endpoint_owned_memory = (
+        section_name == MEMORY_SECTION and bank["name"] == DRAM_BANK)
     fru_text = "CPU Core 3" if section["category"] == "core" else "DIMM A1"
 
     section_block = {
@@ -200,24 +222,27 @@ def build_template(section_name, error_name):
         "errorAddress": "0x0",
         "misc0": {"injected": True, "ce_count": 0},
         "misc1": "0x0",
-        "additional": _default_additional(bank["additional"]),
+        "additional": _default_additional(
+            bank["additional"],
+            omit_endpoint_owned=endpoint_owned_memory),
     }
-    for name in ("dram_manufacturer_id", "module_manufacturer_id"):
-        if name in section_block["additional"]:
-            section_block["additional"][name] = ["0x04", "0xD5"]
     # DRAM sections can author beat errors declaratively (see compile_beat_errors).
     if any(name == "beat_mask" for name, _ in bank["additional"]):
         section_block["beatErrors"] = []
 
-    return {
-        "cpad": {
-            "platformID": DEFAULT_PLATFORM_ID,
-            "partitionID": DEFAULT_PARTITION_ID,
-            "revision": {"major": 1, "minor": 0},
-            "urgency": False,
+    cpad = {
+        "platformID": DEFAULT_PLATFORM_ID,
+        "partitionID": DEFAULT_PARTITION_ID,
+        "revision": {"major": 1, "minor": 0},
+        "urgency": False,
+    }
+    if not endpoint_owned_memory:
+        cpad.update({
             "fruID": DEFAULT_FRU_ID,
             "fruText": fru_text,
-        },
+        })
+    return {
+        "cpad": cpad,
         "error": {
             "sectionType": section_name,
             "errorBank": bank["name"],
@@ -230,8 +255,28 @@ def build_template(section_name, error_name):
     }
 
 
-def _memory_address_configuration(spec):
-    organization = spec["section"]["additional"].get("memory_organization")
+def _is_dram_memory_injection(spec):
+    error = spec.get("error", {})
+    return (
+        error.get("sectionType") == MEMORY_SECTION
+        and error.get("errorBank") == DRAM_BANK
+    )
+
+
+def _memory_address_configuration(spec, endpoint_configuration=None):
+    if endpoint_configuration is not None:
+        partition_id = spec.get("cpad", {}).get("partitionID")
+        endpoint = endpoint_configuration.endpoint_by_partition(partition_id)
+        if endpoint.memory is None:
+            raise ValueError(
+                f"RAS endpoint {partition_id} has no memory configuration")
+        return endpoint.memory.address_configuration
+    organization = spec["section"]["additional"].get(
+        "memory_organization", {
+            "version": 1,
+            "address_translation": "contoso-simple-v1",
+            "dimm_size_gib": 64,
+        })
     if not isinstance(organization, dict):
         raise ValueError(
             "section.additional.memory_organization must be an object")
@@ -242,7 +287,7 @@ def _memory_address_configuration(spec):
     ))
 
 
-def synchronize_memory_address(spec):
+def synchronize_memory_address(spec, endpoint_configuration=None):
     """Reconcile physical and hierarchy addresses for a DRAM error spec."""
     error = spec.get("error", {})
     if (error.get("sectionType") != "Memory Controller - First Generation"
@@ -253,7 +298,8 @@ def synchronize_memory_address(spec):
     if source not in {"memory", "physical", "both"}:
         raise ValueError(
             "section.addressSource must be memory, physical, or both")
-    configuration = _memory_address_configuration(spec)
+    configuration = _memory_address_configuration(
+        spec, endpoint_configuration)
     subcomponent = section["subcomponent"]
     additional = section["additional"]
     hierarchy = MemoryChannelAddress(
@@ -301,6 +347,74 @@ def synchronize_memory_address(spec):
     return spec
 
 
+def load_endpoint_configuration(path):
+    """Load the authoritative endpoint inventory used by a memory injection."""
+    return RASEndpointConfiguration.load(path)
+
+
+def _configured_memory_target(spec, endpoint_configuration):
+    cpad = spec["cpad"]
+    platform_id = str(cpad.get("platformID", "")).strip()
+    partition_id = str(cpad.get("partitionID", "")).strip()
+    if platform_id != endpoint_configuration.platform_id:
+        raise ValueError(
+            f"cpad.platformID {platform_id} does not match endpoint "
+            f"configuration platform_id {endpoint_configuration.platform_id}")
+    endpoint = endpoint_configuration.endpoint_by_partition(partition_id)
+    if endpoint.memory is None:
+        raise ValueError(
+            f"RAS endpoint {partition_id} has no memory configuration")
+    resolved = synchronize_memory_address(
+        copy.deepcopy(spec), endpoint_configuration)
+    section = resolved["section"]
+    subcomponent = section["subcomponent"]
+    additional = section["additional"]
+    dimm = endpoint.memory.get_dimm(
+        as_int(subcomponent.get("chiplet", 0)),
+        as_int(subcomponent.get("controller", 0)),
+        as_int(additional.get("channel", 0)),
+        as_int(additional.get("dimm", 0)),
+    )
+    return resolved, endpoint, dimm
+
+
+def materialize_endpoint_memory_fields(spec, endpoint_configuration):
+    """Add endpoint-owned binary fields after validating the authoring spec."""
+    if not _is_dram_memory_injection(spec):
+        return copy.deepcopy(spec)
+    resolved, endpoint, dimm = _configured_memory_target(
+        spec, endpoint_configuration)
+    resolved["cpad"]["fruID"] = dimm.fru_id
+    resolved["cpad"]["fruText"] = dimm.fru_text
+    additional = resolved["section"]["additional"]
+    additional.update({
+        "serial_number": dimm.serial_number,
+        "part_number": dimm.part_number,
+        "module_manufacturer_id": list(dimm.module_manufacturer_id),
+        "dram_manufacturer_id": list(dimm.dram_manufacturer_id),
+        "total_memory_bytes": endpoint.memory.total_memory_bytes,
+        "memory_organization": endpoint.memory.organization.to_dict(),
+        "memory_repair_capabilities":
+            endpoint.memory_repair_capabilities.bitfield,
+        "reserved": 0,
+        "repairs": [],
+    })
+    return resolved
+
+
+def to_authoring_spec(spec):
+    """Remove endpoint-owned fields when reconstructing an editable spec."""
+    result = copy.deepcopy(spec)
+    if not _is_dram_memory_injection(result):
+        return result
+    result.get("cpad", {}).pop("fruID", None)
+    result.get("cpad", {}).pop("fruText", None)
+    additional = result.get("section", {}).get("additional", {})
+    for name in ENDPOINT_OWNED_MEMORY_FIELDS:
+        additional.pop(name, None)
+    return result
+
+
 # ── Load / validate ─────────────────────────────────────────────────────────
 
 def load_spec(path):
@@ -309,7 +423,7 @@ def load_spec(path):
         return json.load(f)
 
 
-def validate_spec(spec):
+def validate_spec(spec, endpoint_configuration=None):
     """Validate a spec against the catalog and the demo rules.
 
     Returns a list of human-readable problems (empty list means valid).
@@ -323,23 +437,45 @@ def validate_spec(spec):
         return problems
 
     error = spec["error"]
-    try:
-        synchronize_memory_address(copy.deepcopy(spec))
-    except (KeyError, ValueError, TypeError) as exc:
-        problems.append(str(exc))
     cpad = spec["cpad"]
-    fru_id = cpad.get("fruID")
-    fru_text = cpad.get("fruText")
-    try:
-        parsed_fru = uuid.UUID(str(fru_id).strip().strip("{}"))
-        if parsed_fru.int == 0:
-            problems.append("cpad.fruID must not be the zero GUID.")
-    except (ValueError, AttributeError):
-        problems.append("cpad.fruID must be a valid GUID.")
-    if not isinstance(fru_text, str) or not fru_text.strip():
-        problems.append("cpad.fruText must be a non-empty string.")
-    elif len(fru_text.strip().encode("utf-8")) > 19:
-        problems.append("cpad.fruText must fit in 19 UTF-8 bytes.")
+    endpoint_owned_memory = _is_dram_memory_injection(spec)
+    if endpoint_owned_memory:
+        for field in ("fruID", "fruText"):
+            if field in cpad:
+                problems.append(
+                    f"cpad.{field} is endpoint-owned; select the DIMM with "
+                    "memory coordinates and --endpoint-config")
+        additional = spec.get("section", {}).get("additional", {})
+        for field in sorted(ENDPOINT_OWNED_MEMORY_FIELDS):
+            if field in additional:
+                problems.append(
+                    f"section.additional.{field} is endpoint-owned and is "
+                    "not accepted in an injection specification")
+        if endpoint_configuration is None:
+            problems.append(
+                "DRAM Error injection requires --endpoint-config")
+        else:
+            try:
+                _configured_memory_target(spec, endpoint_configuration)
+            except (KeyError, ValueError, TypeError) as exc:
+                problems.append(str(exc))
+    else:
+        try:
+            synchronize_memory_address(copy.deepcopy(spec))
+        except (KeyError, ValueError, TypeError) as exc:
+            problems.append(str(exc))
+        fru_id = cpad.get("fruID")
+        fru_text = cpad.get("fruText")
+        try:
+            parsed_fru = uuid.UUID(str(fru_id).strip().strip("{}"))
+            if parsed_fru.int == 0:
+                problems.append("cpad.fruID must not be the zero GUID.")
+        except (ValueError, AttributeError):
+            problems.append("cpad.fruID must be a valid GUID.")
+        if not isinstance(fru_text, str) or not fru_text.strip():
+            problems.append("cpad.fruText must be a non-empty string.")
+        elif len(fru_text.strip().encode("utf-8")) > 19:
+            problems.append("cpad.fruText must fit in 19 UTF-8 bytes.")
 
     section_name = error.get("sectionType")
     bank_name = error.get("errorBank")
@@ -372,16 +508,6 @@ def validate_spec(spec):
     except (ValueError, TypeError):
         problems.append("section.additional.reserved must be zero.")
 
-    capabilities = spec.get("section", {}).get("additional", {}).get(
-        "memory_repair_capabilities", 0)
-    try:
-        if as_int(capabilities) & ~0x07:
-            problems.append(
-                "section.additional.memory_repair_capabilities has reserved bits set.")
-    except (ValueError, TypeError):
-        problems.append(
-            "section.additional.memory_repair_capabilities must be a byte.")
-
     spd_temperature = spec.get("section", {}).get("additional", {}).get(
         "spd_temperature")
     if spd_temperature is not None:
@@ -395,7 +521,7 @@ def validate_spec(spec):
             problems.append(
                 "section.additional.spd_temperature must be null or an integer.")
 
-    if bank:
+    if bank and not endpoint_owned_memory:
         additional = spec.get("section", {}).get("additional", {})
         for name, code in bank["additional"]:
             if not (isinstance(code, tuple) and code[0] == "string"):
@@ -462,9 +588,9 @@ def validate_spec(spec):
         problems.append("All beatErrors entries must select the same DRAM.")
 
     repairs = spec.get("section", {}).get("additional", {}).get("repairs", [])
-    if not isinstance(repairs, list):
+    if not endpoint_owned_memory and not isinstance(repairs, list):
         problems.append("section.additional.repairs must be a list.")
-    else:
+    elif not endpoint_owned_memory:
         seen_repairs = set()
         required = ("subchannel", "rank", "device", "bank_group", "bank", "count")
         for index, repair in enumerate(repairs):
@@ -522,6 +648,14 @@ def to_encoder_fields(spec):
             default = []
         elif isinstance(code, tuple) and code[0] == "string":
             default = ""
+        elif isinstance(code, tuple) and code[0] == "bytes":
+            default = [0] * code[1]
+        elif isinstance(code, tuple) and code[0] == "memory_organization":
+            default = {
+                "version": 1,
+                "address_translation": "contoso-simple-v1",
+                "dimm_size_gib": 64,
+            }
         else:
             default = 0
         value = supplied.get(name, default)

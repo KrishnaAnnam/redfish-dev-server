@@ -412,3 +412,6 @@ examples/run_ras_parity_demo.sh
 
 # libcper - fetched on demand by build_libcper.sh
 src/plugins/ras/libcper/
+
+# Samsung DFA analysis module is distributed separately by Samsung
+examples/ras_api_demo/analyzers/contoso/memory_shims/samsung_dfa.py

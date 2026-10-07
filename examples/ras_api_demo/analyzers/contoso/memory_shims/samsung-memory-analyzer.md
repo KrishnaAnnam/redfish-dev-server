@@ -6,6 +6,34 @@ action requests.
 
 Implementation: [`analyzer_samsung.py`](analyzer_samsung.py)
 
+## Running the Samsung demo
+
+The Samsung demo is a separate pipeline; the generic `run_ras_demo.sh` /
+`ras_api_plugin_demo.py` flow is unchanged and does not use any Samsung file.
+
+```bash
+bash examples/ras_api_demo/run_samsung_ras_demo.sh
+```
+
+or manually:
+
+```bash
+python servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000 \
+    --endpoint-config ras_endpoint_config_samsung.json
+python examples/ras_api_demo/ras_api_samsung_demo.py
+```
+
+- `mockups/ras_gen1/ras_endpoint_config_samsung.json` configures chiplet 0,
+  controller 0, channel 0, dimm 1 with DRAM manufacturer ID `80 CE`.
+- Errors are injected from
+  `cpad_storage/contososamsungMemErrorSpoof.inject.json`.
+- Discovery lists the loaded memory-vendor analyzers (Samsung demo only).
+- `samsung_dfa.py` must be present next to this shim and define callable
+  `analyze(records)`. The Samsung-specific demo fails at startup if this
+  dependency is unavailable. The generic demo may use default Contoso analysis
+  when no Samsung shim is registered. If a registered shim fails at runtime,
+  no Contoso remediation is substituted and no CPAD is emitted that cycle.
+
 ## Analyzer call contract
 
 The shim calls the Samsung analysis seam as:
@@ -14,10 +42,12 @@ The shim calls the Samsung analysis seam as:
 result = analyze(records)
 ```
 
-`records` is a newest-first list containing `memory_error` and
-`platform_action` records. A Platform Action record may therefore appear before
-the older memory error that caused the action. No configuration object is
-passed across the adapter interface.
+`records` is a newest-first list containing all relevant `memory_error` and
+correlated `platform_action` records inside the current lookback window. The
+analyzer is stateless; the framework rebuilds this list for every invocation.
+A Platform Action record may therefore appear before the older memory error
+that caused the action. No configuration object is passed across the adapter
+interface.
 
 The number of spare rows per bank is Samsung proprietary data owned by
 `analyze()`. It is not read from the Contoso CPER, stored in the adapter, or
@@ -43,7 +73,7 @@ error:
     "platform_id": "990f8820-bd4d-5064-58cc-961a053dea79",
     "partition_id": "22222222-3333-4444-5555-666666666666",
     "creator_id": "11111111-2222-3333-4444-555555555555",
-    "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+    "fru_id": "00000000-0000-0000-0000-000000000002",
     "fru_text": "DIMM A1",
     "error": {
         "bank": "DRAM Errors",
@@ -168,11 +198,11 @@ rejects a memory-error record unless `dimm.dram_manufacturer_id` is
 
 Platform Action Events tell the analyzer the status of a previously sent CPAD.
 The following example shows every field passed for an action result correlated
-with an older memory error.  This correlation with an older error is necessary
-because Platform Action Events do not have information about the DRAM.  This
-means that the only way to steer a Platform Action Event to an memory-vendor-
-analyzer is to look at the last CPER from the host that points to the same
-FRUID and Fru Text.
+with older memory errors. Platform Action Events do not directly identify the
+DRAM manufacturer, so the framework matches exact FRU ID and FRU text against
+the lookback window. Every unambiguous action-result section is tagged with the
+matched manufacturer and fanned out to that vendor. All relevant prior Samsung
+action results and memory errors are passed to the DFA on every invocation.
 
 ```python
 {
@@ -189,7 +219,7 @@ FRUID and Fru Text.
     "platform_id": "990f8820-bd4d-5064-58cc-961a053dea79",
     "partition_id": "22222222-3333-4444-5555-666666666666",
     "creator_id": "11111111-2222-3333-4444-555555555555",
-    "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+    "fru_id": "00000000-0000-0000-0000-000000000002",
     "fru_text": "DIMM A1",
     "action": {
         "action_id": "0x8001",
@@ -287,6 +317,30 @@ fields:
 currently treats `fault` and `advisories` as Samsung-owned diagnostic output;
 only `cpads[].actions` are translated into grouped Contoso section requests.
 
+### Multi-DIMM input
+
+`records` may contain history for more than one physical DIMM — e.g. a 30 Day
+lookback window on a host with several populated slots. `analyze()` may
+consider every DIMM present, not only the one that triggered this call:
+
+- `fault` still describes only the *triggering* DIMM (the newest record's
+  own DIMM). The top-level shape is unchanged — one object or `None`.
+- `cpads` may contain action requests for DIMMs other than the one
+  described by `fault`. This requires no adapter change: a CPAD section's
+  `source` only has to identify some `memory_error` record in the current
+  input window (see `memory-vendor-analyzer-shim.md`'s "Event Source
+  Reference"), not one belonging to the DIMM `fault` describes.
+- `advisories` may include a one-line note about any other DIMM `analyze()`
+  looked at, and may also flag when two or more DIMMs' failures appear
+  related to each other rather than being independent. These are
+  diagnostic text only, as with any other advisory.
+
+### Console output
+
+`analyzer_samsung.py` prints a summary of `fault`, `advisories`, and the
+CPAD proposals it builds to stdout as it runs, for visibility during the
+guided demo. This is operational logging, not part of the return contract.
+
 Each CPAD proposal contains one or more actions:
 
 ```python
@@ -309,7 +363,7 @@ Every action object must contain exactly:
     "confidence": 95,
     "urgency": True,
     "parameters": {
-        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_id": "00000000-0000-0000-0000-000000000002",
         "fru_text": "DIMM A1",
     },
     "reason": "Repair budget exhausted",
@@ -367,7 +421,7 @@ The action rules are:
     "confidence": 91,
     "urgency": False,
     "parameters": {
-        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_id": "00000000-0000-0000-0000-000000000002",
         "fru_text": "DIMM A1",
     },
     "reason": "The fault pattern indicates a DIMM seating problem",
@@ -386,7 +440,7 @@ The action rules are:
     "confidence": 92,
     "urgency": False,
     "parameters": {
-        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_id": "00000000-0000-0000-0000-000000000002",
         "fru_text": "DIMM A1",
     },
     "reason": "Move the DIMM to isolate the failing component",
@@ -405,7 +459,7 @@ The action rules are:
     "confidence": 95,
     "urgency": True,
     "parameters": {
-        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_id": "00000000-0000-0000-0000-000000000002",
         "fru_text": "DIMM A1",
     },
     "reason": "The available repair budget is exhausted",
@@ -431,7 +485,7 @@ Contoso endpoint.
     "confidence": 94,
     "urgency": False,
     "parameters": {
-        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_id": "00000000-0000-0000-0000-000000000002",
         "fru_text": "DIMM A1",
         "ppr_type": 0x01,
         "chiplet": 0,
@@ -484,7 +538,7 @@ An action may identify individual pages:
     "confidence": 88,
     "urgency": False,
     "parameters": {
-        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_id": "00000000-0000-0000-0000-000000000002",
         "fru_text": "DIMM A1",
         "pages": [
             0x0000000012345000,
@@ -507,7 +561,7 @@ It may identify ranges:
     "confidence": 89,
     "urgency": True,
     "parameters": {
-        "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+        "fru_id": "00000000-0000-0000-0000-000000000002",
         "fru_text": "DIMM A1",
         "page_ranges": [
             {
@@ -524,7 +578,7 @@ Or it may use both forms:
 
 ```python
 "parameters": {
-    "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+    "fru_id": "00000000-0000-0000-0000-000000000002",
     "fru_text": "DIMM A1",
     "pages": [
         0x0000000012345000,
@@ -590,7 +644,7 @@ For example, the Samsung `replace_dimm` action above becomes:
         "confidence": 95,
         "urgency": True,
         "parameters": {
-            "fru_id": "75824856-bd36-2cc8-61f4-39bb3276da2a",
+            "fru_id": "00000000-0000-0000-0000-000000000002",
             "fru_text": "DIMM A1",
         },
     }],
@@ -608,19 +662,23 @@ endpoint does not use either field when executing the action.
 
 ## Analysis seam
 
-The current `analyze(records)` implementation is intentionally
-conservative:
+`analyzer_samsung.py`'s `analyze(records)` delegates to the real DFA engine in
+`samsung_dfa.py`, a Samsung-proprietary module, per this document's
+`{"fault", "cpads", "advisories"}` contract.
 
-```python
-{
-    "fault": None,
-    "cpads": [],
-    "advisories": [],
-}
-```
+`samsung_dfa.py` is Samsung intellectual property, available to customers
+under an NDA and software license agreement — contact Samsung to obtain it.
 
-Samsung-specific diagnostic logic or an external Samsung tool can replace that
-function without changing the adapter or Contoso action request contract.
+
+With it in place, Samsung DRAM gets Samsung's own fault diagnosis and repair
+recommendations instead of a generic heuristic. Without it, the
+samsung_analyzer shim fails to load and Samsung errors fall back to the 'default' single-action
+Contoso Analyzer every unrecognized vendor gets.
+
+The adapter contract in this document is implementation-independent: any
+conforming `analyze(records) -> {"fault", "cpads", "advisories"}` module can
+be dropped in at that path, proprietary or not, without changing
+`analyzer_samsung.py` or the Contoso shim contract.
 
 See [Memory Vendor Analyzer Shim Interface](memory-vendor-analyzer-shim.md) for
 the common shim flow and [Contoso CPAD Actions](../contoso-cpad-actions.md) for

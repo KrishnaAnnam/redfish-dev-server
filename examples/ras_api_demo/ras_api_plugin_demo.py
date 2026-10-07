@@ -80,6 +80,9 @@ class RASAPIPluginDemo:
         # demonstrating the standard "vendor tool produces vendor CPADs" pattern.
         self.injector = self.script_dir / "analyzers" / "contoso" / "injector-contoso.py"
         self.injection_spec = self.cpad_storage_dir / "contosoMemErrorSpoof.inject.json"
+        self.endpoint_config = (
+            self.script_dir.parents[1]
+            / "mockups" / "ras_gen1" / "ras_endpoint_config.json")
         self.generated_cpad_dir = self.output_dir / "injected_cpads"
         self.generated_cpad_dir.mkdir(parents=True, exist_ok=True)
 
@@ -226,12 +229,14 @@ class RASAPIPluginDemo:
         cmd = [
             sys.executable, str(self.injector), "inject",
             "--spec", str(self.injection_spec),
+            "--endpoint-config", str(self.endpoint_config),
             "--set", f"section.additional.column={column}",
             "--beat", beat,
             "--out", str(out_path),
         ]
         print(f"\n   Running the Contoso Error Injector (vendor tool):")
         print(f"      injector-contoso.py inject --spec {self.injection_spec.name} "
+              f"--endpoint-config {self.endpoint_config.name} "
               f"--set section.additional.column={column} --beat \"{beat}\" "
               f"--out {out_path.name}")
         result = subprocess.run(cmd, capture_output=True, text=True)

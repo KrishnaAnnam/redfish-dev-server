@@ -157,7 +157,8 @@ def _submission_handler(
         page_ranges=None):
     handler = _handler()
     cpad = _memory_cpad()
-    _set_error_address(cpad, address)
+    if action_id != ERROR_INJECTION_ACTION_ID:
+        _set_error_address(cpad, address)
     cpad["header"] = {
         "platformID": "990f8820-bd4d-5064-58cc-961a053dea79",
         "partitionID": PARTITION_ID,
@@ -327,6 +328,35 @@ def test_error_injection_keeps_memory_error_section_guid():
     assert cpad["sectionDescriptors"][0]["sectionType"]["data"] == (
         catalog.SECTION_TYPES[
             "Memory Controller - First Generation"]["guid"])
+
+
+def test_error_injection_rejects_descriptor_fru_mismatch():
+    handler, cpad = _submission_handler(ERROR_INJECTION_ACTION_ID)
+    cpad["sectionDescriptors"][0]["fruText"] = "Another DIMM"
+    metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+    endpoint = handler.endpoint_configuration.endpoint_by_partition(
+        PARTITION_ID)
+
+    result = handler._contoso_action_provider().execute(
+        "System", ERROR_INJECTION_ACTION_ID, cpad, metadata, endpoint)
+
+    assert result.return_code == 1
+    assert "FRU does not match the configured DIMM" in result.reason
+
+
+def test_error_injection_rejects_address_coordinate_mismatch():
+    handler, cpad = _submission_handler(ERROR_INJECTION_ACTION_ID)
+    _set_error_address(cpad, 0x11609A4000)
+    metadata = handler.cpad_handler.validate_and_extract(cpad)[1]
+    endpoint = handler.endpoint_configuration.endpoint_by_partition(
+        PARTITION_ID)
+
+    result = handler._contoso_action_provider().execute(
+        "System", ERROR_INJECTION_ACTION_ID, cpad, metadata, endpoint)
+
+    assert result.return_code == 1
+    assert "physical address does not match endpoint coordinates" in (
+        result.reason)
 
 
 def test_successful_sppr_increments_target_bank():
@@ -924,11 +954,16 @@ def test_unspecified_injection_temperature_uses_configured_default():
     assert decoded["additional"]["spd_temperature"] == 40
 
 
-def test_legacy_demo_injection_spec_without_temperature_uses_configured_default():
+def test_simplified_demo_injection_spec_without_temperature_uses_configured_default():
     with DEMO_INJECTION_SPEC_PATH.open(encoding="utf-8") as stream:
         spec = json.load(stream)
     del spec["section"]["additional"]["spd_temperature"]
-    fields = spec_model.to_encoder_fields(spec)
+    endpoint_configuration = RASEndpointConfiguration.load(CONFIG_PATH)
+    assert spec_model.validate_spec(
+        spec, endpoint_configuration) == []
+    materialized = spec_model.materialize_endpoint_memory_fields(
+        spec, endpoint_configuration)
+    fields = spec_model.to_encoder_fields(materialized)
     injected_body = encoder.pack_section_body(
         spec["error"]["sectionType"], spec["error"]["errorBank"], fields)
 

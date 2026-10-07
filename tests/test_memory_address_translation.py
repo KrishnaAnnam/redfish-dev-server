@@ -201,6 +201,10 @@ def test_injection_spec_rejects_inconsistent_address_representations():
 
     problems = injection_spec.validate_spec(spec)
 
+    endpoint_configuration = injection_spec.load_endpoint_configuration(
+        ROOT / "mockups" / "ras_gen1" / "ras_endpoint_config.json")
+    problems = injection_spec.validate_spec(
+        spec, endpoint_configuration)
     assert any(
         "does not match hierarchy address" in problem
         for problem in problems)

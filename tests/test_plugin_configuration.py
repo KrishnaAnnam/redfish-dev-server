@@ -19,6 +19,7 @@ from src.plugins.loader import (
     PluginRouteConflictError,
     PluginSpec,
     normalize_plugin_specs,
+    override_plugin_config,
 )
 from src.plugins import PluginRoute
 
@@ -93,6 +94,38 @@ def test_rejects_duplicate_entries():
             'telemetry',
             {'name': 'telemetry', 'enabled': False},
         ])
+
+
+def test_overrides_one_enabled_plugin_config_without_mutating_input():
+    extensions = [{
+        'name': 'ras',
+        'config': {'queue_enabled': True,
+                   'endpoint_config': 'ras_endpoint_config.json'},
+    }]
+
+    updated = override_plugin_config(
+        extensions, 'ras',
+        {'endpoint_config': 'ras_endpoint_config_samsung.json'})
+
+    assert extensions[0]['config']['endpoint_config'] == (
+        'ras_endpoint_config.json')
+    assert updated == [{
+        'name': 'ras',
+        'config': {
+            'queue_enabled': True,
+            'endpoint_config': 'ras_endpoint_config_samsung.json',
+        },
+    }]
+
+
+def test_plugin_config_override_requires_enabled_configured_plugin():
+    with pytest.raises(PluginConfigurationError, match="not configured"):
+        override_plugin_config([], 'ras', {'endpoint_config': 'other.json'})
+    with pytest.raises(PluginConfigurationError, match="disabled"):
+        override_plugin_config(
+            [{'name': 'ras', 'enabled': False}],
+            'ras',
+            {'endpoint_config': 'other.json'})
 
 
 def test_unknown_plugins_fail_during_loading(tmp_path, monkeypatch):

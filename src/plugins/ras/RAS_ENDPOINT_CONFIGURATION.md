@@ -18,6 +18,12 @@ Relative paths are resolved under the platform mockup directory. Absolute
 paths are accepted. If the setting is omitted, the compatibility default is
 `ras_endpoint_config.json` under the mockup directory.
 
+The platform server's optional `--endpoint-config` argument overrides only the
+RAS extension's `endpoint_config` value before the common Plugin SDK
+initializes the plugin. It does not create a second RAS handler or bypass
+Plugin SDK routing. The Samsung demo uses this option to select
+`ras_endpoint_config_samsung.json`.
+
 The RAS Gen 1 platform therefore uses
 [`mockups/ras_gen1/ras_endpoint_config.json`](../../../mockups/ras_gen1/ras_endpoint_config.json).
 Restart the server after changing this file.
@@ -350,6 +356,17 @@ Validate a file with the production loader:
 
 ```bash
 python servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000
+```
+
+To select a different endpoint file without editing `platform_config.json`,
+pass the optional `--endpoint-config` flag (relative to the mockup directory,
+or absolute). It overrides the RAS plugin's `endpoint_config` setting for that
+run only; without the flag the server behaves exactly as above. The Samsung
+demo uses it this way:
+
+```bash
+python servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000 \
+    --endpoint-config ras_endpoint_config_samsung.json
 ```
 
 The plugin loads the configured endpoint file once and injects the same parsed

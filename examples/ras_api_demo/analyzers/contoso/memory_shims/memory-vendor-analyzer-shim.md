@@ -110,6 +110,17 @@ def analyze_memory_events(events: list[dict]) -> list[dict]:
 
 Inputs are deep-copied before invocation.
 
+The analyzer remains stateless. For every invocation, the framework rebuilds a
+newest-first lookback input window from stored CPER files. The window contains
+all relevant DRAM memory-error events and correlated Platform Action Event
+events for that manufacturer. A vendor shim does not retain history between
+calls.
+
+CPER files are ordered by header timestamp. When timestamps are equal,
+Platform Action Event CPERs precede Error CPERs, followed by descending record
+ID and filename as a stable final tie-break. The Orchestrator waits two seconds
+after the first notification before draining and ordering one CPER burst.
+
 Memory-error inputs include `memory_organization` and `address_translation`.
 Shim adapters may also import the stable
 `physical_address_to_memory_address()` and
@@ -118,6 +129,11 @@ Shim adapters may also import the stable
 API version 5 returns CPAD proposals containing one or more section requests.
 The Contoso analyzer still owns the binary envelope and section encoding.
 Shims declaring an older API version are rejected explicitly.
+
+Successfully loaded shims are advertised in the Contoso analyzer's discovery
+response under `memory_analyzers`. `AnalysisOrchestrator.print_discovery_report()`
+lists them only when called with `show_memory_analyzers=True` (the Samsung
+demo does this; the generic demo output is unchanged).
 
 ## Adapter Pattern
 
@@ -172,6 +188,9 @@ Every event also exposes the source section's FRU identity directly:
 The top-level aliases are convenient for vendor adapters; the nested `fru`
 object remains available for compatibility.
 
+Every event also carries `timestamp`, the CPER header timestamp, so vendor
+analyzers can measure error rates over time.
+
 The full decoded memory data remains available under `memory_error`, including
 the address, chiplet/controller, DIMM coordinates, DRAM manufacturer,
 temperature, and repair history.
@@ -180,6 +199,12 @@ Platform Action Event inputs use the same first three fields and carry the
 action result under `platform_action`. A correlated action event also carries
 the original memory target. This lets a vendor analyzer determine whether an
 earlier recommendation succeeded before suggesting a follow-up action.
+
+Every relevant prior Platform Action Event in the lookback window is retained,
+not only the newest result. For a multi-section action-result CPER, each section
+is decoded independently and sent to every vendor whose FRU correlation
+identifies that vendor. Each shim receives only its own canonical section
+events plus its own same-vendor history.
 
 ## CPAD Proposals and Section Requests
 
@@ -229,7 +254,8 @@ Rules:
 - `parameters` contains the remaining complete action-specific section-body
   input.
 - Returning `[]` means analysis succeeded and no action is recommended.
-- Raising an exception means the shim failed; default Contoso analysis may run.
+- Raising an exception means a registered shim failed; the failure is reported
+  and no default Contoso remediation is substituted.
 
 The Contoso analyzer builds the complete CPAD, including the target platform,
 most recent error PartitionID, CreatorID, FRU, shared action-parameter section,
@@ -495,9 +521,18 @@ def analyze_memory_events(events):
   no action. Default Contoso row analysis is suppressed for that vendor.
 - Returning one or more valid requests transfers those recommendations to the
   Contoso CPAD builder.
-- Raising an exception, returning an invalid request, or failing binary CPAD
-  conversion marks the shim invocation as failed. Applicable newest errors
-  then fall back to default Contoso analysis.
+- If no shim is registered for a manufacturer, the generic demo may use
+  default Contoso analysis.
+- Once a shim is successfully registered for a manufacturer, it owns that
+  manufacturer's errors. Raising an exception, returning invalid output, or
+  failing binary CPAD conversion reports a vendor-analysis failure and emits no
+  default Contoso remediation.
+- A vendor-specific guided demo must fail at startup when its required external
+  analyzer dependency is unavailable. The Samsung demo therefore requires the
+  separately distributed `samsung_dfa.py`.
+- Prior Platform Action events whose target DIMM matches the newest DRAM
+  manufacturer are kept in the history window, so a shim can see which
+  actions already completed or failed.
 - Inputs are deep-copied, so vendor code cannot mutate the Contoso analyzer's
   canonical event list.
 

@@ -12,6 +12,7 @@ from typing import Any, Dict
 
 from .action_provider import GeneratedCper
 from .contoso_memory import (
+    decode_cpad_memory_coordinates,
     is_contoso_memory_cpad,
     overlay_cpad_memory_state,
 )
@@ -126,6 +127,20 @@ def build_contoso_injected_error(
             raise ValueError(
                 f"no memory configuration for partition "
                 f"{metadata['partition_id']}") from exc
+        coordinates = decode_cpad_memory_coordinates(
+            cpad_data, section_index)
+        dimm = state.config.get_dimm(
+            coordinates["chiplet"], coordinates["controller"],
+            coordinates["channel"], coordinates["dimm"])
+        descriptor_fru_id = str(
+            descriptor.get("fruID", "")).strip().strip("{}").lower()
+        descriptor_fru_text = str(
+            descriptor.get("fruText", "")).strip()
+        if (descriptor_fru_id != dimm.fru_id.lower()
+                or descriptor_fru_text != dimm.fru_text):
+            raise ValueError(
+                "Error Injection CPAD FRU does not match the configured "
+                f"DIMM {dimm.key}")
         body = overlay_cpad_memory_state(
             cpad_data,
             state,

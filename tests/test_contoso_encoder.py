@@ -17,13 +17,17 @@ import sys
 from pathlib import Path
 
 # The Contoso codec lives next to the analyzer, not on the default path.
-CONTOSO_DIR = (Path(__file__).resolve().parents[1] / "examples" / "ras_api_demo" /
+ROOT = Path(__file__).resolve().parents[1]
+CONTOSO_DIR = (ROOT / "examples" / "ras_api_demo" /
                "analyzers" / "contoso")
 sys.path.insert(0, str(CONTOSO_DIR))
 
 import contoso_catalog as catalog        # noqa: E402
 import contoso_encoder as encoder        # noqa: E402
 import injection_spec as spec_model      # noqa: E402
+
+ENDPOINT_CONFIG = spec_model.load_endpoint_configuration(
+    ROOT / "mockups" / "ras_gen1" / "ras_endpoint_config.json")
 
 
 # ── Error Status Register bitfields ─────────────────────────────────────────
@@ -97,14 +101,48 @@ def test_demo_memory_injection_spec_is_valid():
                       "contosoMemErrorSpoof.inject.json")
     spec = spec_model.load_spec(demo_spec_path)
 
-    assert spec_model.validate_spec(spec) == []
+    assert spec_model.validate_spec(spec, ENDPOINT_CONFIG) == []
+    materialized = spec_model.materialize_endpoint_memory_fields(
+        spec, ENDPOINT_CONFIG)
+    assert materialized["cpad"]["fruText"] == "DIMM A1"
+    assert materialized["section"]["additional"][
+        "dram_manufacturer_id"] == [0x04, 0xD5]
+
+
+def test_memory_injection_requires_endpoint_config_and_rejects_inventory():
+    spec = spec_model.build_template(
+        "Memory Controller - First Generation",
+        "Corrected Memory ECC Error")
+
+    assert spec_model.validate_spec(spec) == [
+        "DRAM Error injection requires --endpoint-config"]
+
+    spec["section"]["additional"]["dram_manufacturer_id"] = [0x80, 0xCE]
+    problems = spec_model.validate_spec(spec, ENDPOINT_CONFIG)
+
+    assert (
+        "section.additional.dram_manufacturer_id is endpoint-owned and is "
+        "not accepted in an injection specification"
+    ) in problems
+
+
+def test_memory_injection_rejects_target_platform_mismatch():
+    spec = spec_model.build_template(
+        "Memory Controller - First Generation",
+        "Corrected Memory ECC Error")
+    spec["cpad"]["platformID"] = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+    problems = spec_model.validate_spec(spec, ENDPOINT_CONFIG)
+
+    assert any("does not match endpoint configuration platform_id" in problem
+               for problem in problems)
 
 
 def test_optional_collections_default_empty():
     spec = spec_model.build_template("Memory Controller - First Generation",
                                      "Corrected Memory ECC Error")
     del spec["section"]["additional"]["beat_mask"]
-    del spec["section"]["additional"]["repairs"]
+    assert "repairs" not in spec["section"]["additional"]
 
     fields = spec_model.to_encoder_fields(spec)
 
@@ -198,11 +236,11 @@ def test_memory_roundtrip_including_beat_mask_and_zeroed_bank():
     spec = spec_model.build_template("Memory Controller - First Generation",
                                      "Corrected Memory ECC Error")
     assert "syndrome" not in spec["section"]["additional"]
-    assert spec["section"]["additional"]["reserved"] == 0
-    assert spec["section"]["additional"]["serial_number"] == ""
-    assert spec["section"]["additional"]["part_number"] == ""
-    assert spec["section"]["additional"]["dram_manufacturer_id"] == ["0x04", "0xD5"]
-    assert spec["section"]["additional"]["module_manufacturer_id"] == ["0x04", "0xD5"]
+    assert "reserved" not in spec["section"]["additional"]
+    assert "serial_number" not in spec["section"]["additional"]
+    assert "part_number" not in spec["section"]["additional"]
+    assert "dram_manufacturer_id" not in spec["section"]["additional"]
+    assert "module_manufacturer_id" not in spec["section"]["additional"]
     assert spec["section"]["additional"]["spd_temperature"] is None
     spec["section"]["subcomponent"] = {"chiplet": 1, "controller": 0}
     spec["section"]["additional"]["dimm"] = 1
@@ -310,13 +348,14 @@ def test_memory_string_validation():
     spec["section"]["additional"]["dram_manufacturer_id"] = ["0x00", "0x2C"]
     spec["section"]["additional"]["module_manufacturer_id"] = ["0x80"]
 
-    problems = spec_model.validate_spec(spec)
-    assert "section.additional.serial_number must be at most 18 characters." in problems
-    assert "section.additional.part_number must not contain NUL characters." in problems
-    assert ("section.additional.dram_manufacturer_id must be a valid odd-parity "
-            "JEP106 ID in SPD byte order.") in problems
-    assert ("section.additional.module_manufacturer_id must contain exactly 2 bytes."
-            in problems)
+    problems = spec_model.validate_spec(spec, ENDPOINT_CONFIG)
+    for field in (
+            "serial_number", "part_number", "dram_manufacturer_id",
+            "module_manufacturer_id"):
+        assert (
+            f"section.additional.{field} is endpoint-owned and is not "
+            "accepted in an injection specification"
+        ) in problems
 
 
 def test_spd_manufacturer_id_decoding():
@@ -342,8 +381,10 @@ def test_memory_repair_capability_reserved_bits_are_rejected():
                                      "Corrected Memory ECC Error")
     spec["section"]["additional"]["memory_repair_capabilities"] = 0x80
 
-    assert ("section.additional.memory_repair_capabilities has reserved bits set."
-            in spec_model.validate_spec(spec))
+    assert (
+        "section.additional.memory_repair_capabilities is endpoint-owned and "
+        "is not accepted in an injection specification"
+    ) in spec_model.validate_spec(spec, ENDPOINT_CONFIG)
 
 
 def test_spd_temperature_range_is_validated():

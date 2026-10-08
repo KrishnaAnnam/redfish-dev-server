@@ -30,16 +30,8 @@ class PlatformDiscovery:
                                   detection_method: PlatformDetectionMethod = PlatformDetectionMethod.AUTO_MOCKUP,
                                   skip_auto_discover: bool = False) -> Optional[BasePlatformProvider]:
         """Discover and load the appropriate platform"""
-        
-        # Step 1: Auto-discover available platform providers (unless skipped)
-        if not skip_auto_discover:
-            logger.info("Auto-discovering platform providers...")
-            discovered_count = platform_registry.auto_discover_providers()
-            logger.info(f"Discovered {discovered_count} platform providers")
-        else:
-            logger.info("Skipping auto-discovery (using explicit configuration)")
-        
-        # Step 2: Detect platform configuration
+
+        # Step 1: Detect platform configuration
         logger.info(f"Detecting platform using method: {detection_method.value}")
         
         if platform_hint:
@@ -52,7 +44,20 @@ class PlatformDiscovery:
         if not self.platform_config:
             logger.warning("Could not detect platform configuration, using generic")
             self.platform_config = self._create_generic_config()
-        
+
+        if self.platform_config.platform_type == PlatformType.GENERIC:
+            logger.info(
+                "Generic platform configured; no platform provider is required")
+            return None
+
+        # Step 2: Auto-discover available platform providers (unless skipped)
+        if not skip_auto_discover:
+            logger.info("Auto-discovering platform providers...")
+            discovered_count = platform_registry.auto_discover_providers()
+            logger.info(f"Discovered {discovered_count} platform providers")
+        else:
+            logger.info("Skipping auto-discovery (using explicit configuration)")
+
         # Step 3: Load the appropriate platform provider
         platform_provider = self._load_platform_provider()
         

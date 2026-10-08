@@ -105,14 +105,14 @@ class RASAPIPluginDemo:
             submitter=self.submitter,
         )
 
-    def _wait_and_analyze(self):
+    def _wait_and_analyze(self, prompt=None):
         """Wait for the listener to deliver CPER(s), then route them.
 
         The event listener downloads CPERs and notifies the orchestrator, which
         buffers them.  Here we wait for at least one, then ask the orchestrator
         to route everything it has received (analyze → policy → submit).
         """
-        input("\n🔑 Press Enter to wait for the listener and analyze...")
+        input(prompt or "\n🔑 Press Enter to wait for the listener and analyze...")
         if not self.analysis.wait_for_cpers(count=1, timeout=30.0):
             print("\n   ⚠️  No CPER notification within the timeout — "
                   "analyzing whatever has arrived.")

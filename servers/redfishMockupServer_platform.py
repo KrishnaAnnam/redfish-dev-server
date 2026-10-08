@@ -32,7 +32,7 @@ from src.core.platform_config import (
 )
 from src.core.extensible_services import ServiceManager
 from src.handlers.main_handler import RedfishMockupHandler
-from src.plugins import shutdown_plugins
+from src.plugins import load_plugins_from_config, shutdown_plugins
 from src.plugins.loader import (
     normalize_plugin_specs,
     override_plugin_config,
@@ -181,6 +181,7 @@ class PlatformAwareRedfishServer(HTTPServer):
         
         # Initialize platform discovery and loading
         self._initialize_platform()
+        self.plugin_loader = load_plugins_from_config(self.config)
     
     def _initialize_platform(self):
         """Initialize platform discovery and loading"""

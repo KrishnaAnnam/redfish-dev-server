@@ -135,21 +135,6 @@ bash examples/ras_api_demo/setup_dependencies.sh --update
 bash examples/ras_api_demo/run_ras_demo.sh
 ```
 
-### Samsung DIMM demo
-
-The optional Samsung-specific demo uses the same RAS Plugin SDK server and
-analysis pipeline with `ras_endpoint_config_samsung.json`. It requires the
-separately distributed `samsung_dfa.py` beside the Samsung shim and fails
-before startup if that dependency is unavailable.
-
-```bash
-bash examples/ras_api_demo/run_samsung_ras_demo.sh
-```
-
-The launcher passes `--endpoint-config ras_endpoint_config_samsung.json`; the
-server applies that override to the configured RAS extension before the common
-Plugin SDK initializes its single handler instance.
-
 Or run each component manually:
 
 ```bash
@@ -162,6 +147,113 @@ python3 examples/ras_api_demo/event_listener_sdk.py --port 8888 --bmc localhost:
 # Terminal 3 — Demo
 python3 examples/ras_api_demo/reset_server.py --clean-temp && python3 examples/ras_api_demo/init_error_pipeline.py && python3 examples/ras_api_demo/ras_api_plugin_demo.py
 ```
+
+## Samsung DRAM Fault Analyzer Demo
+
+The Samsung demo runs the same RAS Plugin SDK server and analysis pipeline as
+the generic demo, but configures one DIMM as Samsung DRAM so the Contoso
+analyzer hands its errors to the Samsung memory-vendor shim
+([`analyzer_samsung.py`](analyzers/contoso/memory_shims/analyzer_samsung.py)).
+It injects five corrected DRAM errors on that DIMM, one at a time. Samsung DFA
+analyzes the DIMM's error history after each error and recommends a runtime
+Page Offline (`0x8002`) for the implicated pages plus a boot-time Replace DIMM
+(`0x0005`) advisory. The generic `run_ras_demo.sh` flow is unchanged and uses
+no Samsung file.
+
+### 1. Complete the common setup
+
+Follow [Setup](#setup) first: virtual environment, `requirements.txt`, libcper,
+and the Redfish Client SDK. The demo runs in WSL and needs `tmux` for the
+launcher.
+
+### 2. Install the Samsung DFA module
+
+The Samsung analysis engine, `samsung_dfa.py`, is distributed separately by
+Samsung and is not stored in Git. Place it next to the Samsung shim:
+
+```text
+examples/ras_api_demo/analyzers/contoso/memory_shims/samsung_dfa.py
+```
+
+The path is in `.gitignore`. The module must define a callable
+`analyze(records)`. Both the launcher and `ras_api_samsung_demo.py` check for it
+at startup and stop with an error if it is missing.
+
+### 3. Run the demo
+
+```bash
+# From the project root:
+bash examples/ras_api_demo/run_samsung_ras_demo.sh
+```
+
+The launcher opens a tmux session (`ras-demo`) with three panes:
+
+| Pane | Command |
+|---|---|
+| BMC Redfish Server (port 8000) | `redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000 --endpoint-config ras_endpoint_config_samsung.json` |
+| SDK Event Listener (port 8888) | `event_listener_sdk.py --port 8888 --bmc localhost:8000` |
+| Samsung demo | `ras_api_samsung_demo.py`, started once the listener's control port (8889) is ready |
+
+Or run each component manually, in three terminals from the project root:
+
+```bash
+# Terminal 1 — BMC Server with the Samsung endpoint configuration
+python3 servers/redfishMockupServer_platform.py -D mockups/ras_gen1 -p 8000 \
+    --endpoint-config ras_endpoint_config_samsung.json
+
+# Terminal 2 — SDK Event Listener
+python3 examples/ras_api_demo/event_listener_sdk.py --port 8888 --bmc localhost:8000
+
+# Terminal 3 — Samsung demo
+python3 examples/ras_api_demo/ras_api_samsung_demo.py
+```
+
+The demo resets the BMC CPER log, the client-side storage, and any leftover
+event subscriptions when it starts, so every run begins from a clean state.
+
+### 4. Walk through the demo
+
+Press **Enter** at each prompt in the demo pane.
+
+1. **Discovery.** The orchestrator lists the analyzers and the loaded
+   memory-vendor shims, including the Samsung shim for DRAM manufacturer ID
+   `80 CE`.
+2. **Monitor the host.** The orchestrator discovers the RAS endpoints and tells
+   the listener to subscribe.
+3. **Inject errors 1–5.** Each injection yields two CPERs: the memory error and
+   the Platform Action Event acknowledging the injection CPAD. For each
+   analysis the `🔬 Samsung DRAM Fault Analyzer` block shows:
+   - `Fault`: the fault mode and confidence, or `none this cycle`
+   - `✅ Runtime`: runtime actions, such as Page Offline with its pages
+   - `🗓️ Advisory`: boot-time actions, such as Replace DIMM
+   - `Trigger: Platform Action Event`: shown for the acknowledgment CPER,
+     which carries no fault recommendation and is recorded as history
+4. **Policy and submit.** Approved runtime CPADs are submitted to the BMC.
+   Boot-time advisories go to the simulated fleet control plane.
+5. **Confirmation.** The BMC confirms the Page Offline with a Platform Action
+   CPER. Later analyses treat those pages as already offlined.
+
+### 5. Clean up
+
+```bash
+./examples/ras_api_demo/cleanup_ras_demo.sh
+```
+
+When started with the launcher, this command is already typed in the demo pane
+at the end; press **Enter** to run it.
+
+### Configuration files
+
+| File | Purpose |
+|---|---|
+| [`ras_endpoint_config_samsung.json`](../../mockups/ras_gen1/ras_endpoint_config_samsung.json) | Configures chiplet 0, controller 0, channel 0, dimm 1 with Samsung DRAM manufacturer ID `80 CE` |
+| [`contososamsungMemErrorSpoof.inject.json`](cpad_storage/contososamsungMemErrorSpoof.inject.json) | Injection spec for the Samsung DIMM errors |
+| [`ras_api_samsung_demo.py`](ras_api_samsung_demo.py) | Guided Samsung demo; the five injected errors are listed in `SAMSUNG_DRAM_ERRORS` |
+| [`run_samsung_ras_demo.sh`](run_samsung_ras_demo.sh) | tmux launcher |
+
+For the Samsung record model, result schema, supported actions, and Page Offline
+details, see
+[samsung-memory-analyzer.md](analyzers/contoso/memory_shims/samsung-memory-analyzer.md).
 
 ## Architecture
 

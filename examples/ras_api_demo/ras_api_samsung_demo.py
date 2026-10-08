@@ -4,10 +4,10 @@ RAS Plugin Demo - Samsung DIMM Guided Demonstration
 ====================================================
 
 Demonstrates the RASAPI plugin capabilities of the BMC Redfish Simulator
-against a Samsung-manufacturer DIMM. Injects six corrected DRAM errors
+against a Samsung-manufacturer DIMM. Injects five corrected DRAM errors
 one at a time, and lets the Samsung memory-vendor shim
 (analyzers/contoso/memory_shims/analyzer_samsung.py) analyze them and
-recommend actions such as Dynamic Page Offline and a Replace DIMM advisory.
+recommend actions such as Page Offline and a Replace DIMM advisory.
 
 Usage:
     # Start the simulator first
@@ -28,10 +28,14 @@ import logging
 import importlib.util
 from pathlib import Path
 
+import requests
+
 # Import modular components (local modules)
 from analysis_orchestrator import AnalysisOrchestrator
 from policy import PolicyEngine
 from submit_cpad import CPADSubmitter
+from reset_server import reset_log_entries, clean_temp_cper_dirs
+from init_error_pipeline import init_error_pipeline
 
 # Configure logging - set to WARNING to reduce clutter
 logging.basicConfig(
@@ -71,7 +75,7 @@ class RASAPISamsungDemo:
         # Example: "990f8820-bd4d-5064-58cc-961a053dea79": "http://localhost:8000",
     }
 
-    # The six corrected DRAM errors this demo injects, one at a time.
+    # The five corrected DRAM errors this demo injects, one at a time.
     # All land on subchannel A / rank 1 / bank group 4 / bank 3 / DRAM device 5
     # (set in contososamsungMemErrorSpoof.inject.json); device 5 carries
     # DQ 20-23, given here as device-local DQ 0-3. The scenario's channel 2
@@ -88,8 +92,9 @@ class RASAPISamsungDemo:
          "beat": "dram=5;dq=0,1,2;beats=0,2,4,6,8,10,12,14"},
         {"row": 0xE2C3, "column": 0x7B0, "ce_count": 5,
          "beat": "dram=5;dq=0,1,2,3;beats=0,1,2,3,8,9,10,11"},
-        {"row": 0xE2C2, "column": 0x610, "ce_count": 6,
-         "beat": "dram=5;dq=0,1,2,3;beats=0,4,6,8,10,11,12,13,15"},
+        # 6th error disabled for now:
+        # {"row": 0xE2C2, "column": 0x610, "ce_count": 6,
+        #  "beat": "dram=5;dq=0,1,2,3;beats=0,4,6,8,10,11,12,13,15"},
     ]
 
     def __init__(self):
@@ -189,19 +194,20 @@ class RASAPISamsungDemo:
         2. Tell the orchestrator to monitor the host. It discovers the host's
            RAS service, matches every endpoint to an analyzer, and only then
            tells the event listener to subscribe to the host.
-        3. Inject six corrected memory errors on the Samsung DIMM, one at a
+        3. Inject five corrected memory errors on the Samsung DIMM, one at a
            time. After each
            injection, wait for the listener and let the orchestrator route
            the CPER to the Contoso analyzer, which calls the Samsung
            memory-vendor shim. Each injection yields two CPERs: the memory
            error and the injection acknowledgment. The shim's recommendations
-           (e.g. Dynamic Page Offline) are submitted to the host after policy
+           (e.g. Page Offline) are submitted to the host after policy
            approval; boot-time advisories (e.g. Replace DIMM) are routed to
            the simulated server-fleet control plane instead.
         4. The BMC confirms the Page Offline with a Platform Action CPER;
            analyze it so it becomes history for later decisions.
         """
         self.print_banner()
+        self.reset_demo_state()
 
         # Step 1 — Analyzer discovery (runs during construction; report it now).
         if not self.analysis.print_discovery_report(show_memory_analyzers=True):
@@ -227,7 +233,7 @@ class RASAPISamsungDemo:
             return
         self.server_online = True
 
-        # Step 3 — Inject the six corrected DRAM errors, one at a time.
+        # Step 3 — Inject the five corrected DRAM errors, one at a time.
         for index, error in enumerate(self.SAMSUNG_DRAM_ERRORS, 1):
             input("\n🔑 Press Enter for the next operation...")
             injected = self.inject_dram_row_error(
@@ -249,7 +255,7 @@ class RASAPISamsungDemo:
         print("=" * 80)
         print("\n📊 What this demonstration showed (Samsung DFA integration flow):")
         print("\n   Part 1 — Detect")
-        print("   [1] Injected six corrected DRAM errors on a Samsung DIMM")
+        print("   [1] Injected five corrected DRAM errors on a Samsung DIMM")
         print("       via Error Injection CPADs")
         print("   [2] The BMC minted a memory-error CPER (plus a Platform Action")
         print("       CPER acknowledging the injection) and fired a Redfish event")
@@ -260,7 +266,7 @@ class RASAPISamsungDemo:
         print("\n   Part 2 — Decide")
         print("   [5] Samsung DFA analyzed the DIMM's error history on every error")
         print("   [6] Identified the DIMM fault from that history")
-        print("   [7] Issued a runtime Recommendation (Dynamic Page Offline, 0x8002)")
+        print("   [7] Issued a runtime Recommendation (Page Offline, 0x8002)")
         print("       for every implicated page plus a boot-time Advisory")
         print("       (Replace DIMM, 0x0005)")
         print("   [8] The PolicyEngine checked each CPAD: creator trusted, action")
@@ -284,6 +290,43 @@ class RASAPISamsungDemo:
         print("\n" + "=" * 80)
         print(" " * 15 + "RAS API Plugin Demo - Samsung DIMM Guided Demonstration")
         print("=" * 80 + "\n")
+
+    def reset_demo_state(self):
+        """Start every run from a clean state, however the demo is launched.
+
+        Clears the BMC's stored CPER log entries and the client-side CPER,
+        CPAD, and analyzer storage (same as reset_server.py --clean-temp and
+        init_error_pipeline.py). Without this, CPERs from earlier runs stay
+        in the lookback window, so every analysis re-reads them and the
+        Samsung analyzer reports the old fault from the first error.
+        """
+        entries_path = (self.script_dir.parent.parent / "mockups" / "ras_gen1" /
+                        "redfish" / "v1" / "Managers" / self.MANAGER_ID /
+                        "LogServices" / "CPER" / "Entries")
+        reset_log_entries(entries_path, self.MANAGER_ID)
+        clean_temp_cper_dirs()
+        init_error_pipeline(self.output_dir)
+        self._remove_stale_subscriptions()
+
+    def _remove_stale_subscriptions(self):
+        """Delete event subscriptions left on the BMC by earlier runs.
+
+        The BMC saves subscriptions to disk and sends every event to each of
+        them. A run that ends without unsubscribing (Ctrl+C, killed tmux
+        session) leaves its subscription behind, so the next run would get
+        every CPER once per leftover subscription. Nothing else subscribes
+        before this demo does, so every existing subscription is stale.
+        """
+        collection = f"{self.base_url}/redfish/v1/EventService/Subscriptions"
+        auth = (self.BMC_USER, self.BMC_PASSWORD)
+        try:
+            members = requests.get(collection, auth=auth, timeout=5).json().get("Members", [])
+            for member in members:
+                requests.delete(f"{self.base_url}{member['@odata.id']}", auth=auth, timeout=5)
+        except (requests.RequestException, ValueError) as e:
+            print(f"   ⚠️  Could not clear old event subscriptions: {e}")
+            return
+        print(f"Removed {len(members)} leftover event subscription(s) from the BMC")
 
     def _build_dram_row_error_cpad(self, row, column, beat, ce_count=1):
         """Build one corrected DRAM row-error CPAD via the Contoso Error Injector.

@@ -349,7 +349,7 @@ _ACTION_NAMES = {
     SHUFFLE_PART_ACTION_ID: "Shuffle DIMM",
     REPLACE_PART_ACTION_ID: "Replace DIMM",
     PPR_ACTION_ID: "sPPR (Post Package Repair)",
-    PAGE_OFFLINE_ACTION_ID: "Dynamic Page Offline",
+    PAGE_OFFLINE_ACTION_ID: "Page Offline",
     REBOOT_WITH_RETRAINING_ACTION_ID: "Reboot with Memory Retraining",
 }
 # Actions the endpoint performs while the host runs; everything else is a
@@ -363,24 +363,80 @@ def _is_runtime(section: Dict[str, Any]) -> bool:
     return section["action_id"] in _RUNTIME_ACTION_IDS
 
 
-def _format_value(key: str, value: Any) -> str:
-    if key == "pages" and isinstance(value, list):
-        return ", ".join(f"0x{page:X}" for page in value)
-    return str(value)
+def _merge_by_action(sections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Collapse sections that request the same action on the same DIMM into
+    one display entry.
+
+    Display only: the CPAD proposals themselves are returned unchanged.  Page
+    lists are merged; confidence is the highest and urgency is "any".
+    """
+    merged: Dict[Any, Dict[str, Any]] = {}
+    for section in sections:
+        key = (section["action_id"], section["parameters"].get("fru_id"))
+        entry = merged.setdefault(key, {
+            "action_id": section["action_id"],
+            "confidence": section["confidence"],
+            "urgency": section["urgency"],
+            "fru_text": section["parameters"].get("fru_text"),
+            "pages": set(),
+        })
+        entry["confidence"] = max(entry["confidence"], section["confidence"])
+        entry["urgency"] = entry["urgency"] or section["urgency"]
+        entry["pages"].update(section["parameters"].get("pages", []))
+    return list(merged.values())
 
 
-def _print_action(label: str, section: Dict[str, Any]) -> None:
-    name = _ACTION_NAMES.get(section["action_id"], "Unknown action")
-    print(f"      {label} {name} (ActionID {section['action_id']}) — "
-          f"confidence {section['confidence']}, "
-          f"{'urgent' if section['urgency'] else 'not urgent'}")
-    for key, value in section["parameters"].items():
-        print(f"            {key}: {_format_value(key, value)}")
+def _print_actions(label: str, sections: List[Dict[str, Any]]) -> None:
+    entries = _merge_by_action(sections)
+    if not entries:
+        print(f"      {label} none")
+        return
+    # Fixed display width: the labels' emoji render two columns wide, so
+    # len(label) would misalign the continuation lines.
+    pad = " " * 14
+    for index, entry in enumerate(entries):
+        name = _ACTION_NAMES.get(entry["action_id"], "Unknown action")
+        print(f"      {label if index == 0 else pad} {name} "
+              f"(ActionID {entry['action_id']}) — confidence "
+              f"{entry['confidence']}, "
+              f"{'urgent' if entry['urgency'] else 'not urgent'}")
+        if entry["fru_text"]:
+            print(f"      {pad}   Target: {entry['fru_text']}")
+        if entry["pages"]:
+            pages = sorted(entry["pages"])
+            print(f"      {pad}   Pages:  {len(pages)} — "
+                  + ", ".join(f"0x{page:X}" for page in pages))
+
+
+def _newest_platform_action(events: List[Dict[str, Any]]) -> Any:
+    """Return the triggering event if it is a Platform Action Event, else None."""
+    for event in events:
+        if (event.get("source", {}).get("is_newest")
+                and event.get("event_type") == "platform_action"):
+            return event
+    return None
+
+
+def _print_platform_action_trigger(event: Dict[str, Any]) -> None:
+    action = event["platform_action"]
+    # 0x0006 is the Error Injection CPAD's acknowledgment, not a repair.
+    name = ("Error Injection" if action.get("action_id") == "0x0006"
+            else _ACTION_NAMES.get(action.get("action_id"), "Platform action"))
+    outcome = action.get("return_name") or (
+        "Success" if action.get("successful") else "Failed")
+    print(f"      Trigger:        Platform Action Event — {name} "
+          f"(ActionID {action.get('action_id')}): {outcome}")
+    print("      Fault:          none — a platform action event carries no")
+    print("                      fault recommendation; recorded as history")
 
 
 def _print_result(fault: Any, advisories: List[Dict[str, Any]],
-                  proposals: List[Dict[str, Any]]) -> None:
+                  proposals: List[Dict[str, Any]],
+                  trigger: Any = None) -> None:
     print("\n   🔬 Samsung DRAM Fault Analyzer")
+    if trigger is not None and fault is None and not proposals:
+        _print_platform_action_trigger(trigger)
+        return
     if fault is None:
         print("      Fault:          none this cycle")
     else:
@@ -389,20 +445,13 @@ def _print_result(fault: Any, advisories: List[Dict[str, Any]],
         print(f"      Reason:         {fault.get('reason', '(none)')}")
 
     sections = [section for proposal in proposals for section in proposal["sections"]]
-    runtime = [section for section in sections if _is_runtime(section)]
-    boot_time = [section for section in sections if not _is_runtime(section)]
-    if runtime:
-        for section in runtime:
-            _print_action("✅ Recommendation (runtime):", section)
-    else:
-        print("      ✅ Recommendation (runtime): none")
-    if boot_time:
-        for section in boot_time:
-            _print_action("🗓️  Advisory (boot-time):   ", section)
-    else:
-        print("      🗓️  Advisory (boot-time):    none")
-    for advisory in advisories:
-        print(f"      ℹ️  {advisory.get('reason', advisory)}")
+    _print_actions("✅ Runtime:   ", [s for s in sections if _is_runtime(s)])
+    _print_actions("🗓️  Advisory: ", [s for s in sections if not _is_runtime(s)])
+    # The Samsung result's "advisories" are informational notes, not actions.
+    if advisories:
+        print("      ℹ️  Notes:")
+        for advisory in advisories:
+            print(f"           - {advisory.get('reason', advisory)}")
 
 
 def analyze_memory_events(events):
@@ -411,6 +460,7 @@ def analyze_memory_events(events):
     result = analyze(records)
     proposals = _to_contoso_cpad_requests(result, events)
 
-    _print_result(result.get("fault"), result.get("advisories", []), proposals)
+    _print_result(result.get("fault"), result.get("advisories", []), proposals,
+                  trigger=_newest_platform_action(events))
 
     return proposals

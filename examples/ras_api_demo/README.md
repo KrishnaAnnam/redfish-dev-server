@@ -208,8 +208,11 @@ python3 examples/ras_api_demo/event_listener_sdk.py --port 8888 --bmc localhost:
 python3 examples/ras_api_demo/ras_api_samsung_demo.py
 ```
 
-The demo resets the BMC CPER log, the client-side storage, and any leftover
-event subscriptions when it starts, so every run begins from a clean state.
+The demo resets the BMC CPER log and client-side storage when it starts. It also
+removes leftover subscriptions that match the local demo listener destination
+and RAS event filters, while preserving subscriptions owned by other clients.
+If the BMC returns an HTTP error during cleanup, the demo reports it and stops
+instead of starting with potentially duplicated event delivery.
 
 ### 4. Walk through the demo
 

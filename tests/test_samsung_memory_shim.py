@@ -299,6 +299,100 @@ def test_samsung_entry_point_adapts_records_and_returns_requests():
     }]}]
 
 
+def test_samsung_display_merges_actions_by_action_and_fru():
+    sections = [
+        {
+            "action_id": actions.PAGE_OFFLINE_ACTION_ID,
+            "confidence": 80,
+            "urgency": False,
+            "parameters": {
+                "fru_id": "dimm-a",
+                "fru_text": "DIMM A1",
+                "pages": [0x1000, 0x2000],
+            },
+        },
+        {
+            "action_id": actions.PAGE_OFFLINE_ACTION_ID,
+            "confidence": 95,
+            "urgency": True,
+            "parameters": {
+                "fru_id": "dimm-a",
+                "fru_text": "DIMM A1",
+                "pages": [0x2000, 0x3000],
+            },
+        },
+        {
+            "action_id": actions.PAGE_OFFLINE_ACTION_ID,
+            "confidence": 90,
+            "urgency": False,
+            "parameters": {
+                "fru_id": "dimm-b",
+                "fru_text": "DIMM B1",
+                "pages": [0x4000],
+            },
+        },
+    ]
+
+    entries = samsung._merge_by_action(sections)
+
+    assert entries == [
+        {
+            "action_id": actions.PAGE_OFFLINE_ACTION_ID,
+            "confidence": 95,
+            "urgency": True,
+            "fru_text": "DIMM A1",
+            "pages": {0x1000, 0x2000, 0x3000},
+        },
+        {
+            "action_id": actions.PAGE_OFFLINE_ACTION_ID,
+            "confidence": 90,
+            "urgency": False,
+            "fru_text": "DIMM B1",
+            "pages": {0x4000},
+        },
+    ]
+
+
+def test_samsung_display_treats_platform_action_as_history():
+    trigger = {
+        "event_type": "platform_action",
+        "source": {"is_newest": True},
+        "platform_action": {
+            "action_id": "0x0006",
+            "return_name": "Success",
+            "successful": True,
+        },
+    }
+    output = io.StringIO()
+
+    with contextlib.redirect_stdout(output):
+        samsung._print_result(None, [], [], trigger=trigger)
+
+    text = output.getvalue()
+    assert "Platform Action Event — Error Injection" in text
+    assert "carries no" in text
+    assert "fault recommendation; recorded as history" in text
+    assert "Runtime:" not in text
+    assert "Advisory:" not in text
+
+
+def test_samsung_display_keeps_analyzer_notes_separate_from_actions():
+    output = io.StringIO()
+
+    with contextlib.redirect_stdout(output):
+        samsung._print_result(
+            None,
+            [{"reason": "Observe the DIMM over the next maintenance window"}],
+            [],
+        )
+
+    text = output.getvalue()
+    assert "Runtime:    none" in text
+    assert "Advisory:  none" in text
+    assert "Notes:" in text
+    assert "Observe the DIMM over the next maintenance window" in text
+
+
 def test_samsung_rejects_non_boolean_action_urgency():
     event = _samsung_event()
     result = {

@@ -28,14 +28,15 @@ import logging
 import importlib.util
 from pathlib import Path
 
-import requests
-
 # Import modular components (local modules)
 from analysis_orchestrator import AnalysisOrchestrator
+from demo_state import (
+    DEMO_EVENT_DESTINATION,
+    DemoStateError,
+    reset_demo_state as reset_shared_demo_state,
+)
 from policy import PolicyEngine
 from submit_cpad import CPADSubmitter
-from reset_server import reset_log_entries, clean_temp_cper_dirs
-from init_error_pipeline import init_error_pipeline
 
 # Configure logging - set to WARNING to reduce clutter
 logging.basicConfig(
@@ -51,6 +52,7 @@ class RASAPISamsungDemo:
     PLATFORM_ID = "990f8820-bd4d-5064-58cc-961a053dea79"
     BMC_HOST = "localhost"
     BMC_PORT = 8000
+    EVENT_DESTINATION = DEMO_EVENT_DESTINATION
 
     # Manager configuration
     MANAGER_ID = "System"
@@ -207,7 +209,11 @@ class RASAPISamsungDemo:
            analyze it so it becomes history for later decisions.
         """
         self.print_banner()
-        self.reset_demo_state()
+        try:
+            self.reset_demo_state()
+        except DemoStateError as exc:
+            print(f"\n❌ Cannot start with a clean demo state: {exc}")
+            return
 
         # Step 1 — Analyzer discovery (runs during construction; report it now).
         if not self.analysis.print_discovery_report(show_memory_analyzers=True):
@@ -303,30 +309,18 @@ class RASAPISamsungDemo:
         entries_path = (self.script_dir.parent.parent / "mockups" / "ras_gen1" /
                         "redfish" / "v1" / "Managers" / self.MANAGER_ID /
                         "LogServices" / "CPER" / "Entries")
-        reset_log_entries(entries_path, self.MANAGER_ID)
-        clean_temp_cper_dirs()
-        init_error_pipeline(self.output_dir)
-        self._remove_stale_subscriptions()
-
-    def _remove_stale_subscriptions(self):
-        """Delete event subscriptions left on the BMC by earlier runs.
-
-        The BMC saves subscriptions to disk and sends every event to each of
-        them. A run that ends without unsubscribing (Ctrl+C, killed tmux
-        session) leaves its subscription behind, so the next run would get
-        every CPER once per leftover subscription. Nothing else subscribes
-        before this demo does, so every existing subscription is stale.
-        """
-        collection = f"{self.base_url}/redfish/v1/EventService/Subscriptions"
-        auth = (self.BMC_USER, self.BMC_PASSWORD)
-        try:
-            members = requests.get(collection, auth=auth, timeout=5).json().get("Members", [])
-            for member in members:
-                requests.delete(f"{self.base_url}{member['@odata.id']}", auth=auth, timeout=5)
-        except (requests.RequestException, ValueError) as e:
-            print(f"   ⚠️  Could not clear old event subscriptions: {e}")
-            return
-        print(f"Removed {len(members)} leftover event subscription(s) from the BMC")
+        removed = reset_shared_demo_state(
+            entries_path,
+            self.MANAGER_ID,
+            self.output_dir,
+            self.base_url,
+            self.BMC_USER,
+            self.BMC_PASSWORD,
+            destination=self.EVENT_DESTINATION,
+        )
+        print(
+            f"Removed {removed} leftover demo event subscription(s) "
+            "from the BMC")
 
     def _build_dram_row_error_cpad(self, row, column, beat, ce_count=1):
         """Build one corrected DRAM row-error CPAD via the Contoso Error Injector.
